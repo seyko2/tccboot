@@ -96,7 +96,7 @@ typedef struct { unsigned long pgprot; } pgprot_t;
  * undefined" opcode for parsing in the trap handler.
  */
 
-#if 1	/* Set to zero for a slightly smaller kernel */
+#if 0	/* Set to zero for a slightly smaller kernel */
 #define BUG()				\
  __asm__ __volatile__(	"ud2\n"		\
 			"\t.word %c0\n"	\

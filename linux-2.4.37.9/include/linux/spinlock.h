@@ -41,6 +41,7 @@
 
 #include <linux/stringify.h>
 
+#if 0
 #define LOCK_SECTION_NAME			\
 	".text.lock." __stringify(KBUILD_BASENAME)
 
@@ -50,6 +51,11 @@
 	".ifndef " LOCK_SECTION_NAME "\n\t"	\
 	LOCK_SECTION_NAME ":\n\t"		\
 	".endif\n\t"
+
+#else
+#define LOCK_SECTION_NAME ".text.lock"
+#define LOCK_SECTION_START(extra)	".section " LOCK_SECTION_NAME "\n\t"
+#endif
 
 #define LOCK_SECTION_END			\
 	".previous\n\t"

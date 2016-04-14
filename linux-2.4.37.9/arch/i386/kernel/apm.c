@@ -327,7 +327,7 @@ extern int (*console_blank_hook)(int);
  * Save a segment register away
  */
 #define savesegment(seg, where) \
-		__asm__ __volatile__("mov %%" #seg ",%0" : "=m" (where))
+		__asm__ __volatile__("movw %%" #seg ",%0" : "=m" (where))
 
 /*
  * Maximum number of events stored

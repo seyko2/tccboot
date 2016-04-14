@@ -26,7 +26,7 @@
 #define HAVE_HWFP 1
 #endif
 
-static union i387_union empty_fpu_state;
+union i387_union empty_fpu_state;
 
 void __init boot_init_fpu(void)
 {

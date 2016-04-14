@@ -156,6 +156,7 @@ SYMBOL_NAME_STR(x) ":\n\t" \
 asmlinkage void call_do_IRQ(void); \
 __asm__( \
 	"\n" __ALIGN_STR"\n" \
+	".globl common_interrupt\n\t" \
 	"common_interrupt:\n\t" \
 	SAVE_ALL \
 	SYMBOL_NAME_STR(call_do_IRQ)":\n\t" \
@@ -176,8 +177,9 @@ __asm__( \
 asmlinkage void IRQ_NAME(nr); \
 __asm__( \
 "\n"__ALIGN_STR"\n" \
+".globl " SYMBOL_NAME_STR(IRQ) #nr "_interrupt\n\t"\
 SYMBOL_NAME_STR(IRQ) #nr "_interrupt:\n\t" \
-	"pushl $"#nr"-256\n\t" \
+	"pushl $"#nr" - 256\n\t" \
 	"jmp common_interrupt");
 
 extern unsigned long prof_cpu_mask;

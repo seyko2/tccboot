@@ -217,7 +217,7 @@ real_mode_gdt_entries [3] =
 	0x000092000100ffffULL	/* 16-bit real-mode 64k data at 0x00000100 */
 };
 
-static struct
+struct
 {
 	unsigned short       size __attribute__ ((packed));
 	unsigned long long * base __attribute__ ((packed));
@@ -544,7 +544,7 @@ void release_thread(struct task_struct *dead_task)
  * Save a segment.
  */
 #define savesegment(seg,value) \
-	asm volatile("mov %%" #seg ",%0":"=m" (value))
+	asm volatile("movw %%" #seg ",%0":"=m" (value))
 
 int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
 	unsigned long unused,
@@ -661,8 +661,8 @@ void fastcall __switch_to(struct task_struct *prev_p, struct task_struct *next_p
 	 * Save away %fs and %gs. No need to save %es and %ds, as
 	 * those are always kernel segments while inside the kernel.
 	 */
-	asm volatile("mov %%fs,%0":"=m" (prev->fs));
-	asm volatile("mov %%gs,%0":"=m" (prev->gs));
+	asm volatile("movw %%fs,%0":"=m" (prev->fs));
+	asm volatile("movw %%gs,%0":"=m" (prev->gs));
 
 	/*
 	 * Restore %fs and %gs.

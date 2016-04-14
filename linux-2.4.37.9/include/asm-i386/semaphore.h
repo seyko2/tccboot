@@ -207,7 +207,7 @@ static inline void up(struct semaphore * sem)
 		"2:\tcall __up_wakeup\n\t"
 		"jmp 1b\n"
 		LOCK_SECTION_END
-		".subsection 0\n"
+		/* ".subsection 0\n" */
 		:"=m" (sem->count)
 		:"c" (sem)
 		:"memory");

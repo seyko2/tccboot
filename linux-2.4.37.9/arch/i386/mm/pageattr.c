@@ -44,8 +44,12 @@ static struct page *split_large_page(unsigned long address, pgprot_t prot)
 	addr = address & LARGE_PAGE_MASK; 
 	pbase = (pte_t *)page_address(base);
 	for (i = 0; i < PTRS_PER_PTE; i++, addr += PAGE_SIZE) {
-		pbase[i] = mk_pte_phys(addr, 
-				      addr == address ? prot : PAGE_KERNEL);
+                pgprot_t prot1;
+                if (addr == address)
+                        prot1 = prot;
+                else
+                        prot1 = PAGE_KERNEL;
+		pbase[i] = mk_pte_phys(addr, prot1);
 	}
 	return base;
 } 

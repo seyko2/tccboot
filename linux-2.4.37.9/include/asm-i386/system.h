@@ -28,7 +28,7 @@ extern void FASTCALL(__switch_to(struct task_struct *prev, struct task_struct *n
 		     "popl %%esi\n\t"					\
 		     :"=m" (prev->thread.esp),"=m" (prev->thread.eip),	\
 		      "=b" (last)					\
-		     :"m" (next->thread.esp),"m" (next->thread.eip),	\
+		     :"g" (next->thread.esp),"g" (next->thread.eip),	\
 		      "a" (prev), "d" (next),				\
 		      "b" (prev));					\
 } while (0)
@@ -84,7 +84,7 @@ static inline unsigned long _get_base(char * addr)
 #define loadsegment(seg,value)			\
 	asm volatile("\n"			\
 		"1:\t"				\
-		"mov %0,%%" #seg "\n"		\
+		"movw %0,%%" #seg "\n"		\
 		"2:\n"				\
 		".section .fixup,\"ax\"\n"	\
 		"3:\t"				\

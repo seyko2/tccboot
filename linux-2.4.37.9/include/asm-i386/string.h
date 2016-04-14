@@ -366,7 +366,7 @@ __asm__ __volatile__(
 return dest;
 }
 
-#define memcmp __builtin_memcmp
+//#define memcmp __builtin_memcmp
 
 #define __HAVE_ARCH_MEMCHR
 static inline void * memchr(const void * cs,int c,size_t count)

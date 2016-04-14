@@ -1393,7 +1393,7 @@ static void __init display_cacheinfo(struct cpuinfo_x86 *c)
  */
  
 extern void vide(void);
-__asm__(".align 4\nvide: ret");
+__asm__(".align 4\n.globl vide\nvide: ret");
 
 static int __init init_amd(struct cpuinfo_x86 *c)
 {

@@ -50,8 +50,8 @@ static int __init no_387(char *s)
 
 __setup("no387", no_387);
 
-static double __initdata x = 4195835.0;
-static double __initdata y = 3145727.0;
+double __initdata x = 4195835.0;
+double __initdata y = 3145727.0;
 
 /*
  * This used to check for exceptions.. 
