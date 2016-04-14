@@ -164,7 +164,8 @@ cmd_line_ptr:	.long 0			# (Header version 0x0202 or later)
 					# can be located anywhere in
 					# low memory 0x10000 or higher.
 
-ramdisk_max:	.long __MAXMEM-1	# (Header version 0x0203 or later)
+ramdisk_max:	.long (__MAXMEM-1) & 0xFFFFFFFF
+                                        # (Header version 0x0203 or later)
 					# The highest safe address for
 					# the contents of an initrd
 
@@ -637,7 +638,7 @@ edd_done:
 	cmpw	$0, %cs:realmode_swtch
 	jz	rmodeswtch_normal
 
-	lcall	%cs:realmode_swtch
+	lcall	* %cs:realmode_swtch
 
 	jmp	rmodeswtch_end
 
