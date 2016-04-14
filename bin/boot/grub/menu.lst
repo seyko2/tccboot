@@ -1,0 +1,31 @@
+# Boot automatically after 10 secs.
+timeout 2
+
+# silent command execution
+# (dont display kernel and initrd commands on screen)
+no_echo
+
+# Splash image
+splashimage=/boot/grub/pic/splash.xpm.gz
+
+# By default boot
+#default 0
+#default 1
+default saved
+
+# Fallback to the
+#fallback 0 # fisrt entry.
+
+# global password (disable modification of boot parms w/o password)
+#password 123
+#hiddenmenu
+
+# ================================================================
+
+title tccboot
+kernel /bzImage root=/dev/ram ramdisk_size=20000
+initrd /initrd.ext2.gz
+#savedefault
+boot
+
+# ================================================================

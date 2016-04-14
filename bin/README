@@ -1,0 +1,8 @@
+initrd.ext2.gz is ramdisk from tccboot project (based on Redhat 9)
+A menu for legacy grub:
+
+title Linux 2.4.26
+kernel /boot/tccboot/bzImage root=/dev/ram ramdisk_size=25000
+initrd /boot/tccboot/initrd.ext2.gz
+savedefault
+boot

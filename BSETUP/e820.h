@@ -1,0 +1,1 @@
+../linux/include/asm-i386/e820.h
