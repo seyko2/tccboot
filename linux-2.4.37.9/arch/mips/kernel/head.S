@@ -63,7 +63,7 @@
 		nop
 
 		j	cache_parity_error
-		nop
+		 nop
 		END(except_vec2_generic)
 
 		.set	at
@@ -105,7 +105,7 @@
 		sll	k0, k0, 30	# Check for SDBBP.
 		bgez	k0, ejtag_return
 
-		la	k0, ejtag_debug_buffer
+		 la	k0, ejtag_debug_buffer
 		sw	k1, 0(k0)
 		SAVE_ALL
 		jal	ejtag_exception_handler
@@ -202,7 +202,7 @@ ejtag_return:
 		and	t0, t1
 		or	t0, (ST0_CU0);
 		jal	start_secondary
-		mtc0	t0, CP0_STATUS
+		 mtc0	t0, CP0_STATUS
 		.set pop
 		END(smp_bootstrap)
 #endif

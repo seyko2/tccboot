@@ -1,4 +1,5 @@
 /* $XFree86$ */
+/* $XdotOrg$ */
 /*
  * Global definitions for init.c and init301.c
  *
@@ -84,6 +85,8 @@
 #define VB_SIS301B302B          (VB_SIS301B|VB_SIS301C|VB_SIS302B)
 #define VB_SIS301LV302LV        (VB_SIS301LV|VB_SIS302LV|VB_SIS302ELV)
 #define VB_SISVB		(VB_SIS301 | VB_SIS301BLV302BLV)
+#define VB_SISTMDS		(VB_SIS301 | VB_SIS301B302B)
+#define VB_SISLVDS		VB_SIS301LV302LV
 
 /* VBInfo */
 #define SetSimuScanMode         0x0001   /* CR 30 */
@@ -136,6 +139,7 @@
 #define CRT2Mode                0x0800
 #define HalfDCLK                0x1000
 #define NoSupportSimuTV         0x2000
+#define NoSupportLCDScale	0x4000 /* TMDS: No scaling possible (no matter what panel) */
 #define DoubleScanMode          0x8000
 
 /* Infoflag */
@@ -200,7 +204,7 @@
 #define SF_IsM661		0x0020
 #define SF_IsM741		0x0040
 #define SF_IsM760		0x0080
-#define SF_760UMA		0x8000
+#define SF_760LFB		0x8000  /* 760: We have LFB */
 
 /* CR32 (Newer 630, and 315 series)
 
@@ -478,13 +482,23 @@
 #define VCLK100_315             0x46   /* Index in VBVCLKData table (315) */
 #define VCLK34_315              0x55
 #define VCLK68_315		0x0d
-#define VCLK69_315		0x5c   /* Index in VBVCLKData table (315) */
+#define VCLK69_315		0x5c   /* deprecated ! Index in VBVCLKData table (315) */
+#define VCLK83_315		0x5c   /* Index in VBVCLKData table (315) */
 #define VCLK121_315		0x5d   /* Index in VBVCLKData table (315) */
 #define VCLK_1280x720		0x5f
 #define VCLK_1280x768_2		0x60
 #define VCLK_1280x768_3		0x61
 #define VCLK_CUSTOM_315		0x62
 #define VCLK_1280x720_2		0x63
+#define VCLK_720x480		0x67 
+#define VCLK_720x576		0x68
+#define VCLK_768x576		0x68
+#define VCLK_848x480		0x65
+#define VCLK_856x480		0x66
+#define VCLK_800x480		0x65
+#define VCLK_1024x576		0x51
+#define VCLK_1152x864		0x64
+#define VCLK_1360x768		0x58
 
 #define TVCLKBASE_300		0x21   /* Indices on TV clocks in VCLKData table (300) */
 #define TVCLKBASE_315	        0x3a   /* Indices on TV clocks in (VB)VCLKData table (315) */
@@ -595,7 +609,7 @@
 
 /*
   =============================================================
-   			  for 315 series
+   		  for 315 series (old data layout)
   =============================================================
 */
 #define SoftDRAMType        0x80

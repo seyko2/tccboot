@@ -46,7 +46,7 @@ extern char *prom_getenv(char *envname);
 
 const char *get_system_type(void)
 {
-	return "AMD Alchemy PbAu1550";
+	return "AMD Alchemy Au1550/Pb1550";
 }
 
 int __init prom_init(int argc, char **argv, char **envp, int *prom_vec)
@@ -64,7 +64,7 @@ int __init prom_init(int argc, char **argv, char **envp, int *prom_vec)
 
 	memsize_str = prom_getenv("memsize");
 	if (!memsize_str) {
-		memsize = 0x04000000;
+		memsize = 0x08000000;
 	} else {
 		memsize = simple_strtol(memsize_str, NULL, 0);
 	}

@@ -21,6 +21,8 @@ endmenu
 mainmenu_option next_comment
 comment 'General setup'
 
+source drivers/i2c/Config.in
+
 tristate 'UltraSPARC-III bootbus i2c controller driver' CONFIG_BBC_I2C
 
 define_bool CONFIG_VT y
@@ -76,7 +78,7 @@ if [ "$CONFIG_SPARC32_COMPAT" != "n" ]; then
    tristate '  Kernel support for 32-bit ELF binaries' CONFIG_BINFMT_ELF32
    bool '  Kernel support for 32-bit (ie. SunOS) a.out binaries' CONFIG_BINFMT_AOUT32
 fi
-tristate 'Kernel support for 64-bit ELF binaries' CONFIG_BINFMT_ELF
+bool 'Kernel support for 64-bit ELF binaries' CONFIG_BINFMT_ELF
 tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
 bool 'SunOS binary emulation' CONFIG_SUNOS_EMUL
 if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then

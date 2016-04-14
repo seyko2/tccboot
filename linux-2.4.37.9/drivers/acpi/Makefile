@@ -38,7 +38,7 @@ endif
 # ACPI Bus and Device Drivers
 #
 ifeq ($(CONFIG_ACPI_BUS),y)
-  obj-y				+= bus.o 
+  obj-y				+= bus.o motherboard.o 
   obj-$(CONFIG_ACPI_AC) 	+= ac.o
   obj-$(CONFIG_ACPI_BATTERY)	+= battery.o
   obj-$(CONFIG_ACPI_BUTTON)	+= button.o

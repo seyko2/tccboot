@@ -54,6 +54,12 @@ void (*pm_idle)(void);
  */
 void (*pm_power_off)(void);
 
+/*
+ * sysctl - toggle power-off restriction for serial console 
+ * systems in machine_power_off()
+ */
+int scons_pwroff = 1;
+
 extern void fpsave(unsigned long *, unsigned long *, void *, unsigned long *);
 
 struct task_struct *last_task_used_math = NULL;
@@ -189,7 +195,7 @@ void machine_restart(char * cmd)
 void machine_power_off(void)
 {
 #ifdef CONFIG_SUN_AUXIO
-	if (auxio_power_register && !serial_console)
+	if (auxio_power_register && (!serial_console || scons_pwroff))
 		*auxio_power_register |= AUXIO_POWER_OFF;
 #endif
 	machine_halt();
@@ -505,6 +511,11 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long sp,
 			childregs->u_regs[UREG_FP] = (unsigned long)childstack;
 		}
 	}
+
+#ifdef CONFIG_SMP
+	/* FPU must be disabled on SMP. */
+	childregs->psr &= ~PSR_EF;
+#endif
 
 	/* Set the return value for the child. */
 	childregs->u_regs[UREG_I0] = current->pid;

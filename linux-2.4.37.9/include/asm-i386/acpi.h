@@ -28,6 +28,8 @@
 
 #ifdef __KERNEL__
 
+#include <linux/init.h>
+
 #define COMPILER_DEPENDENT_INT64   long long
 #define COMPILER_DEPENDENT_UINT64  unsigned long long
 
@@ -99,32 +101,44 @@ __acpi_release_global_lock (unsigned int *lock)
         :"=r"(n_hi), "=r"(n_lo)     \
         :"0"(n_hi), "1"(n_lo))
 
+#ifdef CONFIG_ACPI_PCI
+extern int acpi_noirq;
+extern int acpi_pci_disabled;
+static inline void acpi_noirq_set(void) { acpi_noirq = 1; }
+static inline void acpi_disable_pci(void) 
+{
+	acpi_pci_disabled = 1; 
+	acpi_noirq_set();
+}
+extern int acpi_irq_balance_set(char *str);
+#else
+static inline void acpi_noirq_set(void) { }
+static inline void acpi_disable_pci(void) { acpi_noirq_set(); }
+static inline int acpi_irq_balance_set(char *str) { return 0; }
+#endif
 
 #ifdef CONFIG_ACPI_BOOT 
 extern int acpi_lapic;
 extern int acpi_ioapic;
-extern int acpi_noirq;
 extern int acpi_strict;
 extern int acpi_disabled;
 extern int acpi_ht;
-static inline void disable_acpi(void) { acpi_disabled = 1; acpi_ht = 0; }
+extern int acpi_skip_timer_override;
+void __init check_acpi_pci(void);
+static inline void disable_acpi(void) 
+{ 
+	acpi_disabled = 1;
+	acpi_ht = 0;
+	acpi_disable_pci();
+}
 
 /* Fixmap pages to reserve for ACPI boot-time tables (see fixmap.h) */
 #define FIX_ACPI_PAGES 4
 
 #else	/* !CONFIG_ACPI_BOOT */
-#  define acpi_lapic 0
-#  define acpi_ioapic 0
-
+#define acpi_lapic 0
+#define acpi_ioapic 0
 #endif	/* !CONFIG_ACPI_BOOT */
-
-#ifdef CONFIG_ACPI_PCI
-static inline void acpi_noirq_set(void) { acpi_noirq = 1; }
-extern int acpi_irq_balance_set(char *str);
-#else
-static inline void acpi_noirq_set(void) { }
-static inline int acpi_irq_balance_set(char *str) { return 0; }
-#endif
 
 #ifdef CONFIG_ACPI_SLEEP
 

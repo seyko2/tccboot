@@ -127,7 +127,7 @@ static int release(struct Scsi_Host *psh)
 	wait_for_completion(&(us->notify));
 
 	/* remove the pointer to the data structure we were using */
-	(struct us_data*)psh->hostdata[0] = NULL;
+	psh->hostdata[0] = (unsigned long)NULL;
 
 	/* we always have a successful release */
 	return 0;
@@ -218,7 +218,14 @@ static int device_reset( Scsi_Cmnd *srb )
 	US_DEBUGP("device_reset() called\n" );
 
 	spin_unlock_irq(&io_request_lock);
+	down(&(us->dev_semaphore));
+	if (!us->pusb_dev) {
+		up(&(us->dev_semaphore));
+		spin_lock_irq(&io_request_lock);
+		return SUCCESS;
+	}
 	rc = us->transport_reset(us);
+	up(&(us->dev_semaphore));
 	spin_lock_irq(&io_request_lock);
 	return rc;
 }
@@ -235,27 +242,44 @@ static int bus_reset( Scsi_Cmnd *srb )
 	/* we use the usb_reset_device() function to handle this for us */
 	US_DEBUGP("bus_reset() called\n");
 
+	spin_unlock_irq(&io_request_lock);
+
+	down(&(us->dev_semaphore));
+
 	/* if the device has been removed, this worked */
 	if (!us->pusb_dev) {
 		US_DEBUGP("-- device removed already\n");
+		up(&(us->dev_semaphore));
+		spin_lock_irq(&io_request_lock);
 		return SUCCESS;
 	}
 
-	spin_unlock_irq(&io_request_lock);
+	/* The USB subsystem doesn't handle synchronisation between
+	 * a device's several drivers. Therefore we reset only devices
+	 * with just one interface, which we of course own. */
+	if (us->pusb_dev->actconfig->bNumInterfaces != 1) {
+		printk(KERN_NOTICE "usb-storage: "
+		    "Refusing to reset a multi-interface device\n");
+		up(&(us->dev_semaphore));
+		spin_lock_irq(&io_request_lock);
+		/* XXX Don't just return success, make sure current cmd fails */
+		return SUCCESS;
+	}
 
 	/* release the IRQ, if we have one */
-	down(&(us->irq_urb_sem));
 	if (us->irq_urb) {
 		US_DEBUGP("-- releasing irq URB\n");
 		result = usb_unlink_urb(us->irq_urb);
 		US_DEBUGP("-- usb_unlink_urb() returned %d\n", result);
 	}
-	up(&(us->irq_urb_sem));
 
 	/* attempt to reset the port */
 	if (usb_reset_device(us->pusb_dev) < 0) {
-		spin_lock_irq(&io_request_lock);
-		return FAILED;
+		/*
+		 * Do not return errors, or else the error handler might
+		 * invoke host_reset, which is not implemented.
+		 */
+		goto bail_out;
 	}
 
 	/* FIXME: This needs to lock out driver probing while it's working
@@ -286,17 +310,18 @@ static int bus_reset( Scsi_Cmnd *srb )
 		up(&intf->driver->serialize);
 	}
 
+bail_out:
 	/* re-allocate the IRQ URB and submit it to restore connectivity
 	 * for CBI devices
 	 */
 	if (us->protocol == US_PR_CBI) {
-		down(&(us->irq_urb_sem));
 		us->irq_urb->dev = us->pusb_dev;
 		result = usb_submit_urb(us->irq_urb);
 		US_DEBUGP("usb_submit_urb() returns %d\n", result);
-		up(&(us->irq_urb_sem));
 	}
-	
+
+	up(&(us->dev_semaphore));
+
 	spin_lock_irq(&io_request_lock);
 
 	US_DEBUGP("bus_reset() complete\n");

@@ -432,18 +432,12 @@ void sparc64_do_profile(unsigned long pc, unsigned long o7)
 		extern int _stext;
 		extern int rwlock_impl_begin, rwlock_impl_end;
 		extern int atomic_impl_begin, atomic_impl_end;
-		extern int __memcpy_begin, __memcpy_end;
-		extern int __bzero_begin, __bzero_end;
 		extern int __bitops_begin, __bitops_end;
 
 		if ((pc >= (unsigned long) &atomic_impl_begin &&
 		     pc < (unsigned long) &atomic_impl_end) ||
 		    (pc >= (unsigned long) &rwlock_impl_begin &&
 		     pc < (unsigned long) &rwlock_impl_end) ||
-		    (pc >= (unsigned long) &__memcpy_begin &&
-		     pc < (unsigned long) &__memcpy_end) ||
-		    (pc >= (unsigned long) &__bzero_begin &&
-		     pc < (unsigned long) &__bzero_end) ||
 		    (pc >= (unsigned long) &__bitops_begin &&
 		     pc < (unsigned long) &__bitops_end))
 			pc = o7;
@@ -776,6 +770,7 @@ void __init clock_probe(void)
 		    strcmp(model, "mk48t59") &&
 		    strcmp(model, "m5819") &&
 		    strcmp(model, "m5819p") &&
+		    strcmp(model, "m5823") &&
 		    strcmp(model, "ds1287")) {
 			if (cbus != NULL) {
 				prom_printf("clock_probe: Central bus lacks timer chip.\n");
@@ -835,7 +830,8 @@ void __init clock_probe(void)
 
 			if (!strcmp(model, "ds1287") ||
 			    !strcmp(model, "m5819") ||
-			    !strcmp(model, "m5819p")) {
+			    !strcmp(model, "m5819p") ||
+			    !strcmp(model, "m5823")) {
 				ds1287_regs = edev->resource[0].start;
 			} else {
 				mstk48t59_regs = edev->resource[0].start;
@@ -856,7 +852,8 @@ try_isa_clock:
 			}
 			if (!strcmp(model, "ds1287") ||
 			    !strcmp(model, "m5819") ||
-			    !strcmp(model, "m5819p")) {
+			    !strcmp(model, "m5819p") ||
+			    !strcmp(model, "m5823")) {
 				ds1287_regs = isadev->resource.start;
 			} else {
 				mstk48t59_regs = isadev->resource.start;

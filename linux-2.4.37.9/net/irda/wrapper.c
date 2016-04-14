@@ -37,8 +37,6 @@
 #include <net/irda/irlap_frame.h>
 #include <net/irda/irda_device.h>
 
-static inline int stuff_byte(__u8 byte, __u8 *buf);
-
 static void state_outside_frame(struct net_device *dev, 
 				struct net_device_stats *stats, 
 				iobuff_t *rx_buff, __u8 byte);
@@ -60,6 +58,32 @@ static void (*state[])(struct net_device *dev, struct net_device_stats *stats,
 	state_link_escape,
 	state_inside_frame,
 };
+
+/*
+ * Function stuff_byte (byte, buf)
+ *
+ *    Byte stuff one single byte and put the result in buffer pointed to by
+ *    buf. The buffer must at all times be able to have two bytes inserted.
+ * 
+ */
+static inline int stuff_byte(__u8 byte, __u8 *buf) 
+{
+	switch (byte) {
+	case BOF: /* FALLTHROUGH */
+	case EOF: /* FALLTHROUGH */
+	case CE:
+		/* Insert transparently coded */
+		buf[0] = CE;               /* Send link escape */
+		buf[1] = byte^IRDA_TRANS;    /* Complement bit 5 */
+		return 2;
+		/* break; */
+	default:
+		 /* Non-special value, no transparency required */
+		buf[0] = byte;
+		return 1;
+		/* break; */
+	}
+}
 
 /*
  * Function async_wrap (skb, *tx_buff, buffsize)
@@ -137,32 +161,6 @@ int async_wrap_skb(struct sk_buff *skb, __u8 *tx_buff, int buffsize)
 	tx_buff[n++] = EOF;
 
 	return n;
-}
-
-/*
- * Function stuff_byte (byte, buf)
- *
- *    Byte stuff one single byte and put the result in buffer pointed to by
- *    buf. The buffer must at all times be able to have two bytes inserted.
- * 
- */
-static inline int stuff_byte(__u8 byte, __u8 *buf) 
-{
-	switch (byte) {
-	case BOF: /* FALLTHROUGH */
-	case EOF: /* FALLTHROUGH */
-	case CE:
-		/* Insert transparently coded */
-		buf[0] = CE;               /* Send link escape */
-		buf[1] = byte^IRDA_TRANS;    /* Complement bit 5 */
-		return 2;
-		/* break; */
-	default:
-		 /* Non-special value, no transparency required */
-		buf[0] = byte;
-		return 1;
-		/* break; */
-	}
 }
 
 /*

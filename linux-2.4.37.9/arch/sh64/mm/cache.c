@@ -474,7 +474,7 @@ static void sh64_dcache_purge_kernel_range(unsigned long start, unsigned long en
 
 /* Assumes this address (+ (2**n_synbits) pages up from it) aren't used for
    anything else in the kernel */
-#define MAGIC_PAGE0_START 0xffffffffe0000000ULL
+#define MAGIC_PAGE0_START 0xffffffffec000000ULL
 
 static void sh64_dcache_purge_coloured_phy_page(unsigned long paddr, unsigned long eaddr)
 {
@@ -740,8 +740,8 @@ static void sh64_dcache_wback_current_user_range(unsigned long start, unsigned l
 /****************************************************************************/
 
 /* These *MUST* lie in an area of virtual address space that's otherwise unused. */
-#define UNIQUE_EADDR_START 0xc0000000UL
-#define UNIQUE_EADDR_END   0xd0000000UL
+#define UNIQUE_EADDR_START 0xe0000000UL
+#define UNIQUE_EADDR_END   0xe8000000UL
 
 static unsigned long sh64_make_unique_eaddr(unsigned long user_eaddr, unsigned long paddr)
 {

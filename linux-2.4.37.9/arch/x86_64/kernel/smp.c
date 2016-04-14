@@ -228,7 +228,8 @@ static void inline leave_mm (unsigned long cpu)
 		BUG();
 	clear_bit(cpu, &cpu_tlbstate[cpu].active_mm->cpu_vm_mask);
 	/* flush TLB before it goes away. this stops speculative prefetches */
-	__flush_tlb(); 
+	*read_pda(level4_pgt) = __pa(init_mm.pgd) | _PAGE_TABLE;
+	__flush_tlb();
 }
 
 /*

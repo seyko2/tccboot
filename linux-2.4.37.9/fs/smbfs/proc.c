@@ -1289,10 +1289,12 @@ smb_proc_read(struct inode *inode, loff_t offset, int count, char *data)
 	data_len = WVAL(buf, 1);
 
 	/* we can NOT simply trust the data_len given by the server ... */
-	if (data_len > server->packet_size - (buf+3 - server->packet)) {
-		printk(KERN_ERR "smb_proc_read: invalid data length!! "
-		       "%d > %d - (%p - %p)\n",
-		       data_len, server->packet_size, buf+3, server->packet);
+	if (data_len > count ||
+		(buf+3 - server->packet) + data_len > server->packet_size) {
+		printk(KERN_ERR "smb_proc_read: invalid data length/offset!! "
+		       "%d > %d || (%p - %p) + %d > %d\n",
+		       data_len, count,
+		       buf+3, server->packet, data_len, server->packet_size);
 		result = -EIO;
 		goto out;
 	}
@@ -1378,10 +1380,12 @@ smb_proc_readX(struct inode *inode, loff_t offset, int count, char *data)
 	buf = smb_base(server->packet) + data_off;
 
 	/* we can NOT simply trust the info given by the server ... */
-	if (data_len > server->packet_size - (buf - server->packet)) {
-		printk(KERN_ERR "smb_proc_read: invalid data length!! "
-		       "%d > %d - (%p - %p)\n",
-		       data_len, server->packet_size, buf, server->packet);
+	if (data_len > count ||
+		(buf - server->packet) + data_len > server->packet_size) {
+		printk(KERN_ERR "smb_proc_readX: invalid data length/offset!! "
+		       "%d > %d || (%p - %p) + %d > %d\n",
+		       data_len, count,
+		       buf, server->packet, data_len, server->packet_size);
 		result = -EIO;
 		goto out;
 	}
@@ -1942,7 +1946,7 @@ unlock_return:
 	return result;
 }
 
-void smb_decode_unix_basic(struct smb_fattr *fattr, char *p)
+void smb_decode_unix_basic(struct smb_fattr *fattr, struct smb_sb_info *server, char *p)
 {
 	/* FIXME: verify nls support. all is sent as utf8? */
 
@@ -1966,8 +1970,17 @@ void smb_decode_unix_basic(struct smb_fattr *fattr, char *p)
 	fattr->f_ctime = smb_ntutc2unixutc(LVAL(p, 16));
 	fattr->f_atime = smb_ntutc2unixutc(LVAL(p, 24));
 	fattr->f_mtime = smb_ntutc2unixutc(LVAL(p, 32));
-	fattr->f_uid = LVAL(p, 40); 
-	fattr->f_gid = LVAL(p, 48); 
+
+	if (server->mnt->flags & SMB_MOUNT_UID)
+		fattr->f_uid = server->mnt->uid;
+	else
+		fattr->f_uid = LVAL(p, 40);
+
+	if (server->mnt->flags & SMB_MOUNT_GID)
+		fattr->f_gid = server->mnt->gid;
+	else
+		fattr->f_gid = LVAL(p, 48);
+
 	fattr->f_mode |= smb_filetype_to_mode(WVAL(p, 56));
 
 	if (S_ISBLK(fattr->f_mode) || S_ISCHR(fattr->f_mode)) {
@@ -1976,7 +1989,17 @@ void smb_decode_unix_basic(struct smb_fattr *fattr, char *p)
 
 		fattr->f_rdev = MKDEV(major & 0xffffffff, minor & 0xffffffff);
 	}
+
 	fattr->f_mode |= LVAL(p, 84);
+
+	if ( (server->mnt->flags & SMB_MOUNT_DMODE) &&
+	     (S_ISDIR(fattr->f_mode)) )
+		fattr->f_mode = (server->mnt->dir_mode & S_IRWXUGO) | S_IFDIR;
+	else if ( (server->mnt->flags & SMB_MOUNT_FMODE) &&
+	          !(S_ISDIR(fattr->f_mode)) )
+		fattr->f_mode = (server->mnt->file_mode & S_IRWXUGO) |
+				(fattr->f_mode & S_IFMT);
+
 }
 
 /*
@@ -2057,7 +2080,7 @@ smb_decode_long_dirent(struct smb_sb_info *server, char *p, int level,
 		/* FIXME: should we check the length?? */
 
 		p += 8;
-		smb_decode_unix_basic(fattr, p);
+		smb_decode_unix_basic(fattr, server, p);
 		VERBOSE("info SMB_FIND_FILE_UNIX at %p, len=%d, name=%.*s\n",
 			p, len, len, qname->name);
 		break;
@@ -2682,7 +2705,7 @@ smb_proc_getattr_unix(struct smb_sb_info *server, struct dentry *dir,
 		goto out;
 	}
 
-	smb_decode_unix_basic(attr, resp_data);
+	smb_decode_unix_basic(attr, server, resp_data);
 	result = 0;
 
 out:
@@ -2941,7 +2964,7 @@ retry:
 	LSET(data, 32, SMB_TIME_NO_CHANGE);
 	LSET(data, 40, SMB_UID_NO_CHANGE);
 	LSET(data, 48, SMB_GID_NO_CHANGE);
-	LSET(data, 56, smb_filetype_from_mode(attr->ia_mode));
+	DSET(data, 56, smb_filetype_from_mode(attr->ia_mode));
 	LSET(data, 60, major);
 	LSET(data, 68, minor);
 	LSET(data, 76, 0);

@@ -1,5 +1,5 @@
 /* 
- * $Id: iucv.c,v 1.41 2003/06/24 16:05:32 felfert Exp $
+ * $Id: iucv.c,v 1.40.2.5 2004/06/29 07:37:33 braunu Exp $
  *
  * IUCV network driver
  *
@@ -29,7 +29,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
- * RELEASE-TAG: IUCV lowlevel driver $Revision: 1.41 $
+ * RELEASE-TAG: IUCV lowlevel driver $Revision: 1.40.2.5 $
  *
  */
 
@@ -320,7 +320,7 @@ iucv_dumpit(char *title, void *buf, int len)
 #define iucv_debug(lvl, fmt, args...) \
 do { \
 	if (debuglevel >= lvl) \
-		printk(KERN_DEBUG __FUNCTION__ ": " fmt "\n", ## args); \
+		printk(KERN_DEBUG "%s: " fmt "\n", __FUNCTION__, ## args); \
 } while (0)
 
 #else
@@ -334,13 +334,15 @@ do { \
  * Internal functions
  *******************************************************************************/
 
+static int iucv_retrieve_buffer(void);
+
 /**
  * print start banner
  */
 static void
 iucv_banner(void)
 {
-	char vbuf[] = "$Revision: 1.41 $";
+	char vbuf[] = "$Revision: 1.40.2.5 $";
 	char *version = vbuf;
 
 	if ((version = strchr(version, ':'))) {
@@ -418,6 +420,7 @@ iucv_init(void)
 static void
 iucv_exit(void)
 {
+	iucv_retrieve_buffer();
 	if (iucv_external_int_buffer)
 		kfree(iucv_external_int_buffer);
 	if (iucv_param_pool)
@@ -438,17 +441,19 @@ iucv_exit(void)
 static __inline__ iucv_param *
 grab_param(void)
 {
-	iucv_param *ret;
-	int i = 0;
+	iucv_param *ptr;
+        static int hint = 0;
 
-	while (atomic_compare_and_swap(0, 1, &iucv_param_pool[i].in_use)) {
-		i++;
-		if (i >= PARAM_POOL_SIZE)
-			i = 0;
-	}
-	ret = &iucv_param_pool[i];
-	memset(&ret->param, 0, sizeof(ret->param));
-	return ret;
+	ptr = iucv_param_pool + hint;
+	do {
+		ptr++;
+		if (ptr >= iucv_param_pool + PARAM_POOL_SIZE)
+			ptr = iucv_param_pool;
+	} while (atomic_compare_and_swap(0, 1, &ptr->in_use));
+	hint = ptr - iucv_param_pool;
+
+	memset(&ptr->param, 0, sizeof(ptr->param));
+	return ptr;
 }
 
 /**
@@ -549,10 +554,8 @@ b2f0(__u32 code, void *parm)
  *	   - ENOMEM - storage allocation for a new pathid table failed
 */
 static int
-iucv_add_pathid(__u16 pathid, handler *handler)
+__iucv_add_pathid(__u16 pathid, handler *handler)
 {
-	ulong flags;
-
 	iucv_debug(1, "entering");
 
 	iucv_debug(1, "handler is pointing to %p", handler);
@@ -560,20 +563,29 @@ iucv_add_pathid(__u16 pathid, handler *handler)
 	if (pathid > (max_connections - 1))
 		return -EINVAL;
 
-	spin_lock_irqsave (&iucv_lock, flags);
 	if (iucv_pathid_table[pathid]) {
-		spin_unlock_irqrestore (&iucv_lock, flags);
 		iucv_debug(1, "pathid entry is %p", iucv_pathid_table[pathid]);
 		printk(KERN_WARNING
 		       "%s: Pathid being used, error.\n", __FUNCTION__);
 		return -EINVAL;
 	}
 	iucv_pathid_table[pathid] = handler;
-	spin_unlock_irqrestore (&iucv_lock, flags);
 
 	iucv_debug(1, "exiting");
 	return 0;
 }				/* end of add_pathid function */
+
+static int
+iucv_add_pathid(__u16 pathid, handler *handler)
+{
+	ulong flags;
+	int rc;
+
+	spin_lock_irqsave (&iucv_lock, flags);
+	rc = __iucv_add_pathid(pathid, handler);
+	spin_unlock_irqrestore (&iucv_lock, flags);
+	return rc;
+}
 
 static void
 iucv_remove_pathid(__u16 pathid)
@@ -688,7 +700,6 @@ iucv_remove_handler(handler *handler)
 	spin_lock_irqsave (&iucv_lock, flags);
 	list_del(&handler->list);
 	if (list_empty(&iucv_handler_table)) {
-		iucv_retrieve_buffer();
 		if (register_flag) {
 			unregister_external_interrupt(0x4000, iucv_irq_handler);
 			register_flag = 0;
@@ -764,6 +775,7 @@ iucv_register_program (__u8 pgmname[16],
 		if (iucv_pathid_table == NULL) {
 			printk(KERN_WARNING "%s: iucv_pathid_table storage "
 			       "allocation failed\n", __FUNCTION__);
+			kfree(new_handler);
 			return NULL;
 		}
 		memset (iucv_pathid_table, 0, max_connections * sizeof(handler *));
@@ -1002,6 +1014,8 @@ iucv_accept(__u16 pathid, __u16 msglim_reqstd,
 	b2f0_result = b2f0(ACCEPT, parm);
 
 	if (b2f0_result == 0) {
+		if (msglim)
+			*msglim = parm->ipmsglim;
 		if (pgm_data)
 			h->pgm_data = pgm_data;
 		if (flags1_out)
@@ -1133,11 +1147,15 @@ iucv_connect (__u16 *pathid, __u16 msglim_reqstd,
 	iucv_setmask(~(AllInterrupts));
 	messagesDisabled = 1;
 
+	spin_lock_irqsave (&iucv_lock, flags);
 	parm->ipflags1 = (__u8)flags1;
 	b2f0_result = b2f0(CONNECT, parm);
 	memcpy(&local_parm, parm, sizeof(local_parm));
 	release_param(parm);
 	parm = &local_parm;
+	if (b2f0_result == 0)
+		add_pathid_result = __iucv_add_pathid(parm->ippathid, h);
+	spin_unlock_irqrestore (&iucv_lock, flags);
 
 	if (b2f0_result) {
 		iucv_setmask(~0);
@@ -1145,7 +1163,6 @@ iucv_connect (__u16 *pathid, __u16 msglim_reqstd,
 		return b2f0_result;
 	}
 
-	add_pathid_result = iucv_add_pathid(parm->ippathid, h);
 	*pathid = parm->ippathid;
 
 	/* Enable everything again */
@@ -1884,6 +1901,7 @@ iucv_send_prmmsg (__u16 pathid,
 {
 	iparml_dpl *parm;
 	ulong b2f0_result;
+	iucv_param save_param;
 
 	iucv_debug(2, "entering");
 
@@ -1896,7 +1914,13 @@ iucv_send_prmmsg (__u16 pathid,
 	parm->ipflags1 = (IPRMDATA | IPNORPY | flags1);
 	memcpy(parm->iprmmsg, prmmsg, sizeof(parm->iprmmsg));
 
+	memcpy((void *)&save_param, (void *)parm, sizeof(iucv_param));
 	b2f0_result = b2f0(SEND, parm);
+	if (b2f0_result != 0) {
+	    printk("b2f0 call returned %lx\n", b2f0_result);
+	    iucv_dumpit("PL before:", &save_param, sizeof(iucv_param));
+	    iucv_dumpit("PL after:", parm, sizeof(iucv_param));
+	}
 
 	if ((b2f0_result == 0) && (msgid))
 		*msgid = parm->ipmsgid;
@@ -2333,7 +2357,8 @@ iucv_do_int(iucv_GeneralInterrupt * int_buf)
 					iucv_debug(2,
 						   "found a matching handler");
 					break;
-				}
+				} else
+					h = NULL;
 			}
 			spin_unlock_irqrestore (&iucv_lock, flags);
 			if (h) {

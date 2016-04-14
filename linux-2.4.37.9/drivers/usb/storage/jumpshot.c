@@ -710,15 +710,8 @@ int jumpshot_transport(Scsi_Cmnd * srb, struct us_data *us)
 
 		// build the reply
 		//
-		ptr[0] = (info->sectors >> 24) & 0xFF;
-		ptr[1] = (info->sectors >> 16) & 0xFF;
-		ptr[2] = (info->sectors >> 8) & 0xFF;
-		ptr[3] = (info->sectors) & 0xFF;
-
-		ptr[4] = (info->ssize >> 24) & 0xFF;
-		ptr[5] = (info->ssize >> 16) & 0xFF;
-		ptr[6] = (info->ssize >> 8) & 0xFF;
-		ptr[7] = (info->ssize) & 0xFF;
+		((u32 *) ptr)[0] = cpu_to_be32(info->sectors - 1);
+		((u32 *) ptr)[1] = cpu_to_be32(info->ssize);
 
 		return USB_STOR_TRANSPORT_GOOD;
 	}

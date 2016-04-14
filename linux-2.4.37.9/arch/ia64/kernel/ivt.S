@@ -48,6 +48,7 @@
 #include <asm/ptrace.h>
 #include <asm/system.h>
 #include <asm/unistd.h>
+#include <asm/errno.h>
 
 #if 1
 # define PSR_DEFAULT_BITS	psr.ac
@@ -678,15 +679,29 @@ ENTRY(break_fault)
 	mov r1=IA64_KR(CURRENT);		/* r1 = current (physical) */
 	;;
 	invala;
+
+	/* adjust return address so we skip over the break instruction: */
+
+	extr.u r8=r29,41,2			// extract ei field from cr.ipsr
 	extr.u r16=r29,32,2;			/* extract psr.cpl */
 	;;
+	cmp.eq p6,p7=2,r8			// isr.ei==2?
 	cmp.eq pKern,pUser=r0,r16;		/* are we in kernel mode already? (psr.cpl==0) */
-	/* switch from user to kernel RBS: */
 	;;
+(p6)	mov r8=0				// clear ei to 0
+(p6)	adds r28=16,r28				// switch cr.iip to next bundle cr.ipsr.ei wrapped
+(p7)	adds r8=1,r8				// increment ei to next slot
+	;;
+	dep r29=r8,r29,41,2			// insert new ei into cr.ipsr
+	;;
+
+	/* switch from user to kernel RBS: */
 	mov r30=r0
 	MINSTATE_START_SAVE_MIN_VIRT
 	br.call.sptk.many b7=ia64_syscall_setup
 	;;
+	// p10==true means out registers are more than 8 or r15's Nat is true
+(p10)	br.cond.spnt.many ia64_ret_from_syscall
 	mov r3=255
 	adds r15=-1024,r15			// r15 contains the syscall number---subtract 1024
 	adds r2=IA64_TASK_PTRACE_OFFSET,r13	// r2 = &current->ptrace
@@ -704,28 +719,9 @@ ENTRY(break_fault)
 	ld8 r2=[r2]				// r2 = current->ptrace
 	mov b6=r16
 
-	// arrange things so we skip over break instruction when returning:
-
-	adds r16=PT(CR_IPSR)+16,sp			// get pointer to cr_ipsr
-	adds r17=PT(CR_IIP)+16,sp			// get pointer to cr_iip
 	;;
-	ld8 r18=[r16]				// fetch cr_ipsr
 	tbit.z p8,p0=r2,PT_TRACESYS_BIT		// (current->ptrace & PF_TRACESYS) == 0?
 	;;
-	ld8 r19=[r17]				// fetch cr_iip
-	extr.u r20=r18,41,2			// extract ei field
-	;;
-	cmp.eq p6,p7=2,r20			// isr.ei==2?
-	adds r19=16,r19				// compute address of next bundle
-	;;
-(p6)	mov r20=0				// clear ei to 0
-(p7)	adds r20=1,r20				// increment ei to next slot
-	;;
-(p6)	st8 [r17]=r19				// store new cr.iip if cr.isr.ei wrapped around
-	dep r18=r20,r18,41,2			// insert new ei into cr.isr
-	;;
-	st8 [r16]=r18				// store new value for cr.isr
-
 (p8)	br.call.sptk.many b6=b6			// ignore this return addr
 
 	br.cond.sptk ia64_trace_syscall
@@ -807,8 +803,11 @@ END(interrupt)
 	 *	- psr.ic enabled, interrupts restored
 	 *	-  r1: kernel's gp
 	 *	-  r3: preserved (same as on entry)
+	 *	-  r8: -EINVAL if p10 is true
 	 *	- r12: points to kernel stack
 	 *	- r13: points to current task
+	 *	- p10: TRUE if syscall is invoked with more than 8 out
+	 *	       registers or r15's Nat is true
 	 *	- p15: TRUE if interrupts need to be re-enabled
 	 *	- ar.fpsr: set to kernel settings
 	 */
@@ -825,12 +824,15 @@ ENTRY(ia64_syscall_setup)
 	st8 [r17]=r28,16;	/* save cr.iip */
 	mov r28=b0;                   
 (pKern) mov r18=r0;             /* make sure r18 isn't NaT */
+	extr.u r11=r19,7,7	/* get sol of ar.pfs */
+	and r8=0x7f,r19		/* get sof of ar.pfs */
 	;;
 (p9)	mov in1=-1
 	tnat.nz p10,p0=in2
 	st8 [r16]=r30,16;	/* save cr.ifs */
 	st8 [r17]=r25,16;	/* save ar.unat */
 (pUser) sub r18=r18,r22;	/* r18=RSE.ndirty*8 */
+	add r11=8,r11
 	;;
 	st8 [r16]=r26,16;	/* save ar.pfs */
 	st8 [r17]=r27,16;	/* save ar.rsc */
@@ -870,12 +872,13 @@ ENTRY(ia64_syscall_setup)
 .mem.offset 8,0;                st8.spill [r17]=r15,16;
 	adds r12=-16,r1;        /* switch to kernel memory stack (with 16 bytes of scratch) */
 	;;
+	cmp.lt p10,p9=r11,r8	/* frame size can't be more than local+8 */
 	mov r13=IA64_KR(CURRENT);       /* establish `current' */
 	movl r1=__gp;           /* establish kernel global pointer */
 	;;
 	MINSTATE_END_SAVE_MIN_VIRT
 
-	tnat.nz p9,p0=r15
+(p9)	tnat.nz p10,p0=r15
 (p8)	mov in7=-1
 	ssm psr.ic | PSR_DEFAULT_BITS
 	movl r17=FPSR_DEFAULT
@@ -883,10 +886,10 @@ ENTRY(ia64_syscall_setup)
 	;;
 	srlz.i					// guarantee that interruption collection is on
 	cmp.eq pSys,pNonSys=r0,r0		// set pSys=1, pNonSys=0
-(p9)	mov r15=-1
 (p15)	ssm psr.i		// restore psr.i
 	mov.m ar.fpsr=r17
 	stf8 [r8]=f1            // ensure pt_regs.r8 != 0 (see handle_syscall_error)
+(p10)	mov r8=-EINVAL
 	br.ret.sptk.many b7
 END(ia64_syscall_setup)
 

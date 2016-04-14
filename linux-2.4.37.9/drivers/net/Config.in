@@ -71,9 +71,6 @@ if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
          bool '   Broadcom 5222 Dual Phy Support' CONFIG_BCM5222_DUAL_PHY
       fi
    fi
-   if [ "$CONFIG_SIBYTE_SB1xxx_SOC" = "y" ]; then
-      tristate '  SB1250 Ethernet support' CONFIG_NET_SB1250_MAC
-   fi
    if [ "$CONFIG_SGI_IP27" = "y" ]; then
       bool '  SGI IOC3 Ethernet' CONFIG_SGI_IOC3_ETH
    fi
@@ -272,6 +269,13 @@ dep_tristate 'National Semiconductor DP83820 support' CONFIG_NS83820 $CONFIG_PCI
 dep_tristate 'Packet Engines Hamachi GNIC-II support' CONFIG_HAMACHI $CONFIG_PCI
 dep_tristate 'Packet Engines Yellowfin Gigabit-NIC support (EXPERIMENTAL)' CONFIG_YELLOWFIN $CONFIG_PCI $CONFIG_EXPERIMENTAL
 dep_tristate 'Realtek 8169 Gigabit Ethernet support' CONFIG_R8169 $CONFIG_PCI
+if [ "$CONFIG_SIBYTE_SB1xxx_SOC" = "y" ]; then
+   tristate 'SB1250 Ethernet support' CONFIG_NET_SB1250_MAC
+fi
+
+dep_tristate 'Alternate Marvell Yukon Chipset Support (not Yukon2)' CONFIG_SKGE $CONFIG_PCI
+dep_tristate 'Alternate Marvell Yukon 2 Chipset Support' CONFIG_SKY2 $CONFIG_PCI
+
 dep_tristate 'Marvell Yukon Chipset / SysKonnect SK-98xx Support' CONFIG_SK98LIN $CONFIG_PCI
 dep_tristate 'Broadcom Tigon3 support' CONFIG_TIGON3 $CONFIG_PCI
 
@@ -280,6 +284,13 @@ if [ "$CONFIG_MOMENCO_OCELOT_C" = "y" -o "$CONFIG_MOMENCO_JAGUAR_ATX" = "y" ]; t
    dep_bool '    MV-64340 Port 0' CONFIG_MV64340_ETH_0 $CONFIG_MV64340_ETH
    dep_bool '    MV-64340 Port 1' CONFIG_MV64340_ETH_1 $CONFIG_MV64340_ETH
    dep_bool '    MV-64340 Port 2' CONFIG_MV64340_ETH_2 $CONFIG_MV64340_ETH
+fi
+
+if [ "$CONFIG_PMC_BIG_SUR" = "y" ]; then
+   tristate 'PMC-Sierra Big Sur Fast Ethernet Adapter' CONFIG_BIG_SUR_FE
+fi
+if [ "$CONFIG_PMC_YOSEMITE" = "y" ]; then
+   tristate 'PMC-Sierra TITAN Gigabit Ethernet Support' CONFIG_TITAN_GE
 fi
 endmenu
 
@@ -293,8 +304,8 @@ fi
 
 bool 'FDDI driver support' CONFIG_FDDI
 if [ "$CONFIG_FDDI" = "y" ]; then
-   if [ "$CONFIG_PCI" = "y" -o "$CONFIG_EISA" = "y" ]; then
-      tristate '  Digital DEFEA and DEFPA adapter support' CONFIG_DEFXX
+   if [ "$CONFIG_TC" = "y" -o "$CONFIG_EISA" = "y" -o "$CONFIG_PCI" = "y" ]; then
+      tristate '  Digital DEFTA/DEFEA/DEFPA adapter support' CONFIG_DEFXX
    fi
    dep_tristate '  SysKonnect FDDI PCI support' CONFIG_SKFP $CONFIG_PCI
 fi
@@ -310,6 +321,10 @@ if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
       fi
    fi
 fi
+
+if [ "$CONFIG_PPC_PSERIES" = "y" ]; then
+   dep_tristate 'IBM PowerPC Virtual Ethernet driver support' CONFIG_IBMVETH $CONFIG_PPC_PSERIES
+fi 
 
 dep_tristate 'PLIP (parallel port) support' CONFIG_PLIP $CONFIG_PARPORT
 

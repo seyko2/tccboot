@@ -1142,13 +1142,16 @@ F01_E */
 		st_fifo->head++;
 		st_fifo->len--;
 
-		skb = dev_alloc_skb(len + 1 - 4);
 		/*
-		 * if frame size,data ptr,or skb ptr are wrong ,the get next
+		 * if frame size or data ptr are wrong ,then get next
 		 * entry.
 		 */
-		if ((skb == NULL) || (skb->data == NULL)
-		    || (self->rx_buff.data == NULL) || (len < 6)) {
+		if ((self->rx_buff.data == NULL) || (len < 6)) {
+			self->stats.rx_dropped++;
+			return TRUE;
+		}
+		skb = dev_alloc_skb(len + 1 - 4);
+		if (!skb) {
 			self->stats.rx_dropped++;
 			return TRUE;
 		}
@@ -1194,8 +1197,12 @@ static int upload_rxdata(struct via_ircc_cb *self, int iobase)
 #ifdef	DBGMSG
 	DBG(printk(KERN_INFO "upload_rxdata: len=%x\n", len));
 #endif
+	if ((len - 4) < 2) {
+		self->stats.rx_dropped++;
+		return FALSE;
+	}
 	skb = dev_alloc_skb(len + 1);
-	if ((skb == NULL) || ((len - 4) < 2)) {
+	if (!skb) {
 		self->stats.rx_dropped++;
 		return FALSE;
 	}
@@ -1258,13 +1265,17 @@ static int RxTimerHandler(struct via_ircc_cb *self, int iobase)
 			st_fifo->head++;
 			st_fifo->len--;
 
-			skb = dev_alloc_skb(len + 1 - 4);
 			/*
-			 * if frame size, data ptr, or skb ptr are wrong,
+			 * if frame size or data ptr are wrong,
 			 * then get next entry.
 			 */
-			if ((skb == NULL) || (skb->data == NULL)
-			    || (self->rx_buff.data == NULL) || (len < 6)) {
+			if ((self->rx_buff.data == NULL) || (len < 6)) {
+				self->stats.rx_dropped++;
+				continue;
+			}
+
+			skb = dev_alloc_skb(len + 1 - 4);
+			if (!skb) {
 				self->stats.rx_dropped++;
 				continue;
 			}

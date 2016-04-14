@@ -287,19 +287,30 @@ do { \
 type name(void) \
 { \
 register unsigned long __sc0 __asm__ ("r9") = ((0x10 << 16) | __NR_##name); \
-__asm__ __volatile__ ("trapa	%1" \
+__asm__ __volatile__ ("trapa	%1 !\t\t\t" #name "()"			    \
 	: "=r" (__sc0) 							    \
 	: "r" (__sc0) ); 						    \
 __syscall_return(type,__sc0); 						    \
 }
 
+	/*
+	 * The apparent spurious "dummy" assembler comment is *needed*,
+	 * as without it, the compiler treats the arg<n> variables
+	 * as no longer live just before the asm. The compiler can
+	 * then optimize the storage into any registers it wishes.
+	 * The additional dummy statement forces the compiler to put
+	 * the arguments into the correct registers before the TRAPA.
+	 */ 
 #define _syscall1(type,name,type1,arg1) \
 type name(type1 arg1) \
 { \
 register unsigned long __sc0 __asm__ ("r9") = ((0x11 << 16) | __NR_##name); \
 register unsigned long __sc2 __asm__ ("r2") = (unsigned long) arg1;	    \
-__asm__ __volatile__ ("trapa	%1" \
+__asm__ __volatile__ ("trapa	%1 !\t\t\t" #name "(%2)"		    \
 	: "=r" (__sc0) 							    \
+	: "r" (__sc0), "r" (__sc2));					    \
+__asm__ __volatile__ ("!dummy	%0 %1"				   	    \
+	:								    \
 	: "r" (__sc0), "r" (__sc2));					    \
 __syscall_return(type,__sc0); 						    \
 }
@@ -310,8 +321,11 @@ type name(type1 arg1,type2 arg2) \
 register unsigned long __sc0 __asm__ ("r9") = ((0x12 << 16) | __NR_##name); \
 register unsigned long __sc2 __asm__ ("r2") = (unsigned long) arg1;	    \
 register unsigned long __sc3 __asm__ ("r3") = (unsigned long) arg2;	    \
-__asm__ __volatile__ ("trapa	%1" \
+__asm__ __volatile__ ("trapa	%1 !\t\t\t" #name "(%2,%3)"		    \
 	: "=r" (__sc0) 							    \
+	: "r" (__sc0), "r" (__sc2), "r" (__sc3) );			    \
+__asm__ __volatile__ ("!dummy	%0 %1 %2"			   	    \
+	:								    \
 	: "r" (__sc0), "r" (__sc2), "r" (__sc3) );			    \
 __syscall_return(type,__sc0); 						    \
 }
@@ -323,9 +337,12 @@ register unsigned long __sc0 __asm__ ("r9") = ((0x13 << 16) | __NR_##name); \
 register unsigned long __sc2 __asm__ ("r2") = (unsigned long) arg1;	    \
 register unsigned long __sc3 __asm__ ("r3") = (unsigned long) arg2;	    \
 register unsigned long __sc4 __asm__ ("r4") = (unsigned long) arg3;	    \
-__asm__ __volatile__ ("trapa	%1" \
+__asm__ __volatile__ ("trapa	%1 !\t\t\t" #name "(%2,%3,%4)"		    \
 	: "=r" (__sc0) 							    \
 	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4) );		    \
+__asm__ __volatile__ ("!dummy	%0 %1 %2 %3"			   	    \
+	:								    \
+	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4) );	   	    \
 __syscall_return(type,__sc0); 						    \
 }
 
@@ -337,8 +354,11 @@ register unsigned long __sc2 __asm__ ("r2") = (unsigned long) arg1;	    \
 register unsigned long __sc3 __asm__ ("r3") = (unsigned long) arg2;	    \
 register unsigned long __sc4 __asm__ ("r4") = (unsigned long) arg3;	    \
 register unsigned long __sc5 __asm__ ("r5") = (unsigned long) arg4;	    \
-__asm__ __volatile__ ("trapa	%1" \
+__asm__ __volatile__ ("trapa	%1 !\t\t\t" #name "(%2,%3,%4,%5)"	    \
 	: "=r" (__sc0) 							    \
+	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5) );\
+__asm__ __volatile__ ("!dummy	%0 %1 %2 %3 %4"			   	    \
+	:								    \
 	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5) );\
 __syscall_return(type,__sc0); 						    \
 }
@@ -352,9 +372,13 @@ register unsigned long __sc3 __asm__ ("r3") = (unsigned long) arg2;	    \
 register unsigned long __sc4 __asm__ ("r4") = (unsigned long) arg3;	    \
 register unsigned long __sc5 __asm__ ("r5") = (unsigned long) arg4;	    \
 register unsigned long __sc6 __asm__ ("r6") = (unsigned long) arg5;	    \
-__asm__ __volatile__ ("trapa	%1" \
+__asm__ __volatile__ ("trapa	%1 !\t\t\t" #name "(%2,%3,%4,%5,%6)"	    \
 	: "=r" (__sc0) 							    \
-	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5), \
+	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5),  \
+	  "r" (__sc6));							    \
+__asm__ __volatile__ ("!dummy	%0 %1 %2 %3 %4 %5"		   	    \
+	:								    \
+	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5),  \
 	  "r" (__sc6));							    \
 __syscall_return(type,__sc0); 						    \
 }
@@ -369,9 +393,13 @@ register unsigned long __sc4 __asm__ ("r4") = (unsigned long) arg3;	    \
 register unsigned long __sc5 __asm__ ("r5") = (unsigned long) arg4;	    \
 register unsigned long __sc6 __asm__ ("r6") = (unsigned long) arg5;	    \
 register unsigned long __sc7 __asm__ ("r7") = (unsigned long) arg6;	    \
-__asm__ __volatile__ ("trapa	%1" \
+__asm__ __volatile__ ("trapa	%1 !\t\t\t" #name "(%2,%3,%4,%5,%6,%7)"	    \
 	: "=r" (__sc0) 							    \
-	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5), \
+	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5),  \
+	  "r" (__sc6), "r" (__sc7));					    \
+__asm__ __volatile__ ("!dummy	%0 %1 %2 %3 %4 %5 %6"		   	    \
+	:								    \
+	: "r" (__sc0), "r" (__sc2), "r" (__sc3), "r" (__sc4), "r" (__sc5),  \
 	  "r" (__sc6), "r" (__sc7));					    \
 __syscall_return(type,__sc0); 						    \
 }

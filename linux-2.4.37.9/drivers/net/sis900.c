@@ -18,10 +18,11 @@
    preliminary Rev. 1.0 Jan. 18, 1998
    http://www.sis.com.tw/support/databook.htm
 
+   Rev 1.08.07 Nov.  2 2003 Daniele Venzano <webvenza@libero.it> add suspend/resume support
    Rev 1.08.06 Sep. 24 2002 Mufasa Yang bug fix for Tx timeout & add SiS963 support
-   Rev 1.08.05 Jun. 6 2002 Mufasa Yang bug fix for read_eeprom & Tx descriptor over-boundary 
+   Rev 1.08.05 Jun.  6 2002 Mufasa Yang bug fix for read_eeprom & Tx descriptor over-boundary
    Rev 1.08.04 Apr. 25 2002 Mufasa Yang <mufasa@sis.com.tw> added SiS962 support
-   Rev 1.08.03 Feb. 1 2002 Matt Domsch <Matt_Domsch@dell.com> update to use library crc32 function
+   Rev 1.08.03 Feb.  1 2002 Matt Domsch <Matt_Domsch@dell.com> update to use library crc32 function
    Rev 1.08.02 Nov. 30 2001 Hui-Fen Hsu workaround for EDB & bug fix for dhcp problem
    Rev 1.08.01 Aug. 25 2001 Hui-Fen Hsu update for 630ET & workaround for ICS1893 PHY
    Rev 1.08.00 Jun. 11 2001 Hui-Fen Hsu workaround for RTL8201 PHY and some bug fix
@@ -47,9 +48,7 @@
 */
 
 #include <linux/module.h>
-#include <linux/version.h>
 #include <linux/kernel.h>
-#include <linux/sched.h>
 #include <linux/string.h>
 #include <linux/timer.h>
 #include <linux/errno.h>
@@ -74,7 +73,7 @@
 #include "sis900.h"
 
 #define SIS900_MODULE_NAME "sis900"
-#define SIS900_DRV_VERSION "v1.08.06 9/24/2002"
+#define SIS900_DRV_VERSION "v1.08.07 11/02/2003"
 
 static char version[] __devinitdata =
 KERN_INFO "sis900.c: " SIS900_DRV_VERSION "\n";
@@ -171,6 +170,7 @@ struct sis900_private {
 
 	unsigned int tx_full;			/* The Tx queue is full.    */
 	u8 host_bridge_rev;
+	u32 pci_state[16];
 };
 
 MODULE_AUTHOR("Jim Huang <cmhuang@sis.com.tw>, Ollie Lho <ollie@sis.com.tw>");
@@ -260,9 +260,13 @@ static int __devinit sis630e_get_mac_addr(struct pci_dev * pci_dev, struct net_d
 	u8 reg;
 	int i;
 
-	if ((isa_bridge = pci_find_device(0x1039, 0x0008, isa_bridge)) == NULL) {
-		printk("%s: Can not find ISA bridge\n", net_dev->name);
-		return 0;
+	isa_bridge = pci_find_device(PCI_VENDOR_ID_SI, 0x0008, isa_bridge);
+	if (!isa_bridge) {
+		isa_bridge = pci_find_device(PCI_VENDOR_ID_SI, 0x0018, isa_bridge);
+		if (!isa_bridge) {
+			printk("%s: Can not find ISA bridge\n", net_dev->name);
+			return 0;
+		}
 	}
 	pci_read_config_byte(isa_bridge, 0x48, &reg);
 	pci_write_config_byte(isa_bridge, 0x48, reg | 0x40);
@@ -307,7 +311,7 @@ static int __devinit sis635_get_mac_addr(struct pci_dev * pci_dev, struct net_de
 		*( ((u16 *)net_dev->dev_addr) + i) = inw(ioaddr + rfdr);
 	}
 
-	/* enable packet filitering */
+	/* enable packet filtering */
 	outl(rfcrSave | RFEN, rfcr + ioaddr);
 
 	return 1;
@@ -402,6 +406,7 @@ static int __devinit sis900_probe (struct pci_dev *pci_dev, const struct pci_dev
 	if (!net_dev)
 		return -ENOMEM;
 	SET_MODULE_OWNER(net_dev);
+	SET_NETDEV_DEV(net_dev, &pci_dev->dev);
 
 	/* We do a request_region() to register /proc/ioports info. */
 	ioaddr = pci_resource_start(pci_dev, 0);	
@@ -503,7 +508,7 @@ static int __devinit sis900_probe (struct pci_dev *pci_dev, const struct pci_dev
  	pci_set_drvdata(pci_dev, NULL);
 	pci_release_regions(pci_dev);
  err_out:
-	kfree(net_dev);
+	free_netdev(net_dev);
 	return ret;
 }
 
@@ -995,7 +1000,7 @@ sis900_init_rxfilter (struct net_device * net_dev)
 		}
 	}
 
-	/* enable packet filitering */
+	/* enable packet filtering */
 	outl(rfcrSave | RFEN, rfcr + ioaddr);
 }
 
@@ -1467,7 +1472,7 @@ static void sis900_tx_timeout(struct net_device *net_dev)
  *	@net_dev: the net device to transmit with
  *
  *	Set the transmit buffer descriptor, 
- *	and write TxENA to enable transimt state machine.
+ *	and write TxENA to enable transmit state machine.
  *	tell upper layer if the buffer is full
  */
 
@@ -1608,14 +1613,19 @@ static int sis900_rx(struct net_device *net_dev)
 	long ioaddr = net_dev->base_addr;
 	unsigned int entry = sis_priv->cur_rx % NUM_RX_DESC;
 	u32 rx_status = sis_priv->rx_ring[entry].cmdsts;
+	int rx_work_limit;
 
 	if (sis900_debug > 3)
 		printk(KERN_INFO "sis900_rx, cur_rx:%4.4d, dirty_rx:%4.4d "
 		       "status:0x%8.8x\n",
 		       sis_priv->cur_rx, sis_priv->dirty_rx, rx_status);
+	rx_work_limit = sis_priv->dirty_rx + NUM_RX_DESC - sis_priv->cur_rx;
 
 	while (rx_status & OWN) {
 		unsigned int rx_size;
+
+		if (--rx_work_limit < 0)
+			break;
 
 		rx_size = (rx_status & DSIZE) - CRC_SIZE;
 
@@ -1643,9 +1653,11 @@ static int sis900_rx(struct net_device *net_dev)
 			   some unknow bugs, it is possible that
 			   we are working on NULL sk_buff :-( */
 			if (sis_priv->rx_skbuff[entry] == NULL) {
-				printk(KERN_INFO "%s: NULL pointer " 
-				       "encountered in Rx ring, skipping\n",
-				       net_dev->name);
+				printk(KERN_WARNING "%s: NULL pointer "
+					"encountered in Rx ring\n"
+					"cur_rx:%4.4d, dirty_rx:%4.4d\n",
+					net_dev->name, sis_priv->cur_rx,
+					sis_priv->dirty_rx);
 				break;
 			}
 
@@ -1683,6 +1695,7 @@ static int sis900_rx(struct net_device *net_dev)
 				sis_priv->rx_ring[entry].cmdsts = 0;
 				sis_priv->rx_ring[entry].bufptr = 0;
 				sis_priv->stats.rx_dropped++;
+				sis_priv->cur_rx++;
 				break;
 			}
 			skb->dev = net_dev;
@@ -1700,7 +1713,7 @@ static int sis900_rx(struct net_device *net_dev)
 
 	/* refill the Rx buffer, what if the rate of refilling is slower than 
 	   consuming ?? */
-	for (;sis_priv->cur_rx - sis_priv->dirty_rx > 0; sis_priv->dirty_rx++) {
+	for (; sis_priv->cur_rx != sis_priv->dirty_rx; sis_priv->dirty_rx++) {
 		struct sk_buff *skb;
 
 		entry = sis_priv->dirty_rx % NUM_RX_DESC;
@@ -2183,16 +2196,78 @@ static void __devexit sis900_remove(struct pci_dev *pci_dev)
 	pci_free_consistent(pci_dev, TX_TOTAL_SIZE, sis_priv->tx_ring,
 		sis_priv->tx_ring_dma);
 	unregister_netdev(net_dev);
-	kfree(net_dev);
+	free_netdev(net_dev);
 	pci_release_regions(pci_dev);
 	pci_set_drvdata(pci_dev, NULL);
 }
+
+#ifdef CONFIG_PM
+
+static int sis900_suspend(struct pci_dev *pci_dev, u32 state)
+{
+	struct net_device *net_dev = pci_get_drvdata(pci_dev);
+	struct sis900_private *sis_priv = net_dev->priv;
+	long ioaddr = net_dev->base_addr;
+
+	if(!netif_running(net_dev))
+		return 0;
+
+	netif_stop_queue(net_dev);
+	netif_device_detach(net_dev);
+
+	/* Stop the chip's Tx and Rx Status Machine */
+	outl(RxDIS | TxDIS | inl(ioaddr + cr), ioaddr + cr);
+
+	pci_set_power_state(pci_dev, 3);
+	pci_save_state(pci_dev, sis_priv->pci_state);
+
+	return 0;
+}
+
+static int sis900_resume(struct pci_dev *pci_dev)
+{
+	struct net_device *net_dev = pci_get_drvdata(pci_dev);
+	struct sis900_private *sis_priv = net_dev->priv;
+	long ioaddr = net_dev->base_addr;
+
+	if(!netif_running(net_dev))
+		return 0;
+	pci_restore_state(pci_dev, sis_priv->pci_state);
+	pci_set_power_state(pci_dev, 0);
+
+	sis900_init_rxfilter(net_dev);
+
+	sis900_init_tx_ring(net_dev);
+	sis900_init_rx_ring(net_dev);
+
+	set_rx_mode(net_dev);
+
+	netif_device_attach(net_dev);
+	netif_start_queue(net_dev);
+
+	/* Workaround for EDB */
+	sis900_set_mode(ioaddr, HW_SPEED_10_MBPS, FDX_CAPABLE_HALF_SELECTED);
+
+	/* Enable all known interrupts by setting the interrupt mask. */
+	outl((RxSOVR|RxORN|RxERR|RxOK|TxURN|TxERR|TxIDLE), ioaddr + imr);
+	outl(RxENA | inl(ioaddr + cr), ioaddr + cr);
+	outl(IE, ioaddr + ier);
+
+	sis900_check_mode(net_dev, sis_priv->mii);
+
+	return 0;
+}
+#endif /* CONFIG_PM */
 
 static struct pci_driver sis900_pci_driver = {
 	.name		= SIS900_MODULE_NAME,
 	.id_table	= sis900_pci_tbl,
 	.probe		= sis900_probe,
 	.remove		= __devexit_p(sis900_remove),
+#ifdef CONFIG_PM
+	.suspend	= sis900_suspend,
+	.resume		= sis900_resume,
+#endif /* CONFIG_PM */
 };
 
 static int __init sis900_init_module(void)

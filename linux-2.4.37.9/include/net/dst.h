@@ -104,8 +104,10 @@ struct dst_entry * dst_clone(struct dst_entry * dst)
 static inline
 void dst_release(struct dst_entry * dst)
 {
-	if (dst)
+	if (dst) {
+		smp_mb__before_atomic_dec();
 		atomic_dec(&dst->__refcnt);
+	}
 }
 
 extern void * dst_alloc(struct dst_ops * ops);

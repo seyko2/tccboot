@@ -31,8 +31,8 @@
 #include <asm/ucontext.h>
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
-#include <asm/ppcdebug.h>
 #include <asm/unistd.h>
+#include <asm/processor.h>
 
 #define DEBUG_SIG 0
 
@@ -138,7 +138,7 @@ sys_sigsuspend(old_sigset_t mask, int p2, int p3, int p4, int p6, int p7,
 	regs->gpr[3] = EINTR;
 	regs->ccr |= 0x10000000;
 	while (1) {
-		current->state = TASK_INTERRUPTIBLE;
+		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
 		if (do_signal(&saveset, regs))
 			/*
@@ -236,21 +236,15 @@ setup_sigcontext(struct sigcontext *sc, struct pt_regs *regs,
 
 	if (regs->msr & MSR_FP)
 		giveup_fpu(current);
-
-	current->thread.saved_msr = regs->msr & ~(MSR_FP | MSR_FE0 | MSR_FE1);
-	regs->msr = current->thread.saved_msr | current->thread.fpexc_mode;
-	current->thread.saved_softe = regs->softe;
-
 	err |= __put_user(&sc->gp_regs, &sc->regs);
 	err |= __copy_to_user(&sc->gp_regs, regs, GP_REGS_SIZE);
 	err |= __copy_to_user(&sc->fp_regs, &current->thread.fpr, FP_REGS_SIZE);
+	current->thread.fpscr = 0;
+
 	err |= __put_user(signr, &sc->signal);
 	err |= __put_user(handler, &sc->handler);
 	if (set != NULL)
 		err |=  __put_user(set->sig[0], &sc->oldmask);
-
-	regs->msr &= ~(MSR_FP | MSR_FE0 | MSR_FE1);
-	current->thread.fpscr = 0;
 
 	return err;
 }
@@ -263,19 +257,32 @@ static int
 restore_sigcontext(struct pt_regs *regs, sigset_t *set, struct sigcontext *sc)
 {
 	unsigned int err = 0;
+	int i;
+	elf_greg_t *gregs = (elf_greg_t *)regs;
+	unsigned long msr;
 
-	if (regs->msr & MSR_FP)
-		giveup_fpu(current);
+	/* copy up to but not including MSR */
+	err |= __copy_from_user(regs, &sc->gp_regs,
+				PT_MSR * sizeof(elf_greg_t));
+	/* get the MSR value from the stack but don't put it in regs->msr */
+	err |= __get_user(msr, &sc->gp_regs[PT_MSR]);
+	/* copy from orig_r3 (the word after the MSR) to the end,
+	 * but don't copy softe */
+	for (i = PT_ORIG_R3; err == 0 && i <= PT_RESULT; ++i)
+		if (i != PT_SOFTE)
+			err |= __get_user(gregs[i], &sc->gp_regs[i]);
 
-	err |= __copy_from_user(regs, &sc->gp_regs, GP_REGS_SIZE);
+	/* make the process reload FP regs if it executes an FP instr */
+	regs->msr &= ~(MSR_FP | MSR_FE0 | MSR_FE1);
+#ifndef CONFIG_SMP
+	if (last_task_used_math == current)
+		last_task_used_math = NULL;
+#endif
 	err |= __copy_from_user(&current->thread.fpr, &sc->fp_regs, FP_REGS_SIZE);
-	current->thread.fpexc_mode = regs->msr & (MSR_FE0 | MSR_FE1);
+
+	/* restore the signal mask */
 	if (set != NULL)
 		err |=  __get_user(set->sig[0], &sc->oldmask);
-
-	/* Don't allow the signal handler to change these modulo FE{0,1} */
-	regs->msr = current->thread.saved_msr & ~(MSR_FP | MSR_FE0 | MSR_FE1);
-	regs->softe = current->thread.saved_softe;
 
 	return err;
 }
@@ -325,7 +332,7 @@ setup_trampoline(unsigned int syscall, unsigned int *tramp)
 }
 
 
-asmlinkage int
+asmlinkage long
 sys_rt_sigreturn(unsigned long r3, unsigned long r4, unsigned long r5,
 		 unsigned long r6, unsigned long r7, unsigned long r8,
 		 struct pt_regs *regs)

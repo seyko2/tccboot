@@ -49,9 +49,9 @@
  * pci_read_config_word(HWIF(drive)->pci_dev, 0x40, &reg40);
  * pci_read_config_word(HWIF(drive)->pci_dev, 0x42, &reg42);
  * pci_read_config_word(HWIF(drive)->pci_dev, 0x44, &reg44);
- * pci_read_config_word(HWIF(drive)->pci_dev, 0x48, &reg48);
+ * pci_read_config_byte(HWIF(drive)->pci_dev, 0x48, &reg48);
  * pci_read_config_word(HWIF(drive)->pci_dev, 0x4a, &reg4a);
- * pci_read_config_word(HWIF(drive)->pci_dev, 0x54, &reg54);
+ * pci_read_config_byte(HWIF(drive)->pci_dev, 0x54, &reg54);
  *
  * Documentation
  *	Publically available from Intel web site. Errata documentation
@@ -155,6 +155,7 @@ static int piix_get_info (char *buffer, char **addr, off_t offset, int count)
 			case PCI_DEVICE_ID_INTEL_82801E_11:
 			case PCI_DEVICE_ID_INTEL_ESB_2:
 			case PCI_DEVICE_ID_INTEL_ICH6_2:
+			case PCI_DEVICE_ID_INTEL_ICH7_21:
 				p += sprintf(p, "PIIX4 Ultra 100 ");
 				break;
 			case PCI_DEVICE_ID_INTEL_82372FB_1:
@@ -294,6 +295,7 @@ static u8 piix_ratemask (ide_drive_t *drive)
 		case PCI_DEVICE_ID_INTEL_82801EB_11:
 		case PCI_DEVICE_ID_INTEL_ESB_2:
 		case PCI_DEVICE_ID_INTEL_ICH6_2:
+		case PCI_DEVICE_ID_INTEL_ICH7_21:
 			mode = 3;
 			break;
 		/* UDMA 66 capable */
@@ -433,15 +435,14 @@ static int piix_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 	int w_flag		= 0x10 << drive->dn;
 	int u_speed		= 0;
 	int			sitre;
-	u16			reg4042, reg44, reg48, reg4a, reg54;
-	u8			reg55;
+	u16			reg4042, reg4a;
+	u8			reg48, reg54, reg55;
 
 	pci_read_config_word(dev, maslave, &reg4042);
 	sitre = (reg4042 & 0x4000) ? 1 : 0;
-	pci_read_config_word(dev, 0x44, &reg44);
-	pci_read_config_word(dev, 0x48, &reg48);
+	pci_read_config_byte(dev, 0x48, &reg48);
 	pci_read_config_word(dev, 0x4a, &reg4a);
-	pci_read_config_word(dev, 0x54, &reg54);
+	pci_read_config_byte(dev, 0x54, &reg54);
 	pci_read_config_byte(dev, 0x55, &reg55);
 
 	switch(speed) {
@@ -463,30 +464,26 @@ static int piix_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 
 	if (speed >= XFER_UDMA_0) {
 		if (!(reg48 & u_flag))
-			pci_write_config_word(dev, 0x48, reg48|u_flag);
+			pci_write_config_byte(dev, 0x48, reg48 | u_flag);
 		if (speed == XFER_UDMA_5) {
 			pci_write_config_byte(dev, 0x55, (u8) reg55|w_flag);
 		} else {
 			pci_write_config_byte(dev, 0x55, (u8) reg55 & ~w_flag);
 		}
-		if (!(reg4a & u_speed)) {
-			pci_write_config_word(dev, 0x4a, reg4a & ~a_speed);
-			pci_write_config_word(dev, 0x4a, reg4a|u_speed);
-		}
+		if ((reg4a & a_speed) != u_speed)
+			pci_write_config_word(dev, 0x4a, (reg4a & ~a_speed) | u_speed);
 		if (speed > XFER_UDMA_2) {
-			if (!(reg54 & v_flag)) {
-				pci_write_config_word(dev, 0x54, reg54|v_flag);
-			}
-		} else {
-			pci_write_config_word(dev, 0x54, reg54 & ~v_flag);
-		}
+			if (!(reg54 & v_flag))
+				pci_write_config_byte(dev, 0x54, reg54 | v_flag);
+		} else
+			pci_write_config_byte(dev, 0x54, reg54 & ~v_flag);
 	} else {
 		if (reg48 & u_flag)
-			pci_write_config_word(dev, 0x48, reg48 & ~u_flag);
+			pci_write_config_byte(dev, 0x48, reg48 & ~u_flag);
 		if (reg4a & a_speed)
 			pci_write_config_word(dev, 0x4a, reg4a & ~a_speed);
 		if (reg54 & v_flag)
-			pci_write_config_word(dev, 0x54, reg54 & ~v_flag);
+			pci_write_config_byte(dev, 0x54, reg54 & ~v_flag);
 		if (reg55 & w_flag)
 			pci_write_config_byte(dev, 0x55, (u8) reg55 & ~w_flag);
 	}
@@ -566,40 +563,42 @@ static int piix_config_drive_xfer_rate (ide_drive_t *drive)
 
 	drive->init_speed = 0;
 
-	if ((id->capability & 1) && drive->autodma) {
-		/* Consult the list of known "bad" drives */
-		if (hwif->ide_dma_bad_drive(drive))
-			goto fast_ata_pio;
-		if (id->field_valid & 4) {
-			if (id->dma_ultra & hwif->ultra_mask) {
-				/* Force if Capable UltraDMA */
-				if ((id->field_valid & 2) &&
-				    (!piix_config_drive_for_dma(drive)))
-					goto try_dma_modes;
-			}
-		} else if (id->field_valid & 2) {
-try_dma_modes:
-			if ((id->dma_mword & hwif->mwdma_mask) ||
-			    (id->dma_1word & hwif->swdma_mask)) {
-				/* Force if Capable regular DMA modes */
-				if (!piix_config_drive_for_dma(drive))
-					goto no_dma_set;
-			}
-		} else if (hwif->ide_dma_good_drive(drive) &&
-			   (id->eide_dma_time < 150)) {
-			/* Consult the list of known "good" drives */
-			if (!piix_config_drive_for_dma(drive))
-				goto no_dma_set;
-		} else {
-			goto fast_ata_pio;
+	if ((id->capability & 1) && (drive->autodma)) {
+
+                /* Consult the list of known "bad" drives. */
+		if (hwif->ide_dma_bad_drive(drive)) {
+                        goto fast_ata_pio;
 		}
+
+		/** 
+                 * Try to turn DMA on if:
+		 *  - UDMA or EIDE modes are supported or
+		 *  - drive is a known "good" drive
+                 *
+                 * Checks for best mode supported are down later by
+		 * piix_config_drive_for_dma() -> ide_dma_speed()
+                 */
+		if ((id->field_valid & (4 | 2)) || 
+		   (hwif->ide_dma_good_drive(drive) && (id->eide_dma_time < 150))) {
+			if (piix_config_drive_for_dma(drive)) {
+				return hwif->ide_dma_on(drive);
+			}
+		}
+
+		/* For some reason DMA wasn't turned on, so try PIO. */
+		goto fast_ata_pio;
+
 	} else if ((id->capability & 8) || (id->field_valid & 2)) {
+
+		/* Find best PIO mode. */
 fast_ata_pio:
-no_dma_set:
 		hwif->tuneproc(drive, 255);
 		return hwif->ide_dma_off_quietly(drive);
+
 	}
-	return hwif->ide_dma_on(drive);
+
+	/* IORDY not supported */
+	return 0;
 }
 
 /**
@@ -686,6 +685,7 @@ static unsigned int __devinit init_chipset_piix (struct pci_dev *dev, const char
 		case PCI_DEVICE_ID_INTEL_82801E_11:
 		case PCI_DEVICE_ID_INTEL_ESB_2:
 		case PCI_DEVICE_ID_INTEL_ICH6_2:
+		case PCI_DEVICE_ID_INTEL_ICH7_21:
 		{
 			unsigned int extra = 0;
 			pci_read_config_dword(dev, 0x54, &extra);
@@ -880,9 +880,12 @@ static struct pci_device_id piix_pci_tbl[] __devinitdata = {
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801EB_11,PCI_ANY_ID, PCI_ANY_ID, 0, 0, 15},
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801E_11, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 16},
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801DB_10,PCI_ANY_ID, PCI_ANY_ID, 0, 0, 17},
+#ifdef CONFIG_BLK_DEV_IDE_SATA
  	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801EB_1, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 18},
+#endif
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ESB_2, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 19},
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH6_2, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 20},
+	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH7_21, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 21},
 	{ 0, },
 };
 

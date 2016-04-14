@@ -38,7 +38,7 @@ static __inline__ void set_bit(long nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btsq %1,%0"
 		:"=m" (ADDR)
-		:"dIr" (nr));
+		:"dIr" (nr), "m" (ADDR));
 }
 
 /**
@@ -55,7 +55,7 @@ static __inline__ void __set_bit(long nr, volatile void * addr)
 	__asm__(
 		"btsq %1,%0"
 		:"=m" (ADDR)
-		:"dIr" (nr));
+		:"dIr" (nr), "m" (ADDR));
 }
 
 /**
@@ -73,7 +73,7 @@ static __inline__ void clear_bit(long nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btrq %1,%0"
 		:"=m" (ADDR)
-		:"dIr" (nr));
+		:"dIr" (nr), "m" (ADDR));
 }
 #define smp_mb__before_clear_bit()	barrier()
 #define smp_mb__after_clear_bit()	barrier()
@@ -92,7 +92,7 @@ static __inline__ void __change_bit(long nr, volatile void * addr)
 	__asm__ __volatile__(
 		"btcq %1,%0"
 		:"=m" (ADDR)
-		:"dIr" (nr));
+		:"dIr" (nr), "m" (ADDR));
 }
 
 /**
@@ -109,7 +109,7 @@ static __inline__ void change_bit(long nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btcq %1,%0"
 		:"=m" (ADDR)
-		:"dIr" (nr));
+		:"dIr" (nr), "m" (ADDR));
 }
 
 /**
@@ -127,7 +127,7 @@ static __inline__ int test_and_set_bit(long nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btsq %2,%1\n\tsbbq %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"dIr" (nr) : "memory");
+		:"dIr" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 
@@ -147,7 +147,7 @@ static __inline__ int __test_and_set_bit(long nr, volatile void * addr)
 	__asm__(
 		"btsq %2,%1\n\tsbbq %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"dIr" (nr));
+		:"dIr" (nr), "m" (ADDR));
 	return oldbit;
 }
 
@@ -166,7 +166,7 @@ static __inline__ int test_and_clear_bit(long nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btrq %2,%1\n\tsbbq %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"dIr" (nr) : "memory");
+		:"dIr" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 
@@ -186,7 +186,7 @@ static __inline__ int __test_and_clear_bit(long nr, volatile void * addr)
 	__asm__(
 		"btrq %2,%1\n\tsbbq %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"dIr" (nr));
+		:"dIr" (nr), "m" (ADDR));
 	return oldbit;
 }
 
@@ -198,7 +198,7 @@ static __inline__ int __test_and_change_bit(long nr, volatile void * addr)
 	__asm__ __volatile__(
 		"btcq %2,%1\n\tsbbq %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"dIr" (nr) : "memory");
+		:"dIr" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 
@@ -217,7 +217,7 @@ static __inline__ int test_and_change_bit(long nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btcq %2,%1\n\tsbbq %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"dIr" (nr) : "memory");
+		:"dIr" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 

@@ -220,7 +220,6 @@ typedef struct xfs_log_item_desc {
 
 #define XFS_LID_DIRTY		0x1
 #define XFS_LID_PINNED		0x2
-#define XFS_LID_SYNC_UNLOCK	0x4
 #define XFS_LID_BUF_STALE	0x8
 
 /*
@@ -1001,7 +1000,6 @@ struct xfs_buf	*xfs_trans_getsb(xfs_trans_t *, struct xfs_mount *, int);
 void		xfs_trans_brelse(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_bjoin(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_bhold(xfs_trans_t *, struct xfs_buf *);
-void		xfs_trans_bhold_until_committed(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_binval(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_inode_buf(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_inode_buf(xfs_trans_t *, struct xfs_buf *);
@@ -1009,7 +1007,7 @@ void		xfs_trans_stale_inode_buf(xfs_trans_t *, struct xfs_buf *);
 void		xfs_trans_dquot_buf(xfs_trans_t *, struct xfs_buf *, uint);
 void		xfs_trans_inode_alloc_buf(xfs_trans_t *, struct xfs_buf *);
 int		xfs_trans_iget(struct xfs_mount *, xfs_trans_t *,
-			       xfs_ino_t , uint, struct xfs_inode **);
+			       xfs_ino_t , uint, uint, struct xfs_inode **);
 void		xfs_trans_ijoin(xfs_trans_t *, struct xfs_inode *, uint);
 void		xfs_trans_ihold(xfs_trans_t *, struct xfs_inode *);
 void		xfs_trans_ihold_release(xfs_trans_t *, struct xfs_inode *);

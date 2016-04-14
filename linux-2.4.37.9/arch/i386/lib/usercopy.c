@@ -14,6 +14,7 @@
 unsigned long
 __generic_copy_to_user(void *to, const void *from, unsigned long n)
 {
+	BUG_ON((long) n < 0);
 	if (access_ok(VERIFY_WRITE, to, n))
 	{
 		if(n<512)
@@ -27,6 +28,7 @@ __generic_copy_to_user(void *to, const void *from, unsigned long n)
 unsigned long
 __generic_copy_from_user(void *to, const void *from, unsigned long n)
 {
+	BUG_ON((long) n < 0);
 	if (access_ok(VERIFY_READ, from, n))
 	{
 		if(n<512)
@@ -44,6 +46,7 @@ __generic_copy_from_user(void *to, const void *from, unsigned long n)
 unsigned long
 __generic_copy_to_user(void *to, const void *from, unsigned long n)
 {
+	BUG_ON((long) n < 0);
 	prefetch(from);
 	if (access_ok(VERIFY_WRITE, to, n))
 		__copy_user(to,from,n);
@@ -53,6 +56,7 @@ __generic_copy_to_user(void *to, const void *from, unsigned long n)
 unsigned long
 __generic_copy_from_user(void *to, const void *from, unsigned long n)
 {
+	BUG_ON((long) n < 0);
 	prefetchw(to);
 	if (access_ok(VERIFY_READ, from, n))
 		__copy_user_zeroing(to,from,n);

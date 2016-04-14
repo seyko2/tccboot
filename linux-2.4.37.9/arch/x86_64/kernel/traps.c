@@ -857,7 +857,7 @@ void __init trap_init(void)
 	set_intr_gate(9,&coprocessor_segment_overrun);
 	set_intr_gate(10,&invalid_TSS);
 	set_intr_gate(11,&segment_not_present);
-	set_intr_gate_ist(12,&stack_segment,STACKFAULT_STACK);
+	set_intr_gate(12,&stack_segment);
 	set_intr_gate(13,&general_protection);
 	set_intr_gate(14,&page_fault);
 	set_intr_gate(15,&spurious_interrupt_bug);

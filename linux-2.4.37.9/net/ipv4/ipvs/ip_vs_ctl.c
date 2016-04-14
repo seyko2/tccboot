@@ -74,6 +74,7 @@ static int sysctl_ip_vs_amemthresh = 2048;
 static int sysctl_ip_vs_am_droprate = 10;
 int sysctl_ip_vs_cache_bypass = 0;
 int sysctl_ip_vs_expire_nodest_conn = 0;
+int sysctl_ip_vs_expire_quiescent_template = 0;
 int sysctl_ip_vs_sync_threshold = 3;
 int sysctl_ip_vs_nat_icmp_send = 0;
 
@@ -1440,6 +1441,9 @@ static struct ip_vs_sysctl_table ipv4_vs_table = {
 	 {NET_IPV4_VS_NAT_ICMP_SEND, "nat_icmp_send",
 	  &sysctl_ip_vs_nat_icmp_send, sizeof(int), 0644, NULL,
 	  &proc_dointvec},
+	 {NET_IPV4_VS_EXPIRE_QUIESCENT_TEMPLATE, "expire_quiescent_template",
+	  &sysctl_ip_vs_expire_quiescent_template, sizeof(int), 0644, NULL,
+	  &proc_dointvec},
 	 {0}},
 	{{NET_IPV4_VS, "vs", NULL, 0, 0555, ipv4_vs_table.vs_vars},
 	 {0}},
@@ -1727,10 +1731,11 @@ do_ip_vs_set_ctl(struct sock *sk, int cmd, void *user, unsigned int len)
 		ret = ip_vs_set_timeouts(urule);
 		goto out_unlock;
 	} else if (cmd == IP_VS_SO_SET_STARTDAEMON) {
-		ret = start_sync_thread(urule->state, urule->mcast_ifn);
+		ret = start_sync_thread(urule->state, urule->mcast_ifn,
+					urule->syncid);
 		goto out_unlock;
 	} else if (cmd == IP_VS_SO_SET_STOPDAEMON) {
-		ret = stop_sync_thread();
+		ret = stop_sync_thread(urule->state);
 		goto out_unlock;
 	} else if (cmd == IP_VS_SO_SET_ZERO) {
 		/* if no service address is set, zero counters in all */
@@ -1837,7 +1842,8 @@ __ip_vs_get_service_entries(const struct ip_vs_get_services *get,
 			entry.addr = svc->addr;
 			entry.port = svc->port;
 			entry.fwmark = svc->fwmark;
-			strcpy(entry.sched_name, svc->scheduler->name);
+			strncpy(entry.sched_name, svc->scheduler->name, sizeof(entry.sched_name));
+			entry.sched_name[sizeof(entry.sched_name) - 1] = 0;
 			entry.flags = svc->flags;
 			entry.timeout = svc->timeout / HZ;
 			entry.netmask = svc->netmask;
@@ -1861,7 +1867,8 @@ __ip_vs_get_service_entries(const struct ip_vs_get_services *get,
 			entry.addr = svc->addr;
 			entry.port = svc->port;
 			entry.fwmark = svc->fwmark;
-			strcpy(entry.sched_name, svc->scheduler->name);
+			strncpy(entry.sched_name, svc->scheduler->name, sizeof(entry.sched_name));
+			entry.sched_name[sizeof(entry.sched_name) - 1] = 0;
 			entry.flags = svc->flags;
 			entry.timeout = svc->timeout / HZ;
 			entry.netmask = svc->netmask;
@@ -2015,7 +2022,8 @@ do_ip_vs_get_ctl(struct sock *sk, int cmd, void *user, int *len)
 			svc = __ip_vs_service_get(get.protocol,
 						  get.addr, get.port);
 		if (svc) {
-			strcpy(get.sched_name, svc->scheduler->name);
+			strncpy(get.sched_name, svc->scheduler->name, sizeof(get.sched_name));
+			get.sched_name[sizeof(get.sched_name) - 1] = 0;
 			get.flags = svc->flags;
 			get.timeout = svc->timeout / HZ;
 			get.netmask = svc->netmask;
@@ -2078,7 +2086,14 @@ do_ip_vs_get_ctl(struct sock *sk, int cmd, void *user, int *len)
 			goto out;
 		}
 		u.state = ip_vs_sync_state;
-		strcpy(u.mcast_ifn, ip_vs_mcast_ifn);
+		if (ip_vs_sync_state & IP_VS_STATE_MASTER) {
+			strncpy(u.mcast_master_ifn, ip_vs_mcast_master_ifn, sizeof(u.mcast_master_ifn));
+			u.mcast_master_ifn[sizeof(u.mcast_master_ifn) - 1] = 0;
+		}
+		if (ip_vs_sync_state & IP_VS_STATE_BACKUP) {
+			strncpy(u.mcast_backup_ifn, ip_vs_mcast_backup_ifn, sizeof(u.mcast_backup_ifn));
+			u.mcast_backup_ifn[sizeof(u.mcast_backup_ifn) - 1] = 0;
+		}
 		if (copy_to_user(user, &u, sizeof(u)) != 0)
 			ret = -EFAULT;
 	}

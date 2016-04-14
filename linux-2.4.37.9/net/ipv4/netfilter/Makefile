@@ -89,6 +89,7 @@ obj-$(CONFIG_IP_NF_MATCH_TCPMSS) += ipt_tcpmss.o
 
 # targets
 obj-$(CONFIG_IP_NF_TARGET_REJECT) += ipt_REJECT.o
+obj-$(CONFIG_IP_NF_TARGET_CLASSIFY) += ipt_CLASSIFY.o
 obj-$(CONFIG_IP_NF_TARGET_MIRROR) += ipt_MIRROR.o
 obj-$(CONFIG_IP_NF_TARGET_TOS) += ipt_TOS.o
 obj-$(CONFIG_IP_NF_TARGET_ECN) += ipt_ECN.o

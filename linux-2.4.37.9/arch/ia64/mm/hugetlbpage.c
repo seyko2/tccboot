@@ -73,8 +73,12 @@ huge_pte_offset (struct mm_struct *mm, unsigned long addr)
 	pte_t *pte = NULL;
 
 	pgd = pgd_offset(mm, taddr);
-	pmd = pmd_offset(pgd, taddr);
-	pte = pte_offset(pmd, taddr);
+	if (pgd_present(*pgd)) {
+		pmd = pmd_offset(pgd, taddr);
+		if (pmd_present(*pmd))
+			pte = pte_offset(pmd, taddr);
+	}
+
 	return pte;
 }
 
@@ -269,7 +273,7 @@ void unmap_hugepage_range(struct vm_area_struct *vma, unsigned long start, unsig
 
 	for (address = start; address < end; address += HPAGE_SIZE) {
 		pte = huge_pte_offset(mm, address);
-		if (pte_none(*pte))
+		if (!pte || pte_none(*pte))
 			continue;
 		page = pte_page(*pte);
 		huge_page_release(page);

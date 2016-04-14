@@ -1017,6 +1017,7 @@ static void bluetooth_softint(void *private)
 {
 	struct usb_bluetooth *bluetooth = get_usb_bluetooth ((struct usb_bluetooth *)private, __FUNCTION__);
 	struct tty_struct *tty;
+	struct tty_ldisc *ld;
 
 	dbg("%s", __FUNCTION__);
 
@@ -1025,9 +1026,15 @@ static void bluetooth_softint(void *private)
 	}
 
 	tty = bluetooth->tty;
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) && tty->ldisc.write_wakeup) {
-		dbg("%s - write wakeup call.", __FUNCTION__);
-		(tty->ldisc.write_wakeup)(tty);
+	if (tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) {
+		ld = tty_ldisc_ref(tty);
+		if(ld) {
+			if(ld->write_wakeup) {
+				ld->write_wakeup(tty);
+				dbg("%s - write wakeup call.", __FUNCTION__);
+			}
+			tty_ldisc_deref(tty);
+		}
 	}
 
 	wake_up_interruptible(&tty->write_wait);

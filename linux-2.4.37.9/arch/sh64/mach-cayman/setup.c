@@ -74,7 +74,7 @@
 #define ITI TOP_PRIORITY	/* WDT Ints */
 
 /* Setup for the SMSC FDC37C935 */
-#define SMSC_BASE               0x04000000
+#define SMSC_SUPERIO_BASE	0x04000000
 #define SMSC_CONFIG_PORT_ADDR	0x3f0
 #define SMSC_INDEX_PORT_ADDR	SMSC_CONFIG_PORT_ADDR
 #define SMSC_DATA_PORT_ADDR	0x3f1
@@ -91,14 +91,14 @@
 
 #define SMSC_KEYBOARD_DEVICE 7
 
-#define SMSC_READ_INDEXED(index) ({ \
+#define SMSC_SUPERIO_READ_INDEXED(index) ({ \
 	outb((index), SMSC_INDEX_PORT_ADDR); \
 	inb(SMSC_DATA_PORT_ADDR); })
-#define SMSC_WRITE_INDEXED(val, index) ({ \
+#define SMSC_SUPERIO_WRITE_INDEXED(val, index) ({ \
 	outb((index), SMSC_INDEX_PORT_ADDR); \
 	outb((val),   SMSC_DATA_PORT_ADDR); })
 
-unsigned long smsc_virt;
+unsigned long smsc_superio_virt;
 
 /*
  * Platform dependent structures: maps and parms block.
@@ -145,13 +145,13 @@ int platform_int_priority[NR_INTC_IRQS] = {
 	RES, RES, RES, RES, RES, RES, RES, ITI,	/* IRQ 56-63 */
 };
 
-static int __init smsc_setup(void)
+static int __init smsc_superio_setup(void)
 {
 	unsigned char devid, devrev;
 
-	smsc_virt = onchip_remap(SMSC_BASE, 1024, "SMSC");
-	if (!smsc_virt) {
-		panic("Unable to remap SMSC\n");
+	smsc_superio_virt = onchip_remap(SMSC_SUPERIO_BASE, 1024, "SMSC SuperIO");
+	if (!smsc_superio_virt) {
+		panic("Unable to remap SMSC SuperIO\n");
 	}
 
 	/* Initially the chip is in run state */
@@ -160,20 +160,20 @@ static int __init smsc_setup(void)
 	outb(SMSC_ENTER_CONFIG_KEY, SMSC_CONFIG_PORT_ADDR);
 
 	/* Read device ID info */
-	devid = SMSC_READ_INDEXED(SMSC_DEVICE_ID_INDEX);
-	devrev = SMSC_READ_INDEXED(SMSC_DEVICE_REV_INDEX);
-	printk("SMSC devid %02x rev %02x\n", devid, devrev);
+	devid = SMSC_SUPERIO_READ_INDEXED(SMSC_DEVICE_ID_INDEX);
+	devrev = SMSC_SUPERIO_READ_INDEXED(SMSC_DEVICE_REV_INDEX);
+	printk("SMSC SuperIO devid %02x rev %02x\n", devid, devrev);
 
 	/* Select the keyboard device */
-	SMSC_WRITE_INDEXED(SMSC_KEYBOARD_DEVICE, SMCS_LOGICAL_DEV_INDEX);
+	SMSC_SUPERIO_WRITE_INDEXED(SMSC_KEYBOARD_DEVICE, SMCS_LOGICAL_DEV_INDEX);
 
 	/* enable it */
-	SMSC_WRITE_INDEXED(1, SMSC_ACTIVATE_INDEX);	
+	SMSC_SUPERIO_WRITE_INDEXED(1, SMSC_ACTIVATE_INDEX);	
 
 	/* Select the interrupts */
 	/* On a PC keyboard is IRQ1, mouse is IRQ12 */
-	SMSC_WRITE_INDEXED(1, SMSC_PRIMARY_INT_INDEX);
-	SMSC_WRITE_INDEXED(12, SMSC_SECONDARY_INT_INDEX);
+	SMSC_SUPERIO_WRITE_INDEXED(1, SMSC_PRIMARY_INT_INDEX);
+	SMSC_SUPERIO_WRITE_INDEXED(12, SMSC_SECONDARY_INT_INDEX);
 
 	/* Exit the configuraton state */
 	outb(SMSC_EXIT_CONFIG_KEY, SMSC_CONFIG_PORT_ADDR);
@@ -184,7 +184,7 @@ static int __init smsc_setup(void)
 /* This is grotty, but, because kernel is always referenced on the link line
  * before any devices, this is safe.
  */
-__initcall(smsc_setup);
+__initcall(smsc_superio_setup);
 
 void __init platform_setup(void)
 {

@@ -3148,6 +3148,7 @@ static ssize_t osst_write(struct file * filp, const char * buf, size_t count, lo
 	ST_mode * STm;
 	ST_partstat * STps;
 	int dev = TAPE_NR(inode->i_rdev);
+	loff_t pos = *ppos;
 
 	STp = os_scsi_tapes[dev];
 
@@ -3369,7 +3370,7 @@ if (SRpnt) printk(KERN_ERR "osst%d:A: Not supposed to have SRpnt at line %d\n", 
 		if (i == (-ENOSPC)) {
 			transfer = STp->buffer->writing;	/* FIXME -- check this logic */
 			if (transfer <= do_count) {
-				filp->f_pos += do_count - transfer;
+				pos += do_count - transfer;
 				count -= do_count - transfer;
 				if (STps->drv_block >= 0) {
 					STps->drv_block += (do_count - transfer) / STp->block_size;
@@ -3407,7 +3408,7 @@ if (SRpnt) printk(KERN_ERR "osst%d:A: Not supposed to have SRpnt at line %d\n", 
 			goto out;
 		}
 
-		filp->f_pos += do_count;
+		pos += do_count;
 		b_point += do_count;
 		count -= do_count;
 		if (STps->drv_block >= 0) {
@@ -3429,7 +3430,7 @@ if (SRpnt) printk(KERN_ERR "osst%d:A: Not supposed to have SRpnt at line %d\n", 
 		if (STps->drv_block >= 0) {
 			STps->drv_block += blks;
 		}
-		filp->f_pos += count;
+		pos += count;
 		count = 0;
 	}
 
@@ -3459,6 +3460,7 @@ if (SRpnt) printk(KERN_ERR "osst%d:A: Not supposed to have SRpnt at line %d\n", 
 	retval = total;
 
 out:
+	*ppos = pos;
 	if (SRpnt != NULL) scsi_release_request(SRpnt);
 
 	up(&STp->lock);
@@ -3479,6 +3481,7 @@ static ssize_t osst_read(struct file * filp, char * buf, size_t count, loff_t *p
 	ST_partstat * STps;
 	Scsi_Request *SRpnt = NULL;
 	int dev = TAPE_NR(inode->i_rdev);
+	loff_t pos = *ppos;
 
 	STp = os_scsi_tapes[dev];
 
@@ -3614,7 +3617,7 @@ static ssize_t osst_read(struct file * filp, char * buf, size_t count, loff_t *p
 			}
 			STp->logical_blk_num += transfer / STp->block_size;
 			STps->drv_block      += transfer / STp->block_size;
-			filp->f_pos          += transfer;
+			pos                  += transfer;
 			buf                  += transfer;
 			total                += transfer;
 		}
@@ -3653,6 +3656,7 @@ static ssize_t osst_read(struct file * filp, char * buf, size_t count, loff_t *p
 	retval = total;
 
 out:
+	*ppos = pos;
 	if (SRpnt != NULL) scsi_release_request(SRpnt);
 
 	up(&STp->lock);

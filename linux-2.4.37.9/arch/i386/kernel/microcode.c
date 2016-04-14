@@ -109,7 +109,10 @@ MODULE_LICENSE("GPL");
 #define get_datasize(mc) \
 	(((microcode_t *)mc)->hdr.datasize ? \
 	 ((microcode_t *)mc)->hdr.datasize : DEFAULT_UCODE_DATASIZE)
-#define sigmatch(s1, s2, p1, p2) (((s1) == (s2)) && ((p1) & (p2)))
+
+#define sigmatch(s1, s2, p1, p2) \
+	(((s1) == (s2)) && (((p1) & (p2)) || (((p1) == 0) && ((p2) == 0))))
+
 #define exttable_size(et) ((et)->count * EXT_SIGNATURE_SIZE + EXT_HEADER_SIZE)
 
 /* serialize access to the physical write to MSR 0x79 */
@@ -234,14 +237,14 @@ static int find_matching_ucodes (void)
 		}
 
 		total_size = get_totalsize(&mc_header);
-		if ((cursor + total_size > user_buffer_size) || (total_size < DEFAULT_UCODE_TOTALSIZE)) {
+		if (cursor + total_size > user_buffer_size) {
 			printk(KERN_ERR "microcode: error! Bad data in microcode data file\n");
 			error = -EINVAL;
 			goto out;
 		}
 
 		data_size = get_datasize(&mc_header);
-		if ((data_size + MC_HEADER_SIZE > total_size) || (data_size < DEFAULT_UCODE_DATASIZE)) {
+		if (data_size + MC_HEADER_SIZE > total_size) {
 			printk(KERN_ERR "microcode: error! Bad data in microcode data file\n");
 			error = -EINVAL;
 			goto out;
@@ -434,11 +437,6 @@ out:
 static ssize_t microcode_write (struct file *file, const char *buf, size_t len, loff_t *ppos)
 {
 	ssize_t ret;
-
-	if (len < DEFAULT_UCODE_TOTALSIZE) {
-		printk(KERN_ERR "microcode: not enough data\n"); 
-		return -EINVAL;
-	}
 
 	if ((len >> PAGE_SHIFT) > num_physpages) {
 		printk(KERN_ERR "microcode: too much data (max %ld pages)\n", num_physpages);

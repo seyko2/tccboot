@@ -32,14 +32,12 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/init.h>
-#include <asm/uaccess.h>
-#include <linux/ioport.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
-
 #include <linux/i2c.h>
 #include <linux/i2c-algo-pcf.h>
 #include "i2c-pcf8584.h"
+
 
 /* ----- global defines ----------------------------------------------- */
 #define DEB(x) if (i2c_debug>=1) x
@@ -435,21 +433,18 @@ static int algo_control(struct i2c_adapter *adapter,
 
 static u32 pcf_func(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_10BIT_ADDR | 
-	       I2C_FUNC_PROTOCOL_MANGLING; 
+	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL |
+	       I2C_FUNC_10BIT_ADDR | I2C_FUNC_PROTOCOL_MANGLING;
 }
 
 /* -----exported algorithm data: -------------------------------------	*/
 
 static struct i2c_algorithm pcf_algo = {
-	"PCF8584 algorithm",
-	I2C_ALGO_PCF,
-	pcf_xfer,
-	NULL,
-	NULL,				/* slave_xmit		*/
-	NULL,				/* slave_recv		*/
-	algo_control,			/* ioctl		*/
-	pcf_func,			/* functionality	*/
+	.name		= "PCF8584 algorithm",
+	.id		= I2C_ALGO_PCF,
+	.master_xfer	= pcf_xfer,
+	.algo_control	= algo_control,
+	.functionality	= pcf_func,
 };
 
 /* 
@@ -479,8 +474,6 @@ int i2c_pcf_add_bus(struct i2c_adapter *adap)
 	MOD_INC_USE_COUNT;
 #endif
 
-	i2c_add_adapter(adap);
-
 	/* scan bus */
 	if (pcf_scan) {
 		printk(KERN_INFO " i2c-algo-pcf.o: scanning bus %s.\n",
@@ -504,7 +497,8 @@ int i2c_pcf_add_bus(struct i2c_adapter *adap)
 		}
 		printk("\n");
 	}
-	return 0;
+
+	return i2c_add_adapter(adap);
 }
 
 
@@ -526,7 +520,6 @@ int __init i2c_algo_pcf_init (void)
 	printk("i2c-algo-pcf.o: i2c pcf8584 algorithm module\n");
 	return 0;
 }
-
 
 EXPORT_SYMBOL(i2c_pcf_add_bus);
 EXPORT_SYMBOL(i2c_pcf_del_bus);

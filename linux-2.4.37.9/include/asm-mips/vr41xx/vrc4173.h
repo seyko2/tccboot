@@ -72,21 +72,23 @@ extern unsigned long vrc4173_io_offset;
 /*
  * Clock Mask Unit
  */
-#define VRC4173_PIU_CLOCK		0x0001
-#define VRC4173_KIU_CLOCK		0x0002
-#define VRC4173_AIU_CLOCK		0x0004
-#define VRC4173_PS2CH1_CLOCK		0x0008
-#define VRC4173_PS2CH2_CLOCK		0x0010
-#define VRC4173_USBU_PCI_CLOCK		0x0020
-#define VRC4173_CARDU1_PCI_CLOCK	0x0040
-#define VRC4173_CARDU2_PCI_CLOCK	0x0080
-#define VRC4173_AC97U_PCI_CLOCK		0x0100
-#define VRC4173_USBU_48MHz_CLOCK	0x0400
-#define VRC4173_EXT_48MHz_CLOCK		0x0800
-#define VRC4173_48MHz_CLOCK		0x1000
+enum {
+	VRC4173_PIU_CLOCK,
+	VRC4173_KIU_CLOCK,
+	VRC4173_AIU_CLOCK,
+	VRC4173_PS2_CH1_CLOCK,
+	VRC4173_PS2_CH2_CLOCK,
+	VRC4173_USBU_PCI_CLOCK,
+	VRC4173_CARDU1_PCI_CLOCK,
+	VRC4173_CARDU2_PCI_CLOCK,
+	VRC4173_AC97U_PCI_CLOCK,
+	VRC4173_USBU_48MHz_CLOCK,
+	VRC4173_EXT_48MHz_CLOCK,
+	VRC4173_48MHz_CLOCK,
+};
 
-extern void vrc4173_clock_supply(u16 mask);
-extern void vrc4173_clock_mask(u16 mask);
+extern void vrc4173_supply_clock(unsigned int clock);
+extern void vrc4173_mask_clock(unsigned int clock);
 
 /*
  * General-Purpose I/O Unit

@@ -178,18 +178,7 @@ static int unix_mkname(struct sockaddr_un * sunaddr, int len, unsigned *hashp)
 		return -EINVAL;
 	if (!sunaddr || sunaddr->sun_family != AF_UNIX)
 		return -EINVAL;
-	if (sunaddr->sun_path[0])
-	{
-		/*
-		 *	This may look like an off by one error but it is
-		 *	a bit more subtle. 108 is the longest valid AF_UNIX
-		 *	path for a binding. sun_path[108] doesn't as such
-		 *	exist. However in kernel space we are guaranteed that
-		 *	it is a valid memory location in our kernel
-		 *	address buffer.
-		 */
-		if (len > sizeof(*sunaddr))
-			len = sizeof(*sunaddr);
+	if (sunaddr->sun_path[0]) {
 		((char *)sunaddr)[len]=0;
 		len = strlen(sunaddr->sun_path)+1+sizeof(short);
 		return len;
@@ -385,6 +374,7 @@ static int unix_release_sock (unix_socket *sk, int embrion)
 			read_lock(&skpair->callback_lock);
 			sk_wake_async(skpair,1,POLL_HUP);
 			read_unlock(&skpair->callback_lock);
+			yield(); /* let the other side wake up */
 		}
 		sock_put(skpair); /* It may now die */
 		unix_peer(sk) = NULL;
@@ -915,6 +905,9 @@ restart:
 	if (other->state != TCP_LISTEN)
 		goto out_unlock;
 
+	if (other->shutdown & RCV_SHUTDOWN)
+		goto out_unlock;
+
 	if (skb_queue_len(&other->receive_queue) > other->max_ack_backlog) {
 		err = -EAGAIN;
 		if (!timeo)
@@ -1172,6 +1165,8 @@ static int unix_dgram_sendmsg(struct socket *sock, struct msghdr *msg, int len,
 	struct sk_buff *skb;
 	long timeo;
 
+	wait_for_unix_gc();
+
 	err = -EOPNOTSUPP;
 	if (msg->msg_flags&MSG_OOB)
 		goto out;
@@ -1302,6 +1297,8 @@ static int unix_stream_sendmsg(struct socket *sock, struct msghdr *msg, int len,
 	struct sk_buff *skb;
 	int sent=0;
 
+	wait_for_unix_gc();
+
 	err = -EOPNOTSUPP;
 	if (msg->msg_flags&MSG_OOB)
 		goto out_err;
@@ -1414,9 +1411,11 @@ static int unix_dgram_recvmsg(struct socket *sock, struct msghdr *msg, int size,
 
 	msg->msg_namelen = 0;
 
+	down(&sk->protinfo.af_unix.readsem);
+
 	skb = skb_recv_datagram(sk, flags, noblock, &err);
 	if (!skb)
-		goto out;
+		goto out_unlock;
 
 	wake_up_interruptible(&sk->protinfo.af_unix.peer_wait);
 
@@ -1460,6 +1459,8 @@ static int unix_dgram_recvmsg(struct socket *sock, struct msghdr *msg, int size,
 
 out_free:
 	skb_free_datagram(sk,skb);
+out_unlock:
+	up(&sk->protinfo.af_unix.readsem);
 out:
 	return err;
 }
@@ -1693,8 +1694,13 @@ static int unix_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 			}
 
 			spin_lock(&sk->receive_queue.lock);
-			if((skb=skb_peek(&sk->receive_queue))!=NULL)
-				amount=skb->len;
+			if (sk->type == SOCK_STREAM) {
+				skb_queue_walk(&sk->receive_queue, skb)
+					amount += skb->len;
+			} else {
+				if((skb=skb_peek(&sk->receive_queue))!=NULL)
+					amount=skb->len;
+			}
 			spin_unlock(&sk->receive_queue.lock);
 			err = put_user(amount, (int *)arg);
 			break;

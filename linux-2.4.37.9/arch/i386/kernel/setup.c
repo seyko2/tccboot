@@ -354,7 +354,8 @@ static char command_line[COMMAND_LINE_SIZE];
 struct resource standard_io_resources[] = {
 	{ "dma1", 0x00, 0x1f, IORESOURCE_BUSY },
 	{ "pic1", 0x20, 0x3f, IORESOURCE_BUSY },
-	{ "timer", 0x40, 0x5f, IORESOURCE_BUSY },
+	{ "timer0", 0x40, 0x43, IORESOURCE_BUSY },
+	{ "timer1", 0x50, 0x53, IORESOURCE_BUSY },
 	{ "keyboard", 0x60, 0x6f, IORESOURCE_BUSY },
 	{ "dma page reg", 0x80, 0x8f, IORESOURCE_BUSY },
 	{ "pic2", 0xa0, 0xbf, IORESOURCE_BUSY },
@@ -2333,6 +2334,7 @@ static struct _cache_table cache_table[] __initdata =
 	{ 0x43, LVL_2,      512 },
 	{ 0x44, LVL_2,      1024 },
 	{ 0x45, LVL_2,      2048 },
+	{ 0x60, LVL_1_DATA, 16 },
 	{ 0x66, LVL_1_DATA, 8 },
 	{ 0x67, LVL_1_DATA, 16 },
 	{ 0x68, LVL_1_DATA, 32 },
@@ -2443,6 +2445,8 @@ static void __init init_intel(struct cpuinfo_x86 *c)
 			printk (KERN_INFO "CPU: L1 I cache: %dK", l1i);
 		if ( l1d )
 			printk(", L1 D cache: %dK\n", l1d);
+		else
+			printk("\n");
 
 		if ( l2 )
 			printk(KERN_INFO "CPU: L2 cache: %dK\n", l2);

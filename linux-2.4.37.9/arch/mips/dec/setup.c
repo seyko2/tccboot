@@ -137,9 +137,9 @@ extern void dec_timer_setup(struct irqaction *);
 void __init decstation_setup(void)
 {
 #ifdef CONFIG_BLK_DEV_INITRD
-       ROOT_DEV = MKDEV(RAMDISK_MAJOR, 0);
-       initrd_start = (unsigned long)&__rd_start;
-       initrd_end = (unsigned long)&__rd_end;
+	ROOT_DEV = MKDEV(RAMDISK_MAJOR, 0);
+	initrd_start = (unsigned long)&__rd_start;
+	initrd_end = (unsigned long)&__rd_end;
 #endif
 	board_be_init = dec_be_init;
 	board_time_init = dec_time_init;

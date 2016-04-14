@@ -1054,7 +1054,7 @@ cbq_dequeue(struct Qdisc *sch)
 
 	if (sch->q.qlen) {
 		sch->stats.overlimits++;
-		if (q->wd_expires && !netif_queue_stopped(sch->dev)) {
+		if (q->wd_expires) {
 			long delay = PSCHED_US2JIFFIE(q->wd_expires);
 			if (delay <= 0)
 				delay = 1;
@@ -1518,6 +1518,7 @@ static __inline__ int cbq_dump_ovl(struct sk_buff *skb, struct cbq_class *cl)
 
 	opt.strategy = cl->ovl_strategy;
 	opt.priority2 = cl->priority2+1;
+	opt.pad = 0;
 	opt.penalty = (cl->penalty*1000)/HZ;
 	RTA_PUT(skb, TCA_CBQ_OVL_STRATEGY, sizeof(opt), &opt);
 	return skb->len;
@@ -1553,6 +1554,8 @@ static __inline__ int cbq_dump_police(struct sk_buff *skb, struct cbq_class *cl)
 
 	if (cl->police) {
 		opt.police = cl->police;
+		opt.__res1 = 0;
+		opt.__res2 = 0;
 		RTA_PUT(skb, TCA_CBQ_POLICE, sizeof(opt), &opt);
 	}
 	return skb->len;
@@ -1641,7 +1644,6 @@ cbq_dump_class(struct Qdisc *sch, unsigned long arg,
 	cl->xstats.undertime = 0;
 	if (!PSCHED_IS_PASTPERFECT(cl->undertime))
 		cl->xstats.undertime = PSCHED_TDIFF(cl->undertime, q->now);
-	q->link.xstats.avgidle = q->link.avgidle;
 	if (cbq_copy_xstats(skb, &cl->xstats)) {
 		spin_unlock_bh(&sch->dev->queue_lock);
 		goto rtattr_failure;
@@ -1712,15 +1714,20 @@ static void cbq_destroy_filters(struct cbq_class *cl)
 	}
 }
 
-static void cbq_destroy_class(struct cbq_class *cl)
+static void cbq_destroy_class(struct Qdisc *sch, struct cbq_class *cl)
 {
+	struct cbq_sched_data *q = (struct cbq_sched_data *)sch->data;
+
+	BUG_TRAP(!cl->filters);
+
 	cbq_destroy_filters(cl);
 	qdisc_destroy(cl->q);
 	qdisc_put_rtab(cl->R_tab);
 #ifdef CONFIG_NET_ESTIMATOR
 	qdisc_kill_estimator(&cl->stats);
 #endif
-	kfree(cl);
+	if (cl != &q->link)
+		kfree(cl);
 }
 
 static void
@@ -1733,22 +1740,24 @@ cbq_destroy(struct Qdisc* sch)
 #ifdef CONFIG_NET_CLS_POLICE
 	q->rx_class = NULL;
 #endif
-	for (h = 0; h < 16; h++) {
+	/*
+	 * Filters must be destroyed first because we don't destroy the
+	 * classes from root to leafs which means that filters can still
+	 * be bound to classes which have been destroyed already. --TGR '04
+	 */
+	for (h = 0; h < 16; h++)
 		for (cl = q->classes[h]; cl; cl = cl->next)
 			cbq_destroy_filters(cl);
-	}
 
 	for (h = 0; h < 16; h++) {
 		struct cbq_class *next;
 
 		for (cl = q->classes[h]; cl; cl = next) {
 			next = cl->next;
-			if (cl != &q->link)
-				cbq_destroy_class(cl);
+			cbq_destroy_class(sch, cl);
 		}
 	}
 
-	qdisc_put_rtab(q->link.R_tab);
 	MOD_DEC_USE_COUNT;
 }
 
@@ -1766,7 +1775,7 @@ static void cbq_put(struct Qdisc *sch, unsigned long arg)
 		spin_unlock_bh(&sch->dev->queue_lock);
 #endif
 
-		cbq_destroy_class(cl);
+		cbq_destroy_class(sch, cl);
 	}
 }
 
@@ -2000,7 +2009,7 @@ static int cbq_delete(struct Qdisc *sch, unsigned long arg)
 	sch_tree_unlock(sch);
 
 	if (--cl->refcnt == 0)
-		cbq_destroy_class(cl);
+		cbq_destroy_class(sch, cl);
 
 	return 0;
 }

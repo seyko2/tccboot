@@ -22,6 +22,7 @@
 #include <linux/init.h>
 #include <linux/if_bridge.h>
 #include <linux/brlock.h>
+#include <linux/rtnetlink.h>
 #include <asm/uaccess.h>
 #include "br_private.h"
 
@@ -54,15 +55,13 @@ static int __init br_init(void)
 	return 0;
 }
 
-static void __br_clear_ioctl_hook(void)
-{
-	br_ioctl_hook = NULL;
-}
-
 static void __exit br_deinit(void)
 {
 	unregister_netdevice_notifier(&br_device_notifier);
-	br_call_ioctl_atomic(__br_clear_ioctl_hook);
+
+	rtnl_lock();
+	br_ioctl_hook = NULL;
+	rtnl_unlock();
 
 	br_write_lock_bh(BR_NETPROTO_LOCK);
 	br_handle_frame_hook = NULL;

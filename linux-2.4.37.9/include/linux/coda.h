@@ -767,8 +767,8 @@ union coda_downcalls {
 #define PIOCPARM_MASK 0x0000ffff
 struct ViceIoctl {
         caddr_t in, out;        /* Data to be transferred in, or out */
-        short in_size;          /* Size of input buffer <= 2K */
-        short out_size;         /* Maximum size of output buffer, <= 2K */
+        u_short in_size;        /* Size of input buffer <= 2K */
+        u_short out_size;       /* Maximum size of output buffer, <= 2K */
 };
 
 struct PioctlData {

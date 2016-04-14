@@ -6,7 +6,7 @@
  * Bugreports.to..: <Linux390@de.ibm.com>
  * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 1999-2001
  *
- * $Revision: 1.311 $
+ * $Revision: 1.298.2.11 $
  *
  * History of changes (starts July 2000)
  * 11/09/00 complete redesign after code review
@@ -311,7 +311,7 @@ dasd_add_range (int from, int to, int features)
         /* and add the remaining subranges                                 */
 	for (start = index = from, end = -EINVAL; index <= to; index++) {
                 
-                if (dasd_devindex_from_devno(index) > 0) {
+                if (dasd_devindex_from_devno(index) >= 0) {
                         /* current device is already in range */
                         MESSAGE (KERN_DEBUG,
                                  "dasd_add_range %04x-%04x: "
@@ -3815,7 +3815,7 @@ dasd_oper_handler (int irq, devreg_t * devreg)
 	}
 
         if (device &&
-            device->level >= DASD_STATE_READY) {
+            device->level >= DASD_STATE_NEW) {
                 s390irq_spin_lock_irqsave (device->devinfo.irq, 
                                            flags);
 		DEV_MESSAGE (KERN_DEBUG, device, "%s",
@@ -4655,15 +4655,17 @@ dasd_generic_read (struct file *file, char *user_buf, size_t user_len,
 		   loff_t * offset)
 {
 	loff_t len;
+	loff_t n = *offset;
+	unsigned pos = n;
 	tempinfo_t *p_info = (tempinfo_t *) file->private_data;
 
-	if (*offset >= p_info->len) {
+	if (n != pos || pos >= p_info->len) {
 		return 0;	/* EOF */
 	} else {
-		len = MIN (user_len, (p_info->len - *offset));
-		if (copy_to_user (user_buf, &(p_info->data[*offset]), len))
+		len = MIN (user_len, (p_info->len - pos));
+		if (copy_to_user (user_buf, &(p_info->data[pos]), len))
 			return -EFAULT;
-		(*offset) += len;
+		*offset = pos + len;
 		return len;	/* number of bytes "read" */
 	}
 }
@@ -5186,6 +5188,7 @@ dasd_statistics_write (struct file *file, const char *user_buf,
                          "/proc/dasd/statistics: only 'set' and "
                          "'reset' are supported verbs");
 
+		vfree (buffer);
         	return -EINVAL;
 	}
 
@@ -5241,6 +5244,7 @@ dasd_statistics_write (struct file *file, const char *user_buf,
         
 
 #endif /* DASD_PROFILE */
+        vfree (buffer);
 	return user_len;
 }
 

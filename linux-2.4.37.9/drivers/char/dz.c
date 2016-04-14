@@ -402,9 +402,7 @@ static void do_softint(void *private_data)
 		return;
 
 	if (test_and_clear_bit(DZ_EVENT_WRITE_WAKEUP, &info->event)) {
-		if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) && tty->ldisc.write_wakeup)
-			(tty->ldisc.write_wakeup) (tty);
-		wake_up_interruptible(&tty->write_wait);
+		tty_wakeup(tty);
 	}
 }
 
@@ -804,10 +802,7 @@ static void dz_flush_buffer(struct tty_struct *tty)
 	info->xmit_cnt = info->xmit_head = info->xmit_tail = 0;
 	sti();
 
-	wake_up_interruptible(&tty->write_wait);
-
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) && tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup) (tty);
+	tty_wakeup(tty);
 }
 
 /*
@@ -1106,16 +1101,15 @@ static void dz_close(struct tty_struct *tty, struct file *filp)
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 	tty->closing = 0;
 	info->event = 0;
 	info->tty = 0;
 
-	if (tty->ldisc.num != ldiscs[N_TTY].num) {
+	if (tty->ldisc.num != N_TTY) {
 		if (tty->ldisc.close)
 			(tty->ldisc.close) (tty);
-		tty->ldisc = ldiscs[N_TTY];
+		tty->ldisc = *(tty_ldisc_get(N_TTY));
 		tty->termios->c_line = N_TTY;
 		if (tty->ldisc.open)
 			(tty->ldisc.open) (tty);

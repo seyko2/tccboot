@@ -302,7 +302,7 @@ typedef struct fr_channel
 typedef struct dlci_status
 {
 	unsigned short dlci	PACKED;
-	unsigned char state	PACKED;
+	unsigned char state;
 } dlci_status_t;
 
 typedef struct dlci_IB_mapping
@@ -316,9 +316,9 @@ typedef struct dlci_IB_mapping
  */
 typedef struct fr_dlci_interface 
 {
-	unsigned char gen_interrupt	PACKED;
+	unsigned char gen_interrupt;
 	unsigned short packet_length	PACKED;
-	unsigned char reserved		PACKED;
+	unsigned char reserved;
 } fr_dlci_interface_t; 
 
 /* variable for keeping track of enabling/disabling FT1 monitor status */
@@ -3929,7 +3929,7 @@ static int process_udp_mgmt_pkt(sdla_t* card)
                                 break;
                         }
 
-			(void *)ptr_trc_el = card->u.f.curr_trc_el;
+			ptr_trc_el = (void *)card->u.f.curr_trc_el;
 
                         buffer_length = 0;
 			fr_udp_pkt->data[0x00] = 0x00;
@@ -3980,7 +3980,7 @@ static int process_udp_mgmt_pkt(sdla_t* card)
                                
 				ptr_trc_el ++;
 				if((void *)ptr_trc_el > card->u.f.trc_el_last)
-					(void*)ptr_trc_el = card->u.f.trc_el_base;
+					ptr_trc_el = (void*)card->u.f.trc_el_base;
 
 				buffer_length += sizeof(fpipemon_trc_hdr_t);
                                	if(fpipemon_trc->fpipemon_trc_hdr.data_passed) {

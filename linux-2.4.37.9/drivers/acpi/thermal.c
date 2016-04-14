@@ -227,6 +227,13 @@ acpi_thermal_set_cooling_mode (
 	status = acpi_get_handle(tz->handle, "_SCP", &handle);
 	if (ACPI_FAILURE(status)) {
 		ACPI_DEBUG_PRINT((ACPI_DB_INFO, "_SCP not present\n"));
+		status = acpi_get_handle(tz->handle, "_PSV", &handle);
+		if(!ACPI_FAILURE(status)) {
+			tz->cooling_mode = 1;
+			ACPI_DEBUG_PRINT((ACPI_DB_INFO, "Cooling mode [%s]\n", 
+				mode?"passive":"active"));
+			return_VALUE(0);
+		}
 		return_VALUE(-ENODEV);
 	}
 
@@ -1051,6 +1058,7 @@ acpi_thermal_add_fs (
 			acpi_thermal_dir);
 		if (!acpi_device_dir(device))
 			return_VALUE(-ENODEV);
+		acpi_device_dir(device)->owner = THIS_MODULE;
 	}
 
 	/* 'state' [R] */
@@ -1063,6 +1071,7 @@ acpi_thermal_add_fs (
 	else {
 		entry->read_proc = acpi_thermal_read_state;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'temperature' [R] */
@@ -1075,6 +1084,7 @@ acpi_thermal_add_fs (
 	else {
 		entry->read_proc = acpi_thermal_read_temperature;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'trip_points' [R/W] */
@@ -1088,6 +1098,7 @@ acpi_thermal_add_fs (
 		entry->read_proc = acpi_thermal_read_trip_points;
 		entry->write_proc = acpi_thermal_write_trip_points;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'cooling_mode' [R/W] */
@@ -1101,6 +1112,7 @@ acpi_thermal_add_fs (
 		entry->read_proc = acpi_thermal_read_cooling_mode;
 		entry->write_proc = acpi_thermal_write_cooling_mode;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'polling_frequency' [R/W] */
@@ -1114,6 +1126,7 @@ acpi_thermal_add_fs (
 		entry->read_proc = acpi_thermal_read_polling;
 		entry->write_proc = acpi_thermal_write_polling;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	return_VALUE(0);
@@ -1127,6 +1140,16 @@ acpi_thermal_remove_fs (
 	ACPI_FUNCTION_TRACE("acpi_thermal_remove_fs");
 
 	if (acpi_device_dir(device)) {
+		remove_proc_entry(ACPI_THERMAL_FILE_POLLING_FREQ,
+				  acpi_device_dir(device));
+		remove_proc_entry(ACPI_THERMAL_FILE_COOLING_MODE,
+				  acpi_device_dir(device));
+		remove_proc_entry(ACPI_THERMAL_FILE_TRIP_POINTS,
+				  acpi_device_dir(device));
+		remove_proc_entry(ACPI_THERMAL_FILE_TEMPERATURE,
+				  acpi_device_dir(device));
+		remove_proc_entry(ACPI_THERMAL_FILE_STATE,
+				  acpi_device_dir(device));
 		remove_proc_entry(acpi_device_bid(device), acpi_thermal_dir);
 		acpi_device_dir(device) = NULL;
 	}
@@ -1332,6 +1355,7 @@ acpi_thermal_init (void)
 	acpi_thermal_dir = proc_mkdir(ACPI_THERMAL_CLASS, acpi_root_dir);
 	if (!acpi_thermal_dir)
 		return_VALUE(-ENODEV);
+	acpi_thermal_dir->owner = THIS_MODULE;
 
 	result = acpi_bus_register_driver(&acpi_thermal_driver);
 	if (result < 0) {

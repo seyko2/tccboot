@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2003 Silicon Graphics, Inc.  All Rights Reserved.
+ * Copyright (c) 2000-2004 Silicon Graphics, Inc.  All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -136,9 +136,14 @@ typedef struct xfs_quotainfo {
 	xfs_qwarncnt_t	 qi_bwarnlimit;	 /* limit for num warnings */
 	xfs_qwarncnt_t	 qi_iwarnlimit;	 /* limit for num warnings */
 	mutex_t		 qi_quotaofflock;/* to serialize quotaoff */
-	/* Some useful precalculated constants */
 	xfs_filblks_t	 qi_dqchunklen;	 /* # BBs in a chunk of dqs */
 	uint		 qi_dqperchunk;	 /* # ondisk dqs in above chunk */
+	xfs_qcnt_t	 qi_bhardlimit;	 /* default data blk hard limit */
+	xfs_qcnt_t	 qi_bsoftlimit;	 /* default data blk soft limit */
+	xfs_qcnt_t	 qi_ihardlimit;	 /* default inode count hard limit */
+	xfs_qcnt_t	 qi_isoftlimit;	 /* default inode count soft limit */
+	xfs_qcnt_t	 qi_rtbhardlimit;/* default realtime blk hard limit */
+	xfs_qcnt_t	 qi_rtbsoftlimit;/* default realtime blk soft limit */
 } xfs_quotainfo_t;
 
 
@@ -177,17 +182,19 @@ typedef struct xfs_dquot_acct {
 #define XFS_QM_HOLD(xqm)	((xqm)->qm_nrefs++)
 #define XFS_QM_RELE(xqm)	((xqm)->qm_nrefs--)
 
+extern void		xfs_mount_reset_sbqflags(xfs_mount_t *);
+
 extern int		xfs_qm_init_quotainfo(xfs_mount_t *);
 extern void		xfs_qm_destroy_quotainfo(xfs_mount_t *);
-extern int		xfs_qm_mount_quotas(xfs_mount_t *);
+extern int		xfs_qm_mount_quotas(xfs_mount_t *, int);
 extern void		xfs_qm_mount_quotainit(xfs_mount_t *, uint);
+extern int		xfs_qm_quotacheck(xfs_mount_t *);
 extern void		xfs_qm_unmount_quotadestroy(xfs_mount_t *);
 extern int		xfs_qm_unmount_quotas(xfs_mount_t *);
 extern int		xfs_qm_write_sb_changes(xfs_mount_t *, __int64_t);
 extern int		xfs_qm_sync(xfs_mount_t *, short);
 
 /* dquot stuff */
-extern void		xfs_qm_dqunlink(xfs_dquot_t *);
 extern boolean_t	xfs_qm_dqalloc_incore(xfs_dquot_t **);
 extern int		xfs_qm_dqattach(xfs_inode_t *, uint);
 extern void		xfs_qm_dqdetach(xfs_inode_t *);

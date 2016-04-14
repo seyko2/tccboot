@@ -481,7 +481,7 @@ static void ambauart_modem_status(struct amba_info *info)
 		icount->dcd++;
 #ifdef CONFIG_HARD_PPS
 		if ((info->flags & ASYNC_HARDPPS_CD) &&
-		    (status & AMBA_UARTFR_DCD)
+		    (status & AMBA_UARTFR_DCD))
 			hardpps();
 #endif
 		if (info->flags & ASYNC_CHECK_CD) {
@@ -569,10 +569,7 @@ static void ambauart_tasklet_action(unsigned long data)
 	if (!tty || !test_and_clear_bit(EVT_WRITE_WAKEUP, &info->event))
 		return;
 
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup)(tty);
-	wake_up_interruptible(&tty->write_wait);
+	tty_wakeup(tty);
 }
 
 static int ambauart_startup(struct amba_info *info)
@@ -958,10 +955,7 @@ static void ambauart_flush_buffer(struct tty_struct *tty)
 	save_flags(flags); cli();
 	info->xmit.head = info->xmit.tail = 0;
 	restore_flags(flags);
-	wake_up_interruptible(&tty->write_wait);
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup)(tty);
+	tty_wakeup(tty);
 }
 
 /*
@@ -1459,8 +1453,7 @@ static void ambauart_close(struct tty_struct *tty, struct file *filp)
 	ambauart_shutdown(info);
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 	tty->closing = 0;
 	info->event = 0;
 	info->tty = NULL;

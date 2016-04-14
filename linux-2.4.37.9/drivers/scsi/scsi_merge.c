@@ -418,7 +418,7 @@ __inline static int __scsi_back_merge_fn(request_queue_t * q,
 		return 0;
 
 	if (!BH_PHYS_4G(req->bhtail, bh))
-		return 0;
+		goto new_end_segment;
 
 	if (use_clustering) {
 		/* 
@@ -477,7 +477,7 @@ __inline static int __scsi_front_merge_fn(request_queue_t * q,
 		return 0;
 
 	if (!BH_PHYS_4G(bh, req->bh))
-		return 0;
+		goto new_start_segment;
 
 	if (use_clustering) {
 		/* 
@@ -640,7 +640,7 @@ __inline static int __scsi_merge_requests_fn(request_queue_t * q,
 		return 0;
 
 	if (!BH_PHYS_4G(req->bhtail, next->bh))
-		return 0;
+		goto dont_combine;
 
 	/*
 	 * The main question is whether the two segments at the boundaries

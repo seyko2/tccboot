@@ -210,6 +210,7 @@ hysdn_log_read(struct file *file, char *buf, size_t count, loff_t * off)
 	word ino;
 	struct procdata *pd = NULL;
 	hysdn_card *card;
+	loff_t pos = *off;
 
 	if (!*((struct log_data **) file->private_data)) {
 		if (file->f_flags & O_NONBLOCK)
@@ -234,11 +235,11 @@ hysdn_log_read(struct file *file, char *buf, size_t count, loff_t * off)
 		return (0);
 
 	inf->usage_cnt--;	/* new usage count */
-	(struct log_data **) file->private_data = &inf->next;	/* next structure */
+	file->private_data = &inf->next;	/* next structure */
 	if ((len = strlen(inf->log_start)) <= count) {
 		if (copy_to_user(buf, inf->log_start, len))
 			return -EFAULT;
-		file->f_pos += len;
+		*off = pos + len;
 		return (len);
 	}
 	return (0);
@@ -277,9 +278,9 @@ hysdn_log_open(struct inode *ino, struct file *filep)
 		cli();
 		pd->if_used++;
 		if (pd->log_head)
-			(struct log_data **) filep->private_data = &(pd->log_tail->next);
+			filep->private_data = &(pd->log_tail->next);
 		else
-			(struct log_data **) filep->private_data = &(pd->log_head);
+			filep->private_data = &(pd->log_head);
 		restore_flags(flags);
 	} else {		/* simultaneous read/write access forbidden ! */
 		unlock_kernel();

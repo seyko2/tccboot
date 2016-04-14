@@ -1,7 +1,7 @@
 /*
  * Copyright 2001 MontaVista Software Inc.
  * Author: Jun Sun, jsun@mvista.com or jsun@junsun.net
- * Copyright (c) 2003  Maciej W. Rozycki
+ * Copyright (c) 2003, 2004  Maciej W. Rozycki
  *
  * Common time service routines for MIPS machines. See
  * Documentation/mips/time.README.
@@ -26,6 +26,7 @@
 #include <linux/module.h>
 
 #include <asm/bootinfo.h>
+#include <asm/compiler.h>
 #include <asm/cpu.h>
 #include <asm/time.h>
 #include <asm/hardirq.h>
@@ -242,7 +243,7 @@ static unsigned long fixed_rate_gettimeoffset(void)
 	__asm__("multu	%1,%2"
 		: "=h" (res)
 		: "r" (count), "r" (sll32_usecs_per_cycle)
-		: "lo", "accum");
+		: "lo", GCC_REG_ACCUM);
 
 	/*
 	 * Due to possible jiffies inconsistencies, we need to check
@@ -297,7 +298,7 @@ static unsigned long calibrate_div32_gettimeoffset(void)
 	__asm__("multu  %1,%2"
 		: "=h" (res)
 		: "r" (count), "r" (quotient)
-		: "lo", "accum");
+		: "lo", GCC_REG_ACCUM);
 
 	/*
 	 * Due to possible jiffies inconsistencies, we need to check
@@ -339,7 +340,7 @@ static unsigned long calibrate_div64_gettimeoffset(void)
 				: "r" (timerhi), "m" (timerlo),
 				  "r" (tmp), "r" (USECS_PER_JIFFY),
 				  "r" (USECS_PER_JIFFY_FRAC)
-				: "hi", "lo", "accum");
+				: "hi", "lo", GCC_REG_ACCUM);
 			cached_quotient = quotient;
 		}
 	}
@@ -353,7 +354,7 @@ static unsigned long calibrate_div64_gettimeoffset(void)
 	__asm__("multu	%1,%2"
 		: "=h" (res)
 		: "r" (count), "r" (quotient)
-		: "lo", "accum");
+		: "lo", GCC_REG_ACCUM);
 
 	/*
 	 * Due to possible jiffies inconsistencies, we need to check

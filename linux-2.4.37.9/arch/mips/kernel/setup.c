@@ -40,6 +40,7 @@
 #include <asm/system.h>
 
 struct cpuinfo_mips cpu_data[NR_CPUS];
+EXPORT_SYMBOL(cpu_data);
 
 /*
  * There are several bus types available for MIPS machines.  "RISC PC"

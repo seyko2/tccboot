@@ -783,12 +783,6 @@ acpi_ut_init_globals (
 
 	ACPI_FUNCTION_TRACE ("ut_init_globals");
 
-	/* Runtime configuration */
-
-	acpi_gbl_create_osi_method = TRUE;
-	acpi_gbl_all_methods_serialized = FALSE;
-	acpi_gbl_leave_wake_gpes_disabled = TRUE;
-
 	/* Memory allocation and cache lists */
 
 	ACPI_MEMSET (acpi_gbl_memory_lists, 0, sizeof (struct acpi_memory_list) * ACPI_NUM_MEM_LISTS);

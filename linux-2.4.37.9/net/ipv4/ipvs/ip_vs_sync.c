@@ -11,6 +11,12 @@
  *
  * ip_vs_sync:  sync connection info from master load balancer to backups
  *              through multicast
+ *
+ * Changes:
+ *	Alexandre Cassen        :       Added master & backup support at a time.
+ *	Alexandre Cassen        :       Added SyncID support for incoming sync
+ *					messages filtering.
+ *	Justin Ossevoort	:	Fix endian problem on sync message size.
  */
 
 #include <linux/module.h>
@@ -71,7 +77,7 @@ struct ip_vs_sync_conn_options {
        0                   1                   2                   3
        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-      |  Count Conns  |   Reserved    |            Size               |
+      |  Count Conns  |    Sync ID    |            Size               |
       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
       |                                                               |
       |                    IPVS Sync Connection (1)                   |
@@ -83,11 +89,16 @@ struct ip_vs_sync_conn_options {
       |                                                               |
       |                    IPVS Sync Connection (n)                   |
       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+   Count Conns : Number of IPVS sync Connection entries.
+   Sync ID     : IPVS sync group we belong to.
+   Size        : Size of packet.
+
 */
 #define SYNC_MESG_MAX_SIZE      (24*50+4)
 struct ip_vs_sync_mesg {
 	__u8                    nr_conns;
-	__u8                    reserved;
+	__u8                    syncid;
 	__u16                   size;
 
 	/* ip_vs_sync_conn entries start here */
@@ -112,6 +123,18 @@ static spinlock_t ip_vs_sync_lock = SPIN_LOCK_UNLOCKED;
 /* current sync_buff for accepting new conn entries */
 static struct ip_vs_sync_buff   *curr_sb = NULL;
 static spinlock_t curr_sb_lock = SPIN_LOCK_UNLOCKED;
+
+/* ipvs sync daemon state */
+volatile int ip_vs_sync_state = IP_VS_STATE_NONE;
+volatile int ip_vs_master_syncid = 0;
+volatile int ip_vs_backup_syncid = 0;
+
+/* multicast interface name */
+char ip_vs_mcast_master_ifn[IP_VS_IFNAME_MAXLEN];
+char ip_vs_mcast_backup_ifn[IP_VS_IFNAME_MAXLEN];
+
+/* multicast addr */
+static struct sockaddr_in mcast_addr;
 
 static inline void sb_queue_tail(struct ip_vs_sync_buff *sb)
 {
@@ -150,6 +173,7 @@ static inline struct ip_vs_sync_buff * ip_vs_sync_buff_create(void)
 		return NULL;
 	}
 	sb->mesg->nr_conns = 0;
+	sb->mesg->syncid = ip_vs_master_syncid;
 	sb->mesg->size = 4;
 	sb->head = (unsigned char *)sb->mesg + 4;
 	sb->end = (unsigned char *)sb->mesg + SYNC_MESG_MAX_SIZE;
@@ -254,23 +278,41 @@ static void ip_vs_process_message(const char *buffer, const size_t buflen)
 	char *p;
 	int i;
 
+	/* Convert size back to host byte order */
+	m->size = ntohs(m->size);
+
 	if (buflen != m->size) {
 		IP_VS_ERR("bogus message\n");
 		return;
 	}
 
+	/* SyncID sanity check */
+	if (ip_vs_backup_syncid != 0 && m->syncid != ip_vs_backup_syncid) {
+		IP_VS_DBG(7, "Ignoring incoming msg with syncid = %d\n",
+			  m->syncid);
+		return;
+	}
+
 	p = (char *)buffer + sizeof(struct ip_vs_sync_mesg);
 	for (i=0; i<m->nr_conns; i++) {
+		unsigned flags;
+
 		s = (struct ip_vs_sync_conn *)p;
-		cp = ip_vs_conn_in_get(s->protocol,
-				       s->caddr, s->cport,
-				       s->vaddr, s->vport);
+		flags = ntohs(s->flags);
+		if (!(flags & IP_VS_CONN_F_TEMPLATE))
+			cp = ip_vs_conn_in_get(s->protocol,
+					       s->caddr, s->cport,
+					       s->vaddr, s->vport);
+		else
+			cp = ip_vs_ct_in_get(s->protocol,
+					       s->caddr, s->cport,
+					       s->vaddr, s->vport);
 		if (!cp) {
 			cp = ip_vs_conn_new(s->protocol,
 					    s->caddr, s->cport,
 					    s->vaddr, s->vport,
 					    s->daddr, s->dport,
-					    ntohs(s->flags), NULL);
+					    flags, NULL);
 			if (!cp) {
 				IP_VS_ERR("ip_vs_conn_new failed\n");
 				return;
@@ -279,11 +321,11 @@ static void ip_vs_process_message(const char *buffer, const size_t buflen)
 		} else if (!cp->dest) {
 			/* it is an entry created by the synchronization */
 			cp->state = ntohs(s->state);
-			cp->flags = ntohs(s->flags) | IP_VS_CONN_F_HASHED;
+			cp->flags = flags | IP_VS_CONN_F_HASHED;
 		}	/* Note that we don't touch its state and flags
 			   if it is a normal entry. */
 
-		if (ntohs(s->flags) & IP_VS_CONN_F_SEQ_MASK) {
+		if (flags & IP_VS_CONN_F_SEQ_MASK) {
 			opt = (struct ip_vs_sync_conn_options *)&s[1];
 			memcpy(&cp->in_seq, opt, sizeof(*opt));
 			p += FULL_CONN_SIZE;
@@ -300,16 +342,6 @@ static void ip_vs_process_message(const char *buffer, const size_t buflen)
 		}
 	}
 }
-
-
-/* ipvs sync daemon state */
-volatile int ip_vs_sync_state = IP_VS_STATE_NONE;
-
-/* multicast interface name */
-char ip_vs_mcast_ifn[IP_VS_IFNAME_MAXLEN];
-
-/* multicast addr */
-static struct sockaddr_in mcast_addr;
 
 
 /*
@@ -423,7 +455,7 @@ static struct socket * make_send_sock(void)
 		return NULL;
 	}
 
-	if (set_mcast_if(sock->sk, ip_vs_mcast_ifn) < 0) {
+	if (set_mcast_if(sock->sk, ip_vs_mcast_master_ifn) < 0) {
 		IP_VS_ERR("Error setting outbound mcast interface\n");
 		goto error;
 	}
@@ -431,7 +463,7 @@ static struct socket * make_send_sock(void)
 	set_mcast_loop(sock->sk, 0);
 	set_mcast_ttl(sock->sk, 1);
 
-	if (bind_mcastif_addr(sock, ip_vs_mcast_ifn) < 0) {
+	if (bind_mcastif_addr(sock, ip_vs_mcast_master_ifn) < 0) {
 		IP_VS_ERR("Error binding address of the mcast interface\n");
 		goto error;
 	}
@@ -477,7 +509,7 @@ static struct socket * make_receive_sock(void)
 	/* join the multicast group */
 	if (join_mcast_group(sock->sk,
 			     (struct in_addr*)&mcast_addr.sin_addr,
-			     ip_vs_mcast_ifn) < 0) {
+			     ip_vs_mcast_backup_ifn) < 0) {
 		IP_VS_ERR("Error joining to the multicast group\n");
 		goto error;
 	}
@@ -517,6 +549,19 @@ ip_vs_send_async(struct socket *sock, const char *buffer, const size_t length)
 	return len;
 }
 
+static void
+ip_vs_send_sync_msg(struct socket *sock, struct ip_vs_sync_mesg *msg)
+{
+	int msize;
+
+	msize = msg->size;
+
+	/* Put size in network byte order */
+	msg->size = htons(msg->size);
+
+	if (ip_vs_send_async(sock, (char *)msg, msize) != msize)
+		IP_VS_ERR("ip_vs_send_async error\n");
+}
 
 static int
 ip_vs_receive(struct socket *sock, char *buffer, const size_t buflen)
@@ -552,41 +597,40 @@ ip_vs_receive(struct socket *sock, char *buffer, const size_t buflen)
 
 
 static DECLARE_WAIT_QUEUE_HEAD(sync_wait);
-static pid_t sync_pid = 0;
+static pid_t sync_master_pid = 0;
+static pid_t sync_backup_pid = 0;
 
 static DECLARE_WAIT_QUEUE_HEAD(stop_sync_wait);
-static int stop_sync = 0;
+static int stop_master_sync = 0;
+static int stop_backup_sync = 0;
 
 static void sync_master_loop(void)
 {
 	struct socket *sock;
 	struct ip_vs_sync_buff *sb;
-	struct ip_vs_sync_mesg *m;
 
 	/* create the sending multicast socket */
 	sock = make_send_sock();
 	if (!sock)
 		return;
 
+	IP_VS_INFO("sync thread started: state = MASTER, mcast_ifn = %s, "
+		   "syncid = %d\n",
+		   ip_vs_mcast_master_ifn, ip_vs_master_syncid);
+
 	for (;;) {
 		while ((sb=sb_dequeue())) {
-			m = sb->mesg;
-			if (ip_vs_send_async(sock, (char *)m,
-					     m->size) != m->size)
-				IP_VS_ERR("ip_vs_send_async error\n");
+			ip_vs_send_sync_msg(sock, sb->mesg);
 			ip_vs_sync_buff_release(sb);
 		}
 
 		/* check if entries stay in curr_sb for 2 seconds */
 		if ((sb = get_curr_sync_buff(2*HZ))) {
-			m = sb->mesg;
-			if (ip_vs_send_async(sock, (char *)m,
-					     m->size) != m->size)
-				IP_VS_ERR("ip_vs_send_async error\n");
+			ip_vs_send_sync_msg(sock, sb->mesg);
 			ip_vs_sync_buff_release(sb);
 		}
 
-		if (stop_sync)
+		if (stop_master_sync)
 			break;
 
 		__set_current_state(TASK_INTERRUPTIBLE);
@@ -625,6 +669,10 @@ static void sync_backup_loop(void)
 	if (!sock)
 		goto out;
 
+	IP_VS_INFO("sync thread started: state = BACKUP, mcast_ifn = %s, "
+		   "syncid = %d\n",
+		   ip_vs_mcast_backup_ifn, ip_vs_backup_syncid);
+
 	for (;;) {
 		/* do you have data now? */
 		while (!skb_queue_empty(&(sock->sk->receive_queue))) {
@@ -640,7 +688,7 @@ static void sync_backup_loop(void)
 			local_bh_enable();
 		}
 
-		if (stop_sync)
+		if (stop_backup_sync)
 			break;
 
 		__set_current_state(TASK_INTERRUPTIBLE);
@@ -655,12 +703,31 @@ static void sync_backup_loop(void)
 	kfree(buf);
 }
 
+static void sync_pid_set(int sync_state, pid_t sync_pid)
+{
+	if (sync_state == IP_VS_STATE_MASTER)
+		sync_master_pid = sync_pid;
+	else if (sync_state == IP_VS_STATE_BACKUP)
+		sync_backup_pid = sync_pid;
+}
+
+static void sync_stop_set(int sync_state, int set)
+{
+	if (sync_state == IP_VS_STATE_MASTER)
+		stop_master_sync = set;
+	else if (sync_state == IP_VS_STATE_BACKUP)
+		stop_backup_sync = set;
+	else {
+		stop_master_sync = set;
+		stop_backup_sync = set;
+	}
+}
 
 static int sync_thread(void *startup)
 {
 	DECLARE_WAITQUEUE(wait, current);
 	mm_segment_t oldmm;
-	int state;
+	int state = IP_VS_STATE_NONE;
 
 	MOD_INC_USE_COUNT;
 	daemonize();
@@ -668,12 +735,15 @@ static int sync_thread(void *startup)
 	oldmm = get_fs();
 	set_fs(KERNEL_DS);
 
-	if (ip_vs_sync_state == IP_VS_STATE_MASTER)
+	if (ip_vs_sync_state & IP_VS_STATE_MASTER && !sync_master_pid) {
+		state = IP_VS_STATE_MASTER;
 		sprintf(current->comm, "ipvs_syncmaster");
-	else if (ip_vs_sync_state == IP_VS_STATE_BACKUP)
+	} else if (ip_vs_sync_state & IP_VS_STATE_BACKUP) {
+		state = IP_VS_STATE_BACKUP;
 		sprintf(current->comm, "ipvs_syncbackup");
-	else IP_VS_BUG();
+	} else IP_VS_BUG();
 
+	/* Block all signals */
 	spin_lock_irq(&current->sigmask_lock);
 	siginitsetinv(&current->blocked, 0);
 	recalc_sigpending(current);
@@ -686,9 +756,7 @@ static int sync_thread(void *startup)
 
 	add_wait_queue(&sync_wait, &wait);
 
-	state = ip_vs_sync_state;
-	sync_pid = current->pid;
-	IP_VS_INFO("sync thread started.\n");
+	sync_pid_set(state, current->pid);
 	complete((struct completion *)startup);
 
 	/* processing master/backup loop here */
@@ -701,13 +769,13 @@ static int sync_thread(void *startup)
 	remove_wait_queue(&sync_wait, &wait);
 
 	/* thread exits */
-	sync_pid = 0;
+	sync_pid_set(state, 0);
 	IP_VS_INFO("sync thread stopped!\n");
 
 	set_fs(oldmm);
 	MOD_DEC_USE_COUNT;
 
-	stop_sync = 0;
+	sync_stop_set(state, 0);
 	wake_up(&stop_sync_wait);
 
 	return 0;
@@ -733,20 +801,29 @@ static int fork_sync_thread(void *startup)
 }
 
 
-int start_sync_thread(int state, char *mcast_ifn)
+int start_sync_thread(int state, char *mcast_ifn, __u8 syncid)
 {
 	DECLARE_COMPLETION(startup);
 	pid_t pid;
 
-	if (sync_pid)
+	if ((state == IP_VS_STATE_MASTER && sync_master_pid) ||
+	    (state == IP_VS_STATE_BACKUP && sync_backup_pid))
 		return -EEXIST;
 
 	IP_VS_DBG(7, "%s: pid %d\n", __FUNCTION__, current->pid);
 	IP_VS_DBG(7, "Each ip_vs_sync_conn entry need %d bytes\n",
 		  sizeof(struct ip_vs_sync_conn));
 
-	ip_vs_sync_state = state;
-	strcpy(ip_vs_mcast_ifn, mcast_ifn);
+	ip_vs_sync_state |= state;
+	if (state == IP_VS_STATE_MASTER) {
+		strncpy(ip_vs_mcast_master_ifn, mcast_ifn, sizeof(ip_vs_mcast_master_ifn));
+		ip_vs_mcast_master_ifn[sizeof(ip_vs_mcast_master_ifn) - 1] = 0;
+		ip_vs_master_syncid = syncid;
+	} else {
+		strncpy(ip_vs_mcast_backup_ifn, mcast_ifn, sizeof(ip_vs_mcast_backup_ifn));
+		ip_vs_mcast_backup_ifn[sizeof(ip_vs_mcast_backup_ifn) - 1] = 0;
+		ip_vs_backup_syncid = syncid;
+	}
 
   repeat:
 	if ((pid = kernel_thread(fork_sync_thread, &startup, 0)) < 0) {
@@ -763,20 +840,22 @@ int start_sync_thread(int state, char *mcast_ifn)
 }
 
 
-int stop_sync_thread(void)
+int stop_sync_thread(int state)
 {
 	DECLARE_WAITQUEUE(wait, current);
 
-	if (!sync_pid)
+	if ((state == IP_VS_STATE_MASTER && !sync_master_pid) ||
+	    (state == IP_VS_STATE_BACKUP && !sync_backup_pid))
 		return -ESRCH;
 
 	IP_VS_DBG(7, "%s: pid %d\n", __FUNCTION__, current->pid);
-	IP_VS_INFO("stopping sync thread %d ...\n", sync_pid);
+	IP_VS_INFO("stopping sync thread %d ...\n",
+		   (state == IP_VS_STATE_MASTER) ? sync_master_pid : sync_backup_pid);
 
 	__set_current_state(TASK_UNINTERRUPTIBLE);
 	add_wait_queue(&stop_sync_wait, &wait);
-	ip_vs_sync_state = IP_VS_STATE_NONE;
-	stop_sync = 1;
+	sync_stop_set(state, 1);
+	ip_vs_sync_state -= state;
 	wake_up(&sync_wait);
 	schedule();
 	__set_current_state(TASK_RUNNING);
@@ -785,7 +864,8 @@ int stop_sync_thread(void)
 	/* Note: no need to reap the sync thread, because its parent
 	   process is the init process */
 
-	if (stop_sync)
+	if ((state == IP_VS_STATE_MASTER && stop_master_sync) ||
+	    (state == IP_VS_STATE_BACKUP && stop_backup_sync))
 		IP_VS_BUG();
 
 	return 0;

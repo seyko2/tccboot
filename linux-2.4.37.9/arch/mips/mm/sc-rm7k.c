@@ -1,8 +1,11 @@
 /*
  * sc-rm7k.c: RM7000 cache management functions.
  *
- * Copyright (C) 1997, 2001, 2003 Ralf Baechle (ralf@gnu.org),
+ * Copyright (C) 1997, 2001, 2003, 2004 Ralf Baechle (ralf@linux-mips.org)
  */
+
+#undef DEBUG
+
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -16,8 +19,6 @@
 /* Primary cache parameters. */
 #define sc_lsize	32
 #define tc_pagesize	(32*128)
-
-static unsigned long scache_way_size = 32;		/* HACKKKKK!!! */
 
 /* Secondary cache parameters. */
 #define scache_size	(256*1024)	/* Fixed to 256KiB on RM7000 */
@@ -36,9 +37,10 @@ static void rm7k_sc_wback_inv(unsigned long addr, unsigned long size)
 {
 	unsigned long end, a;
 
-#ifdef DEBUG_CACHE
-	printk("rm7k_sc_wback_inv[%08lx,%08lx]", addr, size);
-#endif
+	pr_debug("rm7k_sc_wback_inv[%08lx,%08lx]", addr, size);
+
+	/* Catch bad driver code */
+	BUG_ON(size == 0);
 
 	a = addr & ~(sc_lsize - 1);
 	end = (addr + size - 1) & ~(sc_lsize - 1);
@@ -66,9 +68,10 @@ static void rm7k_sc_inv(unsigned long addr, unsigned long size)
 {
 	unsigned long end, a;
 
-#ifdef DEBUG_CACHE
-	printk("rm7k_sc_inv[%08lx,%08lx]", addr, size);
-#endif
+	pr_debug("rm7k_sc_inv[%08lx,%08lx]", addr, size);
+
+	/* Catch bad driver code */
+	BUG_ON(size == 0);
 
 	a = addr & ~(sc_lsize - 1);
 	end = (addr + size - 1) & ~(sc_lsize - 1);
@@ -107,16 +110,16 @@ static void rm7k_sc_inv(unsigned long addr, unsigned long size)
  *
  * It seems we get our kicks from relying on unguaranteed behaviour in GCC
  */
-static __init void rm7k_sc_enable(void)
+static __init void __rm7k_sc_enable(void)
 {
 	int i;
 
-	set_c0_config(1<<3);				/* CONF_SE */
+	set_c0_config(1 << 3);				/* CONF_SE */
 
 	write_c0_taglo(0);
 	write_c0_taghi(0);
 
-	for (i=0; i<scache_size; i+=sc_lsize) {
+	for (i = 0; i < scache_size; i += sc_lsize) {
 		__asm__ __volatile__ (
 		      ".set noreorder\n\t"
 		      ".set mips3\n\t"
@@ -124,9 +127,19 @@ static __init void rm7k_sc_enable(void)
 		      ".set mips0\n\t"
 		      ".set reorder"
 		      :
-		      : "r" (KSEG0ADDR(i)),
-		        "i" (Index_Store_Tag_SD));
+		      : "r" (KSEG0ADDR(i)), "i" (Index_Store_Tag_SD));
 	}
+}
+
+static __init void rm7k_sc_enable(void)
+{
+	void (*func)(void) = (void *) KSEG1ADDR(&__rm7k_sc_enable);
+
+	if (read_c0_config() & 0x08)			/* CONF_SE */
+		return;
+
+	printk(KERN_INFO "Enabling secondary cache...");
+	func();
 }
 
 static void rm7k_sc_disable(void)
@@ -136,21 +149,16 @@ static void rm7k_sc_disable(void)
 
 static inline int __init rm7k_sc_probe(void)
 {
-	void (*func)(void) = KSEG1ADDR(&rm7k_sc_enable);
 	unsigned int config = read_c0_config();
 
 	if ((config >> 31) & 1)
 		return 0;
 
-	printk(KERN_INFO "Secondary cache size %ldK, linesize %ld bytes.\n",
+	printk(KERN_INFO "Secondary cache size %dK, linesize %d bytes.\n",
 	       (scache_size >> 10), sc_lsize);
 
 	if ((config >> 3) & 1)                          /* CONF_SE */
 		return 1;
-
-	printk(KERN_INFO "Enabling secondary cache...");
-	func();
-	printk("  done\n");
 
 	/*
 	 * While we're at it let's deal with the tertiary cache.

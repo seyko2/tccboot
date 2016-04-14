@@ -7,6 +7,7 @@
 #include <linux/module.h>
 #include <linux/smp.h>
 #include <asm/checksum.h>
+#include <asm/cpcmd.h>
 #include <asm/delay.h>
 #include <asm/setup.h>
 #include <asm/softirq.h>
@@ -66,3 +67,7 @@ EXPORT_SYMBOL(pfix_get_page_addr);
 EXPORT_SYMBOL(get_storage_key);
 EXPORT_SYMBOL_NOVERS(do_call_softirq);
 EXPORT_SYMBOL(sys_wait4);
+EXPORT_SYMBOL(smp_call_function_on);
+EXPORT_SYMBOL(show_trace);
+EXPORT_SYMBOL(cpcmd);
+

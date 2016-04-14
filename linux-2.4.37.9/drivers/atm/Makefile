@@ -92,7 +92,7 @@ fore200e_mkfirm: fore200e_mkfirm.c
 # deal with the various suffixes of the binary firmware images
 %.bin %.bin1 %.bin2: %.data
 	objcopy -Iihex $< -Obinary $@.gz
-	gzip -df $@.gz
+	gzip -n -df $@.gz
 
 fore_200e.o: $(fore_200e-objs)
 	$(LD) -r -o $@ $(fore_200e-objs)

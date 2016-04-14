@@ -367,6 +367,7 @@ static ssize_t slm_read( struct file *file, char *buf, size_t count,
 
 {
 	struct inode *node = file->f_dentry->d_inode;
+	loff_t pos = *ppos;
 	unsigned long page;
 	int length;
 	int end;
@@ -381,18 +382,18 @@ static ssize_t slm_read( struct file *file, char *buf, size_t count,
 		count = length;
 		goto out;
 	}
-	if (file->f_pos >= length) {
+	if (pos != (unsigned) pos || pos >= length) {
 		count = 0;
 		goto out;
 	}
-	if (count + file->f_pos > length)
-		count = length - file->f_pos;
-	end = count + file->f_pos;
-	if (copy_to_user(buf, (char *)page + file->f_pos, count)) {
+	if (count > length - pos)
+		count = length - pos;
+	end = count + pos;
+	if (copy_to_user(buf, (char *)page + pos, count)) {
 		count = -EFAULT;
 		goto out;
 	}
-	file->f_pos = end;
+	*ppos = end;
 out:	free_page( page );
 	return( count );
 }

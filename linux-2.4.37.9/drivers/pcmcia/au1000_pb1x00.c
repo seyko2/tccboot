@@ -408,7 +408,7 @@ pb1x00_pcmcia_configure_socket(const struct pcmcia_configure *configure)
 }
 
 
-struct pcmcia_low_level pb1x00_pcmcia_ops = { 
+struct pcmcia_low_level au1x00_pcmcia_ops = { 
 	pb1x00_pcmcia_init,
 	pb1x00_pcmcia_shutdown,
 	pb1x00_pcmcia_socket_state,

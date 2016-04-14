@@ -130,6 +130,7 @@ NETjet_S_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 			release_io_netjet(cs);
 			return(0);
 		case CARD_INIT:
+			reset_netjet_s(cs);
 			inittiger(cs);
 			clear_pending_isac_ints(cs);
 			initisac(cs);
@@ -262,7 +263,6 @@ setup_netjet_s(struct IsdnCard *card)
 	} else {
 		request_region(cs->hw.njet.base, bytecnt, "netjet-s isdn");
 	}
-	reset_netjet_s(cs);
 	cs->readisac  = &NETjet_ReadIC;
 	cs->writeisac = &NETjet_WriteIC;
 	cs->readisacfifo  = &NETjet_ReadICfifo;

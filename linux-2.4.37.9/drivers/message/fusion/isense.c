@@ -66,7 +66,7 @@
 #endif
 
 #define MODULEAUTHOR "Steven J. Ralston"
-#define COPYRIGHT "Copyright (c) 2001-2002 " MODULEAUTHOR
+#define COPYRIGHT "Copyright (c) 2001-2004 " MODULEAUTHOR
 #include "mptbase.h"
 
 #include "isense.h"

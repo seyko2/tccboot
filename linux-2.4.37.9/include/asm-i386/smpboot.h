@@ -73,11 +73,18 @@ extern unsigned char raw_phys_apicid[NR_CPUS];
  */
 static inline int cpu_present_to_apicid(int mps_cpu)
 {
-	if (clustered_apic_mode == CLUSTERED_APIC_XAPIC)
-		return raw_phys_apicid[mps_cpu];
-	if(clustered_apic_mode == CLUSTERED_APIC_NUMAQ)
-		return (mps_cpu/4)*16 + (1<<(mps_cpu%4));
-	return mps_cpu;
+	switch (clustered_apic_mode) {
+		case CLUSTERED_APIC_XAPIC:
+			if (mps_cpu >= NR_CPUS)
+				return BAD_APICID;
+			else
+				return raw_phys_apicid[mps_cpu];
+		case CLUSTERED_APIC_NUMAQ:
+			return (mps_cpu & ~0x3) << 2 | 1 << (mps_cpu & 0x3);
+		case CLUSTERED_APIC_NONE:
+		default:
+			return mps_cpu;
+	}
 }
 
 static inline unsigned long apicid_to_phys_cpu_present(int apicid)
@@ -123,8 +130,8 @@ static inline int target_cpus(void)
 			cpu = (cpu+1)%smp_num_cpus;
 			return cpu_to_physical_apicid(cpu);
 		default:
+			return cpu_online_map;
 	}
-	return cpu_online_map;
 }
 #else
 #define target_cpus() (cpu_online_map)

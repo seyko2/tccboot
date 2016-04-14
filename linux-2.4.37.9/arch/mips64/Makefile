@@ -3,7 +3,7 @@
 # License.  See the file "COPYING" in the main directory of this archive
 # for more details.
 #
-# Copyright (C) 2002, 2003  Maciej W. Rozycki
+# Copyright (C) 2002, 2003, 2004  Maciej W. Rozycki
 #
 # This file is included by the global makefile so that you can add your own
 # architecture-specific flags and dependencies. Remember to do have actions
@@ -26,6 +26,8 @@ ifdef CONFIG_CROSSCOMPILE
 CROSS_COMPILE	= $(tool-prefix)
 endif
 
+check_gas = $(shell if $(CC) $(1) -Wa,-Z -c -o /dev/null -xassembler /dev/null > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi)
+
 #
 # The ELF GCC uses -G 0 -mabicalls -fpic as default.  We don't need PIC
 # code in the kernel since it only slows down the whole thing.  For the
@@ -37,9 +39,9 @@ endif
 # crossformat linking we rely on the elf2ecoff tool for format conversion.
 #
 GCCFLAGS	:= -I $(TOPDIR)/include/asm/gcc
-GCCFLAGS	+= -mabi=64 -G 0 -mno-abicalls -fno-pic -Wa,--trap -pipe
+GCCFLAGS	+= -G 0 -mno-abicalls -fno-pic -Wa,--trap -pipe
 GCCFLAGS	+= $(call check_gcc, -finline-limit=100000,)
-LINKFLAGS	+= -G 0 -static # -N
+LINKFLAGS	+= -G 0 -static -n
 MODFLAGS	+= -mlong-calls
 
 ifdef CONFIG_DEBUG_INFO
@@ -48,9 +50,6 @@ ifdef CONFIG_SB1XXX_CORELIS
 GCCFLAGS	+= -mno-sched-prolog -fno-omit-frame-pointer
 endif
 endif
-
-check_gcc = $(shell if $(CC) $(1) -S -o /dev/null -xc /dev/null > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi)
-check_gas = $(shell if $(CC) $(1) -Wa,-Z -c -o /dev/null -xassembler /dev/null > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi)
 
 #
 # Use: $(call set_gccflags,<cpu0>,<isa0>,<cpu1>,<isa1>)
@@ -76,6 +75,7 @@ while :; do \
 	done; \
 	break; \
 done; \
+gcc_abi=-mabi=64; \
 gcc_cpu=$$cpu; gcc_isa=$$isa; \
 gas_cpu=$$cpu; gas_isa=-Wa,$$isa; \
 while :; do \
@@ -87,7 +87,12 @@ while :; do \
 	gas_opt=; gas_cpu=; gas_isa=; \
 	break; \
 done; \
-echo $$gcc_opt$$gcc_cpu $$gcc_isa $$gas_opt$$gas_cpu $$gas_isa)
+if test "$$gcc_opt" = -march=; then \
+	$(CC) $$gcc_abi $$gcc_opt$$gcc_cpu -S -o /dev/null \
+		-xc /dev/null > /dev/null 2>&1 && \
+		gcc_isa=; \
+fi; \
+echo $$gcc_abi $$gcc_opt$$gcc_cpu $$gcc_isa $$gas_opt$$gas_cpu $$gas_isa)
 
 #
 # CPU-dependent compiler/assembler options for optimization.
@@ -154,7 +159,7 @@ endif
 ifdef CONFIG_MIPS_COBALT
 SUBDIRS		+= arch/mips/cobalt
 CORE_FILES	+= arch/mips/cobalt/cobalt.o
-LOADADDR	:= 0x80080000
+LOADADDR	:= 0xffffffff80080000
 endif
 
 #
@@ -164,7 +169,7 @@ ifdef CONFIG_DECSTATION
 CORE_FILES	+= arch/mips/dec/dec.o
 SUBDIRS		+= arch/mips/dec arch/mips/dec/prom
 LIBS		+= arch/mips/dec/prom/rexlib.a
-LOADADDR	:= 0x80040000
+LOADADDR	:= 0xffffffff80040000
 endif
 
 #
@@ -174,7 +179,7 @@ ifdef CONFIG_MIPS_EV64120
 LIBS		+= arch/mips/gt64120/common/gt64120.o \
 		   arch/mips/gt64120/ev64120/ev64120.o
 SUBDIRS		+= arch/mips/gt64120/common arch/mips/gt64120/ev64120
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 
 #
@@ -184,7 +189,7 @@ ifdef CONFIG_MIPS_ATLAS
 LIBS		+= arch/mips/mips-boards/atlas/atlas.o \
 		   arch/mips/mips-boards/generic/mipsboards.o
 SUBDIRS		+= arch/mips/mips-boards/generic arch/mips/mips-boards/atlas
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 
 #
@@ -194,7 +199,7 @@ ifdef CONFIG_MIPS_MALTA
 LIBS		+= arch/mips/mips-boards/malta/malta.o \
 		   arch/mips/mips-boards/generic/mipsboards.o
 SUBDIRS		+= arch/mips/mips-boards/malta arch/mips/mips-boards/generic
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 
 #
@@ -204,7 +209,7 @@ ifdef CONFIG_MIPS_SEAD
 LIBS		+= arch/mips/mips-boards/sead/sead.o \
 		   arch/mips/mips-boards/generic/mipsboards.o
 SUBDIRS		+= arch/mips/mips-boards/generic arch/mips/mips-boards/sead
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 
 #
@@ -216,7 +221,7 @@ ifdef CONFIG_MOMENCO_OCELOT
 CORE_FILES      += arch/mips/gt64120/common/gt64120.o \
 		   arch/mips/gt64120/momenco_ocelot/momenco_ocelot.o
 SUBDIRS		+= arch/mips/gt64120/common arch/mips/gt64120/momenco_ocelot
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 
 #
@@ -227,7 +232,7 @@ ifdef CONFIG_MOMENCO_OCELOT_G
 # mips_io_port_base.
 CORE_FILES	+= arch/mips/momentum/ocelot_g/ocelot_g.o
 SUBDIRS		+= arch/mips/momentum/ocelot_g
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
                                                                                 
 #
@@ -236,16 +241,16 @@ endif
 ifdef CONFIG_MOMENCO_OCELOT_C
 CORE_FILES	+= arch/mips/momentum/ocelot_c/ocelot_c.o
 SUBDIRS		+= arch/mips/momentum/ocelot_c
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 
 ifdef CONFIG_MOMENCO_JAGUAR_ATX
 LIBS		+= arch/mips/momentum/jaguar_atx/jaguar_atx.o
 SUBDIRS		+= arch/mips/momentum/jaguar_atx
 ifdef CONFIG_JAGUAR_DMALOW
-LOADADDR	:= 0x88000000
+LOADADDR	:= 0xffffffff88000000
 else
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 endif
 
@@ -262,11 +267,11 @@ CORE_FILES	+= arch/mips/sgi-ip22/ip22-kern.o
 LIBS		+= arch/mips/arc/arclib.a
 SUBDIRS		+= arch/mips/sgi-ip22 arch/mips/arc
 #
-# Set LOADADDR to >= 0x88069000 if you want to leave space for symmon,
-# 0x88004000 for production kernels.  Note that the value must be
+# Set LOADADDR to >= 0xffffffff88069000 if you want to leave space for symmon,
+# 0xffffffff88004000 for production kernels.  Note that the value must be
 # 16kb aligned or the handling of the current variable will break.
 #
-LOADADDR	:= 0x88004000
+LOADADDR	:= 0xffffffff88004000
 endif
 
 #
@@ -281,11 +286,22 @@ SUBDIRS		+= arch/mips/sgi-ip27 arch/mips/arc
 # symmon, 0xc00000000001c000 for production kernels.  Note that the value
 # must be 16kb aligned or the handling of the current variable will break.
 #
-#LOADADDR	:= 0xa80000000001c000
+ifdef CONFIG_BUILD_ELF64
 ifdef CONFIG_MAPPED_KERNEL
-LOADADDR	:= 0xc001c000
+LOADADDR	:= 0xc00000004001c000
+OBJCOPYFLAGS	:= --change-addresses=0x3fffffff80000000
 else
-LOADADDR	:= 0x8001c000
+LOADADDR	:= 0xa80000000001c000
+OBJCOPYFLAGS	:= --change-addresses=0x57ffffff80000000
+endif
+else
+ifdef CONFIG_MAPPED_KERNEL
+LOADADDR	:= 0xffffffffc001c000
+OBJCOPYFLAGS	:= --change-addresses=0xc000000080000000
+else
+LOADADDR	:= 0xffffffff8001c000
+OBJCOPYFLAGS	:= --change-addresses=0xa800000080000000
+endif
 endif
 endif
 
@@ -299,9 +315,9 @@ ifneq ($(CONFIG_SIBYTE_SB1250)$(CONFIG_SIBYTE_BCM112X),)
 LIBS		+= arch/mips/sibyte/sb1250/sb1250.o
 SUBDIRS		+= arch/mips/sibyte/sb1250
 ifdef CONFIG_MIPS_UNCACHED
-LOADADDR	:= 0xa0100000
+LOADADDR	:= 0xffffffffa0100000
 else
-LOADADDR	:= 0x80100000
+LOADADDR	:= 0xffffffff80100000
 endif
 endif
 
@@ -328,43 +344,43 @@ LIBS		+= arch/mips/sibyte/cfe/cfe.a
 SUBDIRS		+= arch/mips/sibyte/cfe
 endif
 
-#
-# Some machines like the Indy need 32-bit ELF binaries for booting purposes.
-# Other need ECOFF, so we build a 32-bit ELF binary for them which we then
-# convert to ECOFF using elf2ecoff.
-#
-ifdef CONFIG_BOOT_ELF32
-GCCFLAGS += -Wa,-32 $(call check_gas,-Wa$(comma)-mgp64,)
-LINKFLAGS += -T arch/mips64/ld.script.elf32
-endif
-#
-# The 64-bit ELF tools are pretty broken so at this time we generate 64-bit
-# ELF files from 32-bit files by conversion.
-#
-ifdef CONFIG_BOOT_ELF64
-GCCFLAGS += -Wa,-32 $(call check_gas,-Wa$(comma)-mgp64,)
-LINKFLAGS += -T arch/mips64/ld.script.elf32
-#AS += -64
-#LD += -m elf64bmip
-#LINKFLAGS += -T arch/mips64/ld.script.elf64
-endif
 
 ifdef CONFIG_CPU_LITTLE_ENDIAN
 32bit-bfd = elf32-tradlittlemips
 64bit-bfd = elf64-tradlittlemips
+32bit-emul = elf32ltsmip
+64bit-emul = elf64ltsmip
 else
 32bit-bfd = elf32-tradbigmips
 64bit-bfd = elf64-tradbigmips
+32bit-emul = elf32btsmip
+64bit-emul = elf64btsmip
+endif
+
+ifdef CONFIG_BUILD_ELF64
+GCCFLAGS += -Wa,-64
+LOADSCRIPT = arch/mips64/ld.script.elf64
+ld-emul = $(64bit-emul)
+vmlinux-32 = vmlinux.32
+vmlinux-64 = vmlinux
+else
+GCCFLAGS += $(call check_gcc,-mno-explicit-relocs,)
+GCCFLAGS += -Wa,-32 $(call check_gas,-Wa$(comma)-mgp64,)
+LOADSCRIPT = arch/mips64/ld.script.elf32
+ld-emul = $(32bit-emul)
+vmlinux-32 = vmlinux
+vmlinux-64 = vmlinux.64
 endif
 
 
 AFLAGS		+= $(GCCFLAGS)
 CFLAGS		+= $(GCCFLAGS)
 
-LD		+= --oformat $(32bit-bfd)
+LD		+= -m $(ld-emul)
 
 
-LINKFLAGS += -Ttext $(LOADADDR)
+LINKFLAGS += -T $(LOADSCRIPT) -Ttext $(LOADADDR)
+OBJCOPYFLAGS += --remove-section=.reginfo
 
 HEAD := arch/mips64/kernel/head.o arch/mips64/kernel/init_task.o
 
@@ -372,27 +388,51 @@ SUBDIRS := $(addprefix arch/mips/, tools) $(SUBDIRS) $(addprefix arch/mips64/, k
 CORE_FILES := arch/mips64/kernel/kernel.o arch/mips64/mm/mm.o $(CORE_FILES)
 LIBS := arch/mips64/lib/lib.a $(LIBS)
 
-MAKEBOOT = $(MAKE) -C arch/$(ARCH)/boot
+MAKEBOOT = $(MAKE) -C arch/$(ARCH)/boot VMLINUX=$(TOPDIR)/$(vmlinux-32)
 
-vmlinux: arch/mips64/ld.script.elf32
 arch/mips64/ld.script.elf32: arch/mips64/ld.script.elf32.S
 	$(CPP) -C -P -I$(HPATH) -imacros $(HPATH)/asm-mips64/sn/mapped_kernel.h -Umips arch/mips64/ld.script.elf32.S > arch/mips64/ld.script.elf32
 
-ifdef CONFIG_MAPPED_KERNEL
+vmlinux: $(LOADSCRIPT)
+
+#
+# Some machines like the Indy need 32-bit ELF binaries for booting purposes.
+# Other need ECOFF, so we build a 32-bit ELF binary for them which we then
+# convert to ECOFF using elf2ecoff.
+#
+vmlinux.32: vmlinux
+	$(OBJCOPY) -O $(32bit-bfd) $(OBJCOPYFLAGS) $< $@
+
+#
+# The 64-bit ELF tools are pretty broken so at this time we generate 64-bit
+# ELF files from 32-bit files by conversion.
+#
 vmlinux.64: vmlinux
-	$(OBJCOPY) -O $(64bit-bfd) --remove-section=.reginfo --change-addresses=0xc000000080000000 $< $@
-else
-vmlinux.64: vmlinux
-	$(OBJCOPY) -O $(64bit-bfd) --remove-section=.reginfo --change-addresses=0xa800000080000000 $< $@
+	$(OBJCOPY) -O $(64bit-bfd) $(OBJCOPYFLAGS) $< $@
+
+ifdef CONFIG_BOOT_ELF32
+boot: $(vmlinux-32)
 endif
 
-vmlinux.ecoff: vmlinux
+ifdef CONFIG_BOOT_ELF64
+boot: $(vmlinux-64)
+endif
+
+boot: mips-boot
+
+mips-boot: $(vmlinux-32)
+	@$(MAKEBOOT) boot
+
+vmlinux.ecoff: $(vmlinux-32)
+	@$(MAKEBOOT) $@
+
+vmlinux.srec: $(vmlinux-32)
 	@$(MAKEBOOT) $@
 
 archclean:
 	@$(MAKEBOOT) clean
 	$(MAKE) -C arch/mips/tools clean
-	rm -f vmlinux.64 arch/$(ARCH)/ld.script.elf32
+	rm -f vmlinux.32 vmlinux.64 arch/$(ARCH)/ld.script.elf32
 
 archmrproper:
 	@$(MAKEBOOT) mrproper

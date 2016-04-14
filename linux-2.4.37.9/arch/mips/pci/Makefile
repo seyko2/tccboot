@@ -8,8 +8,6 @@
 
 O_TARGET 			:= pci-core.o
 
-export-objs			= pci.o
-
 obj-$(CONFIG_MIPS_BONITO64)	+= ops-bonito64.o
 obj-$(CONFIG_MIPS_GT64120)	+= ops-gt64120.o
 obj-$(CONFIG_MIPS_MSC)		+= ops-msc.o

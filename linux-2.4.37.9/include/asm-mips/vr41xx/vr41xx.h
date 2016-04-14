@@ -53,8 +53,6 @@ extern unsigned long vr41xx_get_tclock_frequency(void);
  * Clock Mask Unit
  */
 extern void vr41xx_cmu_init(void);
-extern void vr41xx_clock_supply(unsigned int clock);
-extern void vr41xx_clock_mask(unsigned int clock);
 
 enum {
 	PIU_CLOCK,
@@ -71,6 +69,9 @@ enum {
 	ETHER0_CLOCK,
 	ETHER1_CLOCK
 };
+
+extern void vr41xx_supply_clock(unsigned int clock);
+extern void vr41xx_mask_clock(unsigned int clock);
 
 /*
  * Interrupt Control Unit
@@ -132,6 +133,11 @@ enum {
 extern void (*board_irq_init)(void);
 extern int vr41xx_set_intassign(unsigned int irq, unsigned char intassign);
 extern int vr41xx_cascade_irq(unsigned int irq, int (*get_irq_number)(int irq));
+
+/*
+ * Power Management Unit
+ */
+extern void vr41xx_pmu_init(void);
 
 /*
  * RTC
@@ -208,9 +214,9 @@ extern void vr41xx_dsiu_init(void);
  * PCI Control Unit
  */
 struct vr41xx_pci_address_space {
-	u32 internal_base;
-	u32 address_mask;
-	u32 pci_base;
+	uint32_t internal_base;
+	uint32_t address_mask;
+	uint32_t pci_base;
 };
 
 struct vr41xx_pci_address_map {
@@ -221,15 +227,13 @@ struct vr41xx_pci_address_map {
 
 extern void vr41xx_pciu_init(struct vr41xx_pci_address_map *map);
 
+extern struct pci_ops vr41xx_pci_ops;
+
 /*
  * MISC
  */
 extern void vr41xx_time_init(void);
 extern void vr41xx_timer_setup(struct irqaction *irq);
-
-extern void vr41xx_restart(char *command);
-extern void vr41xx_halt(void);
-extern void vr41xx_power_off(void);
 
 #if defined(CONFIG_IDE) || defined(CONFIG_IDE_MODULE)
 extern struct ide_ops vr41xx_ide_ops;

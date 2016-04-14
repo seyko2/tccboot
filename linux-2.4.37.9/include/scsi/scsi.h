@@ -91,9 +91,14 @@
 #define WRITE_LONG_2          0xea
 #define READ_16               0x88
 #define WRITE_16              0x8a
+#define VERIFY_16	      0x8f
 #define SERVICE_ACTION_IN     0x9e
 /* values for service action in */
 #define SAI_READ_CAPACITY_16  0x10
+
+/* Values for T10/04-262r7 */
+#define	ATA_16		      0x85	/* 16-byte pass-thru */
+#define	ATA_12		      0xa1	/* 12-byte pass-thru */
 
 #define SCSI_RETRY_10(c) ((c) == READ_6 || (c) == WRITE_6 || (c) == SEEK_6)
 

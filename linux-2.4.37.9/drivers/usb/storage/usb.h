@@ -116,7 +116,7 @@ struct us_data {
 	struct us_data		*next;		 /* next device */
 
 	/* the device we're working with */
-	struct semaphore	dev_semaphore;	 /* protect pusb_dev */
+	struct semaphore	dev_semaphore;	 /* protect many things */
 	struct usb_device	*pusb_dev;	 /* this usb_device */
 
 	unsigned int		flags;		 /* from filter initially */
@@ -162,7 +162,6 @@ struct us_data {
 	atomic_t		ip_wanted[1];	 /* is an IRQ expected?	 */
 
 	/* interrupt communications data */
-	struct semaphore	irq_urb_sem;	 /* to protect irq_urb	 */
 	struct urb		*irq_urb;	 /* for USB int requests */
 	unsigned char		irqbuf[2];	 /* buffer for USB IRQ	 */
 	unsigned char		irqdata[2];	 /* data from USB IRQ	 */
@@ -194,4 +193,7 @@ extern struct usb_driver usb_storage_driver;
 /* Function to fill an inquiry response. See usb.c for details */
 extern void fill_inquiry_response(struct us_data *us,
 	unsigned char *data, unsigned int data_len);
+
+/* Vendor ID list for devices that require special handling */
+#define USB_VENDOR_ID_GENESYS		0x05e3	/* Genesys Logic */
 #endif

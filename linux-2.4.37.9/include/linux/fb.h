@@ -323,6 +323,7 @@ struct fb_info {
    struct fb_cmap cmap;                 /* Current cmap */
    struct fb_ops *fbops;
    char *screen_base;                   /* Virtual address */
+   u32 mapped_vram;			/* ioremap()'ed VRAM */
    struct display *disp;		/* initial display variable */
    struct vc_data *display_fg;		/* Console visible on this display */
    char fontname[40];			/* default font name */

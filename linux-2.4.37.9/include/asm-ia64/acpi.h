@@ -97,7 +97,8 @@
 	} while (0)
 
 #define acpi_disabled 0	/* ACPI always enabled */
-#define acpi_strict 1	/* no ACPI workarounds */
+#define acpi_pci_disabled 0 /* ACPI PCI always enabled on IA64 */
+#define acpi_strict 1	/* no ACPI spec workarounds on IA64 */
 static inline void disable_acpi(void) { }
 
 const char *acpi_get_sysname (void);

@@ -415,7 +415,7 @@ static ssize_t lparcfg_read(struct file *file, char *buf,
 	pnt = (char *)(data) + p;
 	copy_to_user(buf, (void *)pnt, count);
 	read += count;
-	*ppos += read;
+	*ppos = p + read;
 	return read;
 }
 

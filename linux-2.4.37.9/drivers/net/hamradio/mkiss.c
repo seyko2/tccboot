@@ -654,8 +654,7 @@ static int ax25_open(struct tty_struct *tty)
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 
 	/* Restore default settings */
 	ax->dev->type = ARPHRD_AX25;

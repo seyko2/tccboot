@@ -33,8 +33,8 @@ NESTED(handle_sys, PT_SIZE, sp)
 	subu	t0, v0, __NR_O32_Linux	# check syscall number
 	sltiu	t0, t0, __NR_O32_Linux_syscalls + 1
 	daddiu	t1, 4			# skip to next instruction
-	beqz	t0, not_o32_scall
 	sd	t1, PT_EPC(sp)
+	beqz	t0, not_o32_scall
 #if 0
  SAVE_ALL
  move a1, v0
@@ -451,9 +451,9 @@ out:	jr	ra
 	sys	sys32_adjtimex	1
 	sys	sys_mprotect	3			/* 4125 */
 	sys	sys32_sigprocmask	3
-	sys	sys_create_module 2
-	sys	sys_init_module	5
-	sys	sys_delete_module 1
+	sys	sys32_create_module 2
+	sys	sys32_init_module	5
+	sys	sys32_delete_module 1
 	sys	sys32_get_kernel_syms 1			/* 4130 */
 	sys	sys_quotactl	0
 	sys	sys_getpgid	1
@@ -511,7 +511,7 @@ out:	jr	ra
 	sys	sys_socketpair	4
 	sys	sys_setresuid	3			/* 4185 */
 	sys	sys_getresuid	3
-	sys	sys_query_module 5
+	sys	sys32_query_module 5
 	sys	sys_poll	3
 	sys	sys_nfsservctl	3
 	sys	sys_setresgid	3			/* 4190 */

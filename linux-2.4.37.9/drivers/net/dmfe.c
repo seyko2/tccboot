@@ -863,6 +863,20 @@ static void dmfe_free_tx_pkt(struct DEVICE *dev, struct dmfe_board_info * db)
 
 
 /*
+ *	Calculate the CRC valude of the Rx packet
+ *	flag = 	1 : return the reverse CRC (for the received packet CRC)
+ *		0 : return the normal CRC (for Hash Table index)
+ */
+
+static inline u32 cal_CRC(unsigned char * Data, unsigned int Len, u8 flag)
+{
+	u32 crc = ether_crc_le(Len, Data);
+	if (flag) crc = ~crc;
+	return crc;
+}
+
+
+/*
  *	Receive the come packet and pass to upper layer
  */
 
@@ -1749,20 +1763,6 @@ static u16 phy_read_1bit(unsigned long ioaddr)
 	udelay(1);
 
 	return phy_data;
-}
-
-
-/*
- *	Calculate the CRC valude of the Rx packet
- *	flag = 	1 : return the reverse CRC (for the received packet CRC)
- *		0 : return the normal CRC (for Hash Table index)
- */
-
-static inline u32 cal_CRC(unsigned char * Data, unsigned int Len, u8 flag)
-{
-	u32 crc = ether_crc_le(Len, Data);
-	if (flag) crc = ~crc;
-	return crc;
 }
 
 

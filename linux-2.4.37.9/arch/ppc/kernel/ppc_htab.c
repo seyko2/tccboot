@@ -112,6 +112,7 @@ static ssize_t ppc_htab_read(struct file * file, char * buf,
 			     size_t count, loff_t *ppos)
 {
 	unsigned long mmcr0 = 0, pmc1 = 0, pmc2 = 0;
+	loff_t pos = *ppos;
 	int n = 0;
 #if defined(CONFIG_PPC_STD_MMU) && !defined(CONFIG_PPC64BRIDGE)
 	int valid;
@@ -219,14 +220,14 @@ return_string:
 		      "Non-error misses: %lu\n"
 		      "Error misses\t: %lu\n",
 		      pte_misses, pte_errors);
-	if (*ppos >= strlen(buffer))
+	if (pos != (unsigned)pos || pos >= strlen(buffer))
 		return 0;
-	if (n > strlen(buffer) - *ppos)
-		n = strlen(buffer) - *ppos;
+	if (n > strlen(buffer) - pos)
+		n = strlen(buffer) - pos;
 	if (n > count)
 		n = count;
-	copy_to_user(buf, buffer + *ppos, n);
-	*ppos += n;
+	copy_to_user(buf, buffer + pos, n);
+	*ppos = pos + n;
 	return n;
 }
 
@@ -488,7 +489,7 @@ int proc_dol2crvec(ctl_table *table, int write, struct file *filp,
 				if (!isspace(c))
 					break;
 				left--;
-				((char *) buffer)++;
+				buffer++;
 			}
 			if (!left)
 				break;

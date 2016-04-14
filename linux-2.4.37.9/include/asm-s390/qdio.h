@@ -11,7 +11,7 @@
 #ifndef __QDIO_H__
 #define __QDIO_H__
 
-#define VERSION_QDIO_H "$Revision: 1.66 $"
+#define VERSION_QDIO_H "$Revision: 1.66.4.4 $"
 
 /* note, that most of the typedef's are from ingo. */
 
@@ -42,11 +42,18 @@
 #define QDIO_MAX_ELEMENTS_PER_BUFFER 16
 #define SBAL_SIZE 256
 
-#define IQDIO_FILL_LEVEL_TO_POLL (QDIO_MAX_BUFFERS_PER_Q*4/3)
+/* unfortunately this can't be (QDIO_MAX_BUFFERS_PER_Q*4/3) or so -- as
+ * we never know, whether we'll get initiative again, e.g. to give the
+ * transmit skb's back to the stack, however the stack may be waiting for
+ * them... therefore we define 4 as threshold to start polling (which
+ * will stop as soon as the asynchronous queue catches up)
+ * btw, this only applies to the asynchronous HiperSockets queue */
+#define IQDIO_FILL_LEVEL_TO_POLL 4
 
 #define TIQDIO_THININT_ISC 3
 #define TIQDIO_DELAY_TARGET 0
-#define QDIO_BUSY_BIT_PATIENCE 2000 /* in microsecs */
+#define QDIO_BUSY_BIT_PATIENCE 100 /* in microsecs */
+#define QDIO_BUSY_BIT_GIVE_UP 10000000 /* 10 seconds */
 #define IQDIO_GLOBAL_LAPS 2 /* GLOBAL_LAPS are not used as we */
 #define IQDIO_GLOBAL_LAPS_INT 1 /* dont global summary */
 #define IQDIO_LOCAL_LAPS 4
@@ -612,6 +619,8 @@ typedef struct _slsb {
 typedef struct qdio_q_t {
 	volatile slsb_t slsb;
 
+	char unused[QDIO_MAX_BUFFERS_PER_Q];
+
 	__u32 * volatile dev_st_chg_ind;
 
 	int is_input_q;
@@ -697,7 +706,9 @@ typedef struct qdio_q_t {
 		int last_transfer_index; */
 
 		__u64 last_transfer_time;
+		__u64 busy_start;
 	} timing;
+	atomic_t busy_siga_counter;
         unsigned int queue_type;
 } __attribute__ ((aligned(256))) qdio_q_t;
 
@@ -713,7 +724,7 @@ typedef struct qdio_irq_t {
 	unsigned int sync_done_on_outb_pcis;
 
 	unsigned int state;
-	spinlock_t setting_up_lock;
+	struct semaphore setting_up_lock;
 
 	unsigned int no_input_qs;
 	unsigned int no_output_qs;

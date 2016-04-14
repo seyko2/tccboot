@@ -816,6 +816,11 @@ struct in6_rtmsg32 {
 
 extern struct socket *sockfd_lookup(int fd, int *err);
 
+extern __inline__ void sockfd_put(struct socket *sock)
+{
+	fput(sock->file);
+}
+
 static int routing_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 {
 	int ret;
@@ -857,12 +862,17 @@ static int routing_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 		r = (void *) &r4;
 	}
 
-	if (ret)
-		return -EFAULT;
+	if (ret) {
+		ret = -EFAULT;
+		goto out;
+	}
 
 	set_fs (KERNEL_DS);
 	ret = sys_ioctl (fd, cmd, (long) r);
 	set_fs (old_fs);
+out:
+	if (mysock)
+		sockfd_put(mysock);
 
 	return ret;
 }
@@ -1171,6 +1181,7 @@ static int fd_ioctl_trans(unsigned int fd, unsigned int cmd, unsigned long arg)
 		case FDDEFPRM32:
 		case FDGETPRM32:
 		{
+			u32 name;
 			struct floppy_struct *f;
 
 			f = karg = kmalloc(sizeof(struct floppy_struct), GFP_KERNEL);
@@ -1187,7 +1198,8 @@ static int fd_ioctl_trans(unsigned int fd, unsigned int cmd, unsigned long arg)
 			err |= __get_user(f->rate, &((struct floppy_struct32 *)arg)->rate);
 			err |= __get_user(f->spec1, &((struct floppy_struct32 *)arg)->spec1);
 			err |= __get_user(f->fmt_gap, &((struct floppy_struct32 *)arg)->fmt_gap);
-			err |= __get_user((u64)f->name, &((struct floppy_struct32 *)arg)->name);
+			err |= __get_user(name, &((struct floppy_struct32 *)arg)->name);
+			f->name = (void*)(u64)name;
 			if (err) {
 				err = -EFAULT;
 				goto out;
@@ -1931,6 +1943,7 @@ static int loop_status(unsigned int fd, unsigned int cmd, unsigned long arg)
 
 extern int tty_ioctl(struct inode * inode, struct file * file, unsigned int cmd, unsigned long arg);
 
+#ifdef CONFIG_VT
 static int vt_check(struct file *file)
 {
 	struct tty_struct *tty;
@@ -2061,6 +2074,7 @@ static int do_unimap_ioctl(unsigned int fd, unsigned int cmd, struct unimapdesc3
 	}
 	return 0;
 }
+#endif /* CONFIG_VT */
 
 static int do_smb_getmountuid(unsigned int fd, unsigned int cmd, unsigned long arg)
 {
@@ -2726,13 +2740,15 @@ static int blkpg_ioctl_trans(unsigned int fd, unsigned int cmd, struct blkpg_ioc
 {
 	struct blkpg_ioctl_arg a;
 	struct blkpg_partition p;
+	u32 udata;
 	int err;
 	mm_segment_t old_fs = get_fs();
 
 	err = get_user(a.op, &arg->op);
 	err |= __get_user(a.flags, &arg->flags);
 	err |= __get_user(a.datalen, &arg->datalen);
-	err |= __get_user((long)a.data, &arg->data);
+	err |= __get_user(udata, &arg->data);
+	a.data = (void*)(u64)udata;
 	if (err) return err;
 	switch (a.op) {
 	case BLKPG_ADD_PARTITION:
@@ -2762,17 +2778,24 @@ static int ioc_settimeout(unsigned int fd, unsigned int cmd, unsigned long arg)
 static int tiocgdev(unsigned fd, unsigned cmd,  unsigned int *ptr) 
 { 
 
-	struct file *file = fget(fd);
+	struct file *file;
 	struct tty_struct *real_tty;
+	int ret;
 
+	file = fget(fd);
 	if (!file)
 		return -EBADF;
+	ret = -EINVAL;
 	if (file->f_op->ioctl != tty_ioctl)
-		return -EINVAL; 
+		goto out;
 	real_tty = (struct tty_struct *)file->private_data;
 	if (!real_tty) 	
-		return -EINVAL; 
-	return put_user(kdev_t_to_nr(real_tty->device), ptr); 
+		goto out;
+	ret = put_user(kdev_t_to_nr(real_tty->device), ptr); 
+out:
+	fput(file);
+
+	return ret;
 } 
 
 
@@ -4095,6 +4118,10 @@ COMPATIBLE_IOCTL(AUTOFS_IOC_CATATONIC)
 COMPATIBLE_IOCTL(AUTOFS_IOC_PROTOVER)
 COMPATIBLE_IOCTL(AUTOFS_IOC_EXPIRE)
 COMPATIBLE_IOCTL(AUTOFS_IOC_EXPIRE_MULTI)
+COMPATIBLE_IOCTL(AUTOFS_IOC_PROTOSUBVER)
+COMPATIBLE_IOCTL(AUTOFS_IOC_ASKREGHOST)
+COMPATIBLE_IOCTL(AUTOFS_IOC_TOGGLEREGHOST)
+COMPATIBLE_IOCTL(AUTOFS_IOC_ASKUMOUNT)
 /* DEVFS */
 COMPATIBLE_IOCTL(DEVFSDIOC_GET_PROTO_REV)
 COMPATIBLE_IOCTL(DEVFSDIOC_SET_EVENT_MASK)
@@ -4357,11 +4384,13 @@ HANDLE_IOCTL(LOOP_SET_STATUS, loop_status)
 HANDLE_IOCTL(LOOP_GET_STATUS, loop_status)
 #define AUTOFS_IOC_SETTIMEOUT32 _IOWR(0x93,0x64,unsigned int)
 HANDLE_IOCTL(AUTOFS_IOC_SETTIMEOUT32, ioc_settimeout)
+#ifdef CONFIG_VT
 HANDLE_IOCTL(PIO_FONTX, do_fontx_ioctl)
 HANDLE_IOCTL(GIO_FONTX, do_fontx_ioctl)
 HANDLE_IOCTL(PIO_UNIMAP, do_unimap_ioctl)
 HANDLE_IOCTL(GIO_UNIMAP, do_unimap_ioctl)
 HANDLE_IOCTL(KDFONTOP, do_kdfontop_ioctl)
+#endif
 HANDLE_IOCTL(EXT2_IOC32_GETFLAGS, do_ext2_ioctl)
 HANDLE_IOCTL(EXT2_IOC32_SETFLAGS, do_ext2_ioctl)
 HANDLE_IOCTL(EXT2_IOC32_GETVERSION, do_ext2_ioctl)

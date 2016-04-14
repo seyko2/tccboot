@@ -51,7 +51,6 @@ obj-$(CONFIG_ALL_PPC)		+= pmac_pic.o pmac_setup.o pmac_time.o \
 					prep_time.o prep_setup.o pmac_sleep.o \
 					pmac_nvram.o
 obj-$(CONFIG_PMAC_BACKLIGHT)	+= pmac_backlight.o
-obj-$(CONFIG_PPC_RTAS)		+= error_log.o proc_rtas.o
 obj-$(CONFIG_PREP_RESIDUAL)	+= residual.o
 obj-$(CONFIG_GEMINI)		+= gemini_pci.o gemini_setup.o gemini_prom.o
 obj-$(CONFIG_LOPEC)		+= lopec_setup.o lopec_pci.o

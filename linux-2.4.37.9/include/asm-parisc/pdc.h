@@ -1000,7 +1000,7 @@ int pdc_pat_pd_get_addr_map(unsigned long *actual_len, void *mem_addr,
 #define PAT_GET_ENTITY(value)	(((value) >> 56) & 0xffUL)
 #define PAT_GET_DVI(value)	(((value) >> 48) & 0xffUL)
 #define PAT_GET_IOC(value)	(((value) >> 40) & 0xffUL)
-#define PAT_GET_MOD_PAGES(value)(((value) & 0xffffffUL)
+#define PAT_GET_MOD_PAGES(value) ((value) & 0xffffffUL)
 
 #else /* !__LP64__ */
 /* No PAT support for 32-bit kernels...sorry */

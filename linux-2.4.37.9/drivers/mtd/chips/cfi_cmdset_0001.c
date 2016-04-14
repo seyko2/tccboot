@@ -152,7 +152,7 @@ struct mtd_info *cfi_cmdset_0001(struct map_info *map, int primary)
 		}
 		
 		if (extp->MajorVersion != '1' || 
-		    (extp->MinorVersion < '0' || extp->MinorVersion > '3')) {
+		    (extp->MinorVersion < '0' || extp->MinorVersion > '4')) {
 			printk(KERN_WARNING "  Unknown IntelExt Extended Query "
 			       "version %c.%c.\n",  extp->MajorVersion,
 			       extp->MinorVersion);
@@ -1201,13 +1201,17 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 	/* Write data */
 	for (z = 0; z < len; z += CFIDEV_BUSWIDTH) {
 		if (cfi_buswidth_is_1()) {
-			map->write8 (map, *((__u8*)buf)++, adr+z);
+			map->write8 (map, *(__u8*)buf, adr+z);
+			buf += sizeof(__u8);
 		} else if (cfi_buswidth_is_2()) {
-			map->write16 (map, *((__u16*)buf)++, adr+z);
+			map->write16 (map, *(__u16*)buf, adr+z);
+			buf += sizeof(__u16);
 		} else if (cfi_buswidth_is_4()) {
-			map->write32 (map, *((__u32*)buf)++, adr+z);
+			map->write32 (map, *(__u32*)buf, adr+z);
+			buf += sizeof(__u32);
 		} else if (cfi_buswidth_is_8()) {
-			map->write64 (map, *((__u64*)buf)++, adr+z);
+			map->write64 (map, *(__u64*)buf, adr+z);
+			buf += sizeof(__u64);
 		} else {
 			DISABLE_VPP(map);
 			ret = -EINVAL;
@@ -1683,6 +1687,7 @@ static void cfi_intelext_sync (struct mtd_info *mtd)
 
 		default:
 			/* Not an idle state */
+			set_current_state(TASK_UNINTERRUPTIBLE);
 			add_wait_queue(&chip->wq, &wait);
 			
 			spin_unlock(chip->mutex);

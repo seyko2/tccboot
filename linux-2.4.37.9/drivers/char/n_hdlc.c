@@ -351,9 +351,8 @@ static int n_hdlc_tty_open (struct tty_struct *tty)
 #endif
 	
 	/* Flush any pending characters in the driver and discipline. */
-	
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer (tty);
+
+	tty_ldisc_flush(tty);	
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer (tty);

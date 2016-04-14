@@ -1498,10 +1498,10 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	tty->closing = 0;
 	info->event = 0;
 	info->tty = 0;
-	if (tty->ldisc.num != ldiscs[N_TTY].num) {
+	if (tty->ldisc.num != N_TTY) {
 		if (tty->ldisc.close)
 			(tty->ldisc.close)(tty);
-		tty->ldisc = ldiscs[N_TTY];
+		tty->ldisc = *(tty_ldisc_get(N_TTY));
 		tty->termios->c_line = N_TTY;
 		if (tty->ldisc.open)
 			(tty->ldisc.open)(tty);

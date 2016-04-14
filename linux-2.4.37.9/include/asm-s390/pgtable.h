@@ -426,9 +426,12 @@ static inline pte_t mk_pte_phys(unsigned long physpage, pgprot_t pgprot)
 	__pte;                                                            \
 })
 
-#define arch_set_page_uptodate(__page)					  \
+#define SetPageUptodate(_page) \
 	do {								  \
-		asm volatile ("sske %0,%1" : : "d" (get_storage_key()),	  \
+		struct page *__page = (_page);				  \
+		if (!test_and_set_bit(PG_uptodate, &__page->flags))	  \
+			asm volatile ("sske %0,%1" 			  \
+			      : : "d" (get_storage_key()),		  \
 			      "a" (__pa((__page-mem_map) << PAGE_SHIFT)));\
 	} while (0)
 

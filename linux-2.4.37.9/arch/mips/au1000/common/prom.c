@@ -68,6 +68,11 @@ void  prom_init_cmdline(void)
 	actr = 1; /* Always ignore argv[0] */
 
 	cp = &(arcs_cmdline[0]);
+#ifdef CONFIG_CMDLINE_BOOL
+	strcpy(cp, CONFIG_CMDLINE);
+	cp += strlen(CONFIG_CMDLINE);
+	*cp++ = ' ';
+#endif
 	while(actr < prom_argc) {
 	        strcpy(cp, prom_argv[actr]);
 		cp += strlen(prom_argv[actr]);

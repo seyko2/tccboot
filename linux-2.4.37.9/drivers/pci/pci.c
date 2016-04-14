@@ -943,7 +943,7 @@ pci_generic_prep_mwi(struct pci_dev *dev)
 	if (cacheline_size == pci_cache_line_size)
 		return 0;
 
-	printk(KERN_WARNING "PCI: cache line size of %d is not supported "
+	printk(KERN_DEBUG "PCI: cache line size of %d is not supported "
 	       "by device %s\n", pci_cache_line_size << 2, dev->slot_name);
 
 	return -EINVAL;
@@ -1238,6 +1238,8 @@ struct pci_bus * __devinit pci_add_new_bus(struct pci_bus *parent, struct pci_de
 	 * Allocate a new bus, and inherit stuff from the parent..
 	 */
 	child = pci_alloc_bus();
+	if (!child)
+		return NULL;
 
 	list_add_tail(&child->node, &parent->children);
 	child->self = dev;
@@ -1291,7 +1293,11 @@ static int __devinit pci_scan_bridge(struct pci_bus *bus, struct pci_dev * dev, 
 		 */
 		if (pass)
 			return max;
+
 		child = pci_add_new_bus(bus, dev, 0);
+		if (!child)
+			return max;
+
 		child->primary = buses & 0xFF;
 		child->secondary = (buses >> 8) & 0xFF;
 		child->subordinate = (buses >> 16) & 0xFF;
@@ -1316,6 +1322,9 @@ static int __devinit pci_scan_bridge(struct pci_bus *bus, struct pci_dev * dev, 
 		pci_write_config_word(dev, PCI_STATUS, 0xffff);
 
 		child = pci_add_new_bus(bus, dev, ++max);
+		if (!child)
+			return max;
+
 		buses = (buses & 0xff000000)
 		      | ((unsigned int)(child->primary)     <<  0)
 		      | ((unsigned int)(child->secondary)   <<  8)

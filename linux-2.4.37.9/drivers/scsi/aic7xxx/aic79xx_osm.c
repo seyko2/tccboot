@@ -2931,6 +2931,19 @@ out:
 	ahd_unlock(ahd, &s);
 }
 
+static __inline int
+ahd_linux_dv_fallback(struct ahd_softc *ahd, struct ahd_devinfo *devinfo)
+{
+	u_long s;
+	int retval;
+
+	ahd_lock(ahd, &s);
+	retval = ahd_linux_fallback(ahd, devinfo);
+	ahd_unlock(ahd, &s);
+
+	return (retval);
+}
+
 static void
 ahd_linux_dv_transition(struct ahd_softc *ahd, struct scsi_cmnd *cmd,
 			struct ahd_devinfo *devinfo,
@@ -3565,19 +3578,6 @@ ahd_linux_dv_su(struct ahd_softc *ahd, struct scsi_cmnd *cmd,
 	cmd->cmd_len = 6;
 	cmd->cmnd[0] = START_STOP_UNIT;
 	cmd->cmnd[4] = le | SSS_START;
-}
-
-static __inline int
-ahd_linux_dv_fallback(struct ahd_softc *ahd, struct ahd_devinfo *devinfo)
-{
-	u_long s;
-	int retval;
-
-	ahd_lock(ahd, &s);
-	retval = ahd_linux_fallback(ahd, devinfo);
-	ahd_unlock(ahd, &s);
-
-	return (retval);
 }
 
 static int

@@ -319,6 +319,14 @@ struct acpi_table_ecdt {
 
 /* Table Handlers */
 
+/* PCI MMCONFIG */
+struct acpi_table_mcfg {
+	struct acpi_table_header	header;
+	u8				reserved[8];
+	u32				base_address;
+	u32				base_reserved;
+} __attribute__ ((packed));
+
 enum acpi_table_id {
 	ACPI_TABLE_UNKNOWN = 0,
 	ACPI_APIC,
@@ -338,6 +346,7 @@ enum acpi_table_id {
 	ACPI_SSDT,
 	ACPI_SPMI,
 	ACPI_HPET,
+	ACPI_MCFG,
 	ACPI_TABLE_COUNT
 };
 

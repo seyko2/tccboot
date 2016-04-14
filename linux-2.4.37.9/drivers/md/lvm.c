@@ -394,7 +394,7 @@ static char pv_name[NAME_LEN];
 /* static char rootvg[NAME_LEN] = { 0, }; */
 static int lock = 0;
 static int _lock_open_count = 0;
-static uint vg_count = 0;
+uint vg_count = 0;
 static long lvm_chr_open_count = 0;
 static DECLARE_WAIT_QUEUE_HEAD(lvm_wait);
 
@@ -1584,10 +1584,8 @@ static int lvm_do_vg_create(void *arg, int minor)
 		minor = vg_ptr->vg_number;
 
 	/* check limits */
-	if (minor >= ABS_MAX_VG) {
-		kfree(vg_ptr);
+	if (minor >= ABS_MAX_VG)
 		return -EFAULT;
-	}
 
 	/* Validate it */
 	if (vg[VG_CHR(minor)] != NULL) {
@@ -1655,7 +1653,8 @@ static int lvm_do_vg_create(void *arg, int minor)
 				P_IOCTL
 				    ("ERROR: copying LV ptr %p (%d bytes)\n",
 				     lvp, sizeof(lv_t));
-				goto copy_fault;
+				lvm_do_vg_remove(minor);
+				return -EFAULT;
 			}
 			if (lv.lv_access & LV_SNAPSHOT) {
 				snap_lv_ptr[ls] = lvp;
@@ -1666,7 +1665,8 @@ static int lvm_do_vg_create(void *arg, int minor)
 			vg_ptr->lv[l] = NULL;
 			/* only create original logical volumes for now */
 			if (lvm_do_lv_create(minor, lv.lv_name, &lv) != 0) {
-				goto copy_fault;
+				lvm_do_vg_remove(minor);
+				return -EFAULT;
 			}
 		}
 	}
@@ -1676,10 +1676,12 @@ static int lvm_do_vg_create(void *arg, int minor)
 	for (l = 0; l < ls; l++) {
 		lv_t *lvp = snap_lv_ptr[l];
 		if (copy_from_user(&lv, lvp, sizeof(lv_t)) != 0) {
-			goto copy_fault;
+			lvm_do_vg_remove(minor);
+			return -EFAULT;
 		}
 		if (lvm_do_lv_create(minor, lv.lv_name, &lv) != 0) {
-			goto copy_fault;
+			lvm_do_vg_remove(minor);
+			return -EFAULT;
 		}
 	}
 
@@ -1694,10 +1696,6 @@ static int lvm_do_vg_create(void *arg, int minor)
 	vg_ptr->vg_status |= VG_ACTIVE;
 
 	return 0;
-copy_fault:
-	lvm_do_vg_remove(minor);
-	vfree(snap_lv_ptr);
-	return -EFAULT;
 }				/* lvm_do_vg_create() */
 
 
@@ -2189,10 +2187,6 @@ static int lvm_do_lv_create(int minor, char *lv_name, lv_t * lv)
 				lv_ptr->lv_stripesize =
 				    lv_ptr->lv_snapshot_org->lv_stripesize;
 
-				/* Update the VG PE(s) used by snapshot reserve space. */
-				vg_ptr->pe_allocated +=
-				    lv_ptr->lv_allocated_snapshot_le;
-
 				if ((ret =
 				     lvm_snapshot_alloc(lv_ptr)) != 0) {
 					vfree(lv_ptr->lv_block_exception);
@@ -2200,6 +2194,10 @@ static int lvm_do_lv_create(int minor, char *lv_name, lv_t * lv)
 					vg_ptr->lv[l] = NULL;
 					return ret;
 				}
+				/* Update the VG PE(s) used by snapshot reserve space. */
+				vg_ptr->pe_allocated +=
+				    lv_ptr->lv_allocated_snapshot_le;
+
 				for (e = 0; e < lv_ptr->lv_remap_ptr; e++)
 					lvm_hash_link(lv_ptr->
 						      lv_block_exception +

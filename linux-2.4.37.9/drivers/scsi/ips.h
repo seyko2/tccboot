@@ -59,21 +59,13 @@
    extern int ips_eh_abort(Scsi_Cmnd *);
    extern int ips_eh_reset(Scsi_Cmnd *);
    extern int ips_queue(Scsi_Cmnd *, void (*) (Scsi_Cmnd *));
-   extern int ips_biosparam(Disk *, kdev_t, int *);
    extern const char * ips_info(struct Scsi_Host *);
 
    /*
     * Some handy macros
     */
-   #ifndef LinuxVersionCode
-      #define LinuxVersionCode(x,y,z)  (((x)<<16)+((y)<<8)+(z))
-   #endif
-
-   #if LINUX_VERSION_CODE >= LinuxVersionCode(2,4,20) || defined CONFIG_HIGHIO
+   #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,20) || defined CONFIG_HIGHIO
       #define IPS_HIGHIO
-      #define IPS_HIGHMEM_IO     .highmem_io = 1,
-   #else
-      #define IPS_HIGHMEM_IO
    #endif
 
    #define IPS_HA(x)                   ((ips_ha_t *) x->hostdata)
@@ -98,9 +90,36 @@
     #define IPS_SGLIST_SIZE(ha)       (IPS_USE_ENH_SGLIST(ha) ? \
                                          sizeof(IPS_ENH_SG_LIST) : sizeof(IPS_STD_SG_LIST))
 
-   #if LINUX_VERSION_CODE < LinuxVersionCode(2,4,4)
+   #if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,4)
       #define pci_set_dma_mask(dev,mask) ( mask > 0xffffffff ? 1:0 )
       #define scsi_set_pci_device(sh,dev) (0)
+   #endif
+
+   #ifndef IRQ_NONE
+      typedef void irqreturn_t;
+      #define IRQ_NONE
+      #define IRQ_HANDLED
+      #define IRQ_RETVAL(x)
+   #endif
+   #if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
+      #define IPS_REGISTER_HOSTS(SHT)      scsi_register_module(MODULE_SCSI_HA,SHT)
+      #define IPS_UNREGISTER_HOSTS(SHT)    scsi_unregister_module(MODULE_SCSI_HA,SHT)
+      #define IPS_ADD_HOST(shost,device)
+      #define IPS_REMOVE_HOST(shost)
+      #define IPS_SCSI_SET_DEVICE(sh,ha)   scsi_set_pci_device(sh, (ha)->pcidev)
+      #define IPS_PRINTK(level, pcidev, format, arg...)                 \
+            printk(level "%s %s:" format , "ips" ,     \
+            (pcidev)->slot_name , ## arg)
+      #define scsi_host_alloc(sh,size)         scsi_register(sh,size)
+      #define scsi_host_put(sh)             scsi_unregister(sh)
+   #else
+      #define IPS_REGISTER_HOSTS(SHT)      (!ips_detect(SHT))
+      #define IPS_UNREGISTER_HOSTS(SHT)
+      #define IPS_ADD_HOST(shost,device)   do { scsi_add_host(shost,device); scsi_scan_host(shost); } while (0)
+      #define IPS_REMOVE_HOST(shost)       scsi_remove_host(shost)
+      #define IPS_SCSI_SET_DEVICE(sh,ha)   scsi_set_device(sh, &(ha)->pcidev->dev)
+      #define IPS_PRINTK(level, pcidev, format, arg...)                 \
+            dev_printk(level , &((pcidev)->dev) , format , ## arg)
    #endif
 
    #ifndef MDELAY
@@ -229,6 +248,8 @@
    #define IPS_SUBDEVICEID_5I1          0x0258
    #define IPS_SUBDEVICEID_6M           0x0279
    #define IPS_SUBDEVICEID_6I           0x028C
+   #define IPS_SUBDEVICEID_7k           0x028E
+   #define IPS_SUBDEVICEID_7M           0x028F
    #define IPS_IOCTL_SIZE               8192
    #define IPS_STATUS_SIZE              4
    #define IPS_STATUS_Q_SIZE            (IPS_MAX_CMDS+1) * IPS_STATUS_SIZE
@@ -313,6 +334,9 @@
    #define IPS_ADTYPE_SERVERAID5I1      0x0D
    #define IPS_ADTYPE_SERVERAID6M       0x0E
    #define IPS_ADTYPE_SERVERAID6I       0x0F
+   #define IPS_ADTYPE_SERVERAID7t       0x10
+   #define IPS_ADTYPE_SERVERAID7k       0x11
+   #define IPS_ADTYPE_SERVERAID7M       0x12
 
    /*
     * Adapter Command/Status Packet Definitions
@@ -426,46 +450,15 @@
    /*
     * Scsi_Host Template
     */
-#if LINUX_VERSION_CODE < LinuxVersionCode(2,5,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
+   static int ips_proc24_info(char *, char **, off_t, int, int, int);
    static void ips_select_queue_depth(struct Scsi_Host *, Scsi_Device *);
-#define IPS {	\
-	.detect				= ips_detect,	\
-	.release			= ips_release,	\
-	.info				= ips_info,	\
-	.queuecommand			= ips_queue,	\
-	.eh_abort_handler		= ips_eh_abort,	\
-	.eh_host_reset_handler		= ips_eh_reset,	\
-	.bios_param			= ips_biosparam,\
-	.select_queue_depths		= ips_select_queue_depth, \
-	.can_queue			= 0,		\
-	.this_id			= -1,		\
-	.sg_tablesize			= IPS_MAX_SG,	\
-	.cmd_per_lun			= 16,		\
-	.present			= 0,		\
-	.unchecked_isa_dma		= 0,		\
-	.use_clustering			= ENABLE_CLUSTERING,\
-	.use_new_eh_code		= 1, \
-	IPS_HIGHMEM_IO \
-}
+   static int ips_biosparam(Disk *disk, kdev_t dev, int geom[]);
 #else
-#define IPS {	\
-	.detect			= ips_detect,		\
-	.release		= ips_release,		\
-	.info			= ips_info,		\
-	.queuecommand		= ips_queue,		\
-	.eh_abort_handler	= ips_eh_abort,		\
-	.eh_host_reset_handler	= ips_eh_reset,		\
-	.slave_configure	= ips_slave_configure,	\
-	.bios_param		= ips_biosparam,	\
-	.can_queue		= 0,			\
-	.this_id		= -1,			\
-	.sg_tablesize		= IPS_MAX_SG,		\
-	.cmd_per_lun		= 3,			\
-	.present		= 0,			\
-	.unchecked_isa_dma	= 0,			\
-	.use_clustering		= ENABLE_CLUSTERING,	\
-	.highmem_io		= 1 \
-}
+   int ips_proc_info(struct Scsi_Host *, char *, char **, off_t, int, int);
+   static int ips_biosparam(struct scsi_device *sdev, struct block_device *bdev,
+		sector_t capacity, int geom[]);
+   int ips_slave_configure(Scsi_Device *SDptr);
 #endif
 
 /*
@@ -941,6 +934,20 @@ typedef struct {
 } IPS_SCSI_MODE_PAGE4;
 
 /*
+ * Sense Data Format - Page 8
+ */
+typedef struct {
+   uint8_t  PageCode;
+   uint8_t  PageLength;
+   uint8_t  flags;
+   uint8_t  RetentPrio;
+   uint16_t DisPrefetchLen;
+   uint16_t MinPrefetchLen;
+   uint16_t MaxPrefetchLen;
+   uint16_t MaxPrefetchCeiling;
+} IPS_SCSI_MODE_PAGE8;
+
+/*
  * Sense Data Format - Block Descriptor (DASD)
  */
 typedef struct {
@@ -967,6 +974,7 @@ typedef struct {
    union {
       IPS_SCSI_MODE_PAGE3 pg3;
       IPS_SCSI_MODE_PAGE4 pg4;
+      IPS_SCSI_MODE_PAGE8 pg8;
    } pdata;
 } IPS_SCSI_MODE_PAGE_DATA;
 
@@ -1056,7 +1064,7 @@ typedef struct {
    int       (*programbios)(struct ips_ha *, char *, uint32_t, uint32_t);
    int       (*verifybios)(struct ips_ha *, char *, uint32_t, uint32_t);
    void      (*statinit)(struct ips_ha *);
-   void      (*intr)(struct ips_ha *);
+   int       (*intr)(struct ips_ha *);
    void      (*enableint)(struct ips_ha *);
    uint32_t (*statupd)(struct ips_ha *);
 } ips_hw_func_t;
@@ -1082,7 +1090,7 @@ typedef struct ips_ha {
    ips_scb_queue_t    scb_activelist;     /* Active SCB list            */
    IPS_IO_CMD        *dummy;              /* dummy command              */
    IPS_ADAPTER       *adapt;              /* Adapter status area        */
-   IPS_LD_INFO       *logical_drive_info; /* Logical Drive Info         */
+   IPS_LD_INFO       *logical_drive_info; /* Adapter Logical Drive Info */
    dma_addr_t         logical_drive_info_dma_addr; /* Logical Drive Info DMA Address */
    IPS_ENQ           *enq;                /* Adapter Enquiry data       */
    IPS_CONF          *conf;               /* Adapter config data        */
@@ -1131,8 +1139,8 @@ typedef struct ips_scb {
    uint8_t           bus;
    uint8_t           lun;
    uint8_t           cdb[12];
-   uint32_t          scb_busaddr;      
-   uint32_t          old_data_busaddr;         // Obsolete field left in to not break utilities
+   uint32_t          scb_busaddr;
+   uint32_t          old_data_busaddr;  // Obsolete, but kept for old utility compatibility
    uint32_t          timeout;
    uint8_t           basic_status;
    uint8_t           extended_status;
@@ -1202,50 +1210,54 @@ typedef struct {
 *
 *************************************************************************/
 
-#define IPS_VER_MAJOR 6
-#define IPS_VER_MAJOR_STRING "6"
-#define IPS_VER_MINOR 11
-#define IPS_VER_MINOR_STRING "11"
-#define IPS_VER_BUILD 07
-#define IPS_VER_BUILD_STRING "07"
-#define IPS_VER_STRING "6.11.07"
-#define IPS_RELEASE_ID 0x00010001
-#define IPS_BUILD_IDENT 2224
-#define IPS_LEGALCOPYRIGHT_STRING "(C) Copyright IBM Corp. 1994, 2003. All Rights Reserved."
-#define IPS_ADAPTECCOPYRIGHT_STRING "(c) Copyright Adaptec, Inc. 2002 to present. All Rights Reserved."
-#define IPS_NT_LEGALCOPYRIGHT_STRING "(C) Copyright IBM Corp. 1994, 2003."
+#define IPS_VER_MAJOR 7
+#define IPS_VER_MAJOR_STRING "7"
+#define IPS_VER_MINOR 10
+#define IPS_VER_MINOR_STRING "10"
+#define IPS_VER_BUILD 18
+#define IPS_VER_BUILD_STRING "18"
+#define IPS_VER_STRING "7.10.18"
+#define IPS_RELEASE_ID 0x00020000
+#define IPS_BUILD_IDENT 731
+#define IPS_LEGALCOPYRIGHT_STRING "(C) Copyright IBM Corp. 1994, 2002. All Rights Reserved."
+#define IPS_ADAPTECCOPYRIGHT_STRING "(c) Copyright Adaptec, Inc. 2002 to 2004. All Rights Reserved."
+#define IPS_DELLCOPYRIGHT_STRING "(c) Copyright Dell 2004. All Rights Reserved."
+#define IPS_NT_LEGALCOPYRIGHT_STRING "(C) Copyright IBM Corp. 1994, 2002."
 
 /* Version numbers for various adapters */
 #define IPS_VER_SERVERAID1 "2.25.01"
 #define IPS_VER_SERVERAID2 "2.88.13"
 #define IPS_VER_NAVAJO "2.88.13"
 #define IPS_VER_SERVERAID3 "6.10.24"
-#define IPS_VER_SERVERAID4H "6.11.07"
-#define IPS_VER_SERVERAID4MLx "6.11.07"
-#define IPS_VER_SARASOTA "6.11.07"
-#define IPS_VER_MARCO "6.11.07"
-#define IPS_VER_SEBRING "6.11.07"
+#define IPS_VER_SERVERAID4H "7.10.11"
+#define IPS_VER_SERVERAID4MLx "7.10.18"
+#define IPS_VER_SARASOTA "7.10.18"
+#define IPS_VER_MARCO "7.10.18"
+#define IPS_VER_SEBRING "7.10.18"
+#define IPS_VER_KEYWEST "7.10.18"
 
 /* Compatability IDs for various adapters */
 #define IPS_COMPAT_UNKNOWN ""
-#define IPS_COMPAT_CURRENT "SB610"
+#define IPS_COMPAT_CURRENT "KW710"
 #define IPS_COMPAT_SERVERAID1 "2.25.01"
 #define IPS_COMPAT_SERVERAID2 "2.88.13"
 #define IPS_COMPAT_NAVAJO  "2.88.13"
 #define IPS_COMPAT_KIOWA "2.88.13"
 #define IPS_COMPAT_SERVERAID3H  "SB610"
 #define IPS_COMPAT_SERVERAID3L  "SB610"
-#define IPS_COMPAT_SERVERAID4H  "SB610"
-#define IPS_COMPAT_SERVERAID4M  "SB610"
-#define IPS_COMPAT_SERVERAID4L  "SB610"
-#define IPS_COMPAT_SERVERAID4Mx "SB610"
-#define IPS_COMPAT_SERVERAID4Lx "SB610"
-#define IPS_COMPAT_SARASOTA     "SB610"
-#define IPS_COMPAT_MARCO        "SB610"
-#define IPS_COMPAT_SEBRING      "SB610"
-#define IPS_COMPAT_BIOS "SB610"
+#define IPS_COMPAT_SERVERAID4H  "KW710"
+#define IPS_COMPAT_SERVERAID4M  "KW710"
+#define IPS_COMPAT_SERVERAID4L  "KW710"
+#define IPS_COMPAT_SERVERAID4Mx "KW710"
+#define IPS_COMPAT_SERVERAID4Lx "KW710"
+#define IPS_COMPAT_SARASOTA     "KW710"
+#define IPS_COMPAT_MARCO        "KW710"
+#define IPS_COMPAT_SEBRING      "KW710"
+#define IPS_COMPAT_TAMPA        "KW710"
+#define IPS_COMPAT_KEYWEST      "KW710"
+#define IPS_COMPAT_BIOS "KW710"
 
-#define IPS_COMPAT_MAX_ADAPTER_TYPE 16
+#define IPS_COMPAT_MAX_ADAPTER_TYPE 18
 #define IPS_COMPAT_ID_LENGTH 8
 
 #define IPS_DEFINE_COMPAT_TABLE(tablename) \
@@ -1265,7 +1277,9 @@ typedef struct {
       IPS_COMPAT_SARASOTA,         /* one-channel variety of SARASOTA */  \
       IPS_COMPAT_SARASOTA,         /* two-channel variety of SARASOTA */  \
       IPS_COMPAT_MARCO, \
-      IPS_COMPAT_SEBRING \
+      IPS_COMPAT_SEBRING, \
+	  IPS_COMPAT_TAMPA, \
+      IPS_COMPAT_KEYWEST \
    }
 
 

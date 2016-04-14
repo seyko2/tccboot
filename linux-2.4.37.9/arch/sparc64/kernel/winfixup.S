@@ -296,7 +296,7 @@ fill_fixup_dax:
 	flush		%g6				! Flush instruction buffers
 	rdpr		%pstate, %l1			! Prepare to change globals.
 	mov		%g4, %o1			! Setup args for
-	mov		%g5, %o2			! final call to data_access_exception.
+	mov		%g5, %o2			! final call to spitfire_data_access_exception.
 	andn		%l1, PSTATE_MM, %l1		! We want to be in RMO
 
 	mov		%g6, %o7			! Stash away current.
@@ -305,7 +305,7 @@ fill_fixup_dax:
 	sethi		%uhi(PAGE_OFFSET), %g4		! Set page_offset global reg.
 	mov		%o7, %g6			! Get current back.
 	sllx		%g4, 32, %g4			! Finish it.
-	call		data_access_exception
+	call		spitfire_data_access_exception
 	 add		%sp, PTREGS_OFF, %o0
 
 	b,pt		%xcc, rtrap
@@ -366,7 +366,7 @@ window_dax_from_user_common:
 109:	 or		%g7, %lo(109b), %g7
 	mov		%l4, %o1
 	mov		%l5, %o2
-	call		data_access_exception
+	call		spitfire_data_access_exception
 	 add		%sp, PTREGS_OFF, %o0
 	ba,pt		%xcc, rtrap
 	 clr		%l6

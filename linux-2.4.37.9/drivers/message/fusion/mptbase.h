@@ -8,7 +8,7 @@
  *  Credits:
  *     (see mptbase.c)
  *
- *  Copyright (c) 1999-2002 LSI Logic Corporation
+ *  Copyright (c) 1999-2004 LSI Logic Corporation
  *  Originally By: Steven J. Ralston
  *  (mailto:sjralston1@netscape.net)
  *  (mailto:mpt_linux_developer@lsil.com)
@@ -68,6 +68,7 @@
 
 #include "lsi/mpi_fc.h"		/* Fibre Channel (lowlevel) support */
 #include "lsi/mpi_targ.h"	/* SCSI/FCP Target protcol support */
+#include "lsi/mpi_tool.h"	/* Tools support */
 #include "lsi/fc_log.h"
 
 /*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
@@ -77,11 +78,11 @@
 #endif
 
 #ifndef COPYRIGHT
-#define COPYRIGHT	"Copyright (c) 1999-2003 " MODULEAUTHOR
+#define COPYRIGHT	"Copyright (c) 1999-2004 " MODULEAUTHOR
 #endif
 
-#define MPT_LINUX_VERSION_COMMON	"2.05.11.03"
-#define MPT_LINUX_PACKAGE_NAME		"@(#)mptlinux-2.05.11.03"
+#define MPT_LINUX_VERSION_COMMON	"2.05.16"
+#define MPT_LINUX_PACKAGE_NAME		"@(#)mptlinux-2.05.16"
 #define WHAT_MAGIC_STRING		"@" "(" "#" ")"
 
 #define show_mptmod_ver(s,ver)  \
@@ -151,6 +152,9 @@
 
 #define MPT_NARROW			0
 #define MPT_WIDE			1
+
+#define C0_1030				0x08
+#define XL_929				0x01
 
 #ifdef __KERNEL__	/* { */
 /*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
@@ -527,6 +531,7 @@ typedef struct _mpt_ioctl_events {
 typedef	struct _ScsiCfgData {
 	u32		 PortFlags;
 	int		*nvram;			/* table of device NVRAM values */
+	IOCPage2_t	*pIocPg2;		/* table of Raid Volumes */
 	IOCPage3_t	*pIocPg3;		/* table of physical disks */
 	IOCPage4_t	*pIocPg4;		/* SEP devices addressing */
 	dma_addr_t	 IocPg4_dma;		/* Phys Addr of IOCPage4 data */
@@ -547,13 +552,6 @@ typedef	struct _ScsiCfgData {
 	u8		 Saf_Te;		/* 1 to force all Processors as SAF-TE if Inquiry data length is too short to check for SAF-TE */
 	u8		 rsvd[1];
 } ScsiCfgData;
-
-typedef struct _fw_image {
-	char		*fw;
-	dma_addr_t	 fw_dma;
-	u32		 size;
-	u32		 rsvd;
-} fw_image_t;
 
 /*
  *  Adapter Structure - pci_dev specific. Maximum: MPT_MAX_ADAPTERS
@@ -620,9 +618,9 @@ typedef struct _MPT_ADAPTER
 	int			timeout_maxcnt;
 #endif
 	struct _mpt_ioctl_events *events;	/* pointer to event log */
-	fw_image_t		**cached_fw;	/* Pointer to FW SG List */
+	u8			*cached_fw;	/* Pointer to FW */
+	dma_addr_t	 	cached_fw_dma;
 	Q_TRACKER		 configQ;	/* linked list of config. requests */
-	int			 num_fw_frags;	/* Number of SGE in FW SG List */
 	int			 hs_reply_idx;
 #ifndef MFCNT
 	u32			 pad0;
@@ -698,6 +696,33 @@ typedef struct _mpt_sge {
 #define dprintk(x)  printk x
 #else
 #define dprintk(x)
+#endif
+
+#ifdef MPT_DEBUG_INIT
+#define dinitprintk(x)  printk x
+#define DBG_DUMP_FW_REQUEST_FRAME(mfp) \
+	{	int  i, n = 10;						\
+		u32 *m = (u32 *)(mfp);					\
+		printk(KERN_INFO " ");					\
+		for (i=0; i<n; i++)					\
+			printk(" %08x", le32_to_cpu(m[i]));		\
+		printk("\n");						\
+	}
+#else
+#define dinitprintk(x)
+#define DBG_DUMP_FW_REQUEST_FRAME(mfp)
+#endif
+
+#ifdef MPT_DEBUG_EXIT
+#define dexitprintk(x)  printk x
+#else
+#define dexitprintk(x)
+#endif
+
+#ifdef MPT_DEBUG_RESET
+#define drsprintk(x)  printk x
+#else
+#define drsprintk(x)
 #endif
 
 #ifdef MPT_DEBUG_HANDSHAKE
@@ -1026,8 +1051,10 @@ extern u32	 mpt_GetIocState(MPT_ADAPTER *ioc, int cooked);
 extern void	 mpt_print_ioc_summary(MPT_ADAPTER *ioc, char *buf, int *size, int len, int showlan);
 extern int	 mpt_HardResetHandler(MPT_ADAPTER *ioc, int sleepFlag);
 extern int	 mpt_config(MPT_ADAPTER *ioc, CONFIGPARMS *cfg);
-extern void	*mpt_alloc_fw_memory(MPT_ADAPTER *ioc, int size, int *frags, int *alloc_sz);
-extern void	 mpt_free_fw_memory(MPT_ADAPTER *ioc, fw_image_t **alt_img);
+extern int	 mpt_toolbox(MPT_ADAPTER *ioc, CONFIGPARMS *cfg);
+extern void	 mpt_alloc_fw_memory(MPT_ADAPTER *ioc, int size);
+extern void	 mpt_free_fw_memory(MPT_ADAPTER *ioc);
+extern int	 mpt_findImVolumes(MPT_ADAPTER *ioc);
 extern int	 mpt_read_ioc_pg_3(MPT_ADAPTER *ioc);
 
 /*

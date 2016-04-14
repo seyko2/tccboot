@@ -1,6 +1,6 @@
 /*
  *    Disk Array driver for HP SA 5xxx and 6xxx Controllers
- *    Copyright 2000, 2002 Hewlett-Packard Development Company, L.P. 
+ *    Copyright 2000, 2005 Hewlett-Packard Development Company, L.P. 
  *
  *    This program is free software; you can redistribute it and/or modify
  *    it under the terms of the GNU General Public License as published by
@@ -45,13 +45,13 @@
 #include <linux/genhd.h>
 
 #define CCISS_DRIVER_VERSION(maj,min,submin) ((maj<<16)|(min<<8)|(submin))
-#define DRIVER_NAME "HP CISS Driver (v 2.4.50)"
-#define DRIVER_VERSION CCISS_DRIVER_VERSION(2,4,50)
+#define DRIVER_NAME "HP CISS Driver (v 2.4.60)"
+#define DRIVER_VERSION CCISS_DRIVER_VERSION(2,4,60)
 
 /* Embedded module documentation macros - see modules.h */
 MODULE_AUTHOR("Hewlett-Packard Company");
-MODULE_DESCRIPTION("Driver for HP SA5xxx SA6xxx Controllers version 2.4.50");
-MODULE_SUPPORTED_DEVICE("HP SA5i SA5i+ SA532 SA5300 SA5312 SA641 SA642 SA6400 6i"); 
+MODULE_DESCRIPTION("Driver for HP SA5xxx SA6xxx Controllers version 2.4.52");
+MODULE_SUPPORTED_DEVICE("HP SA5i SA5i+ SA532 SA5300 SA5312 SA641 SA642 SA6400 6i SA6422 P600 P400 P400i E200i E200"); 
 MODULE_LICENSE("GPL");
 
 #include "cciss_cmd.h"
@@ -78,6 +78,26 @@ const struct pci_device_id cciss_pci_device_id[] = {
                         0x0E11, 0x409D, 0, 0, 0},
 	{ PCI_VENDOR_ID_COMPAQ, PCI_DEVICE_ID_COMPAQ_CISSC,
                         0x0E11, 0x4091, 0, 0, 0},
+	{ PCI_VENDOR_ID_COMPAQ, PCI_DEVICE_ID_COMPAQ_CISSC,
+                        0x0E11, 0x409E, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSA,
+                        0x103C, 0x3225, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSC,
+                        0x103C, 0x3234, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSC,
+                        0x103C, 0x3235, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSD,
+                        0x103C, 0x3211, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSD,
+                        0x103C, 0x3212, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSD,
+                        0x103C, 0x3213, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSD,
+                        0x103C, 0x3214, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_DEVICE_ID_HP_CISSD,
+                        0x103C, 0x3215, 0, 0, 0},
+	{ PCI_VENDOR_ID_HP, PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID, 
+		PCI_CLASS_STORAGE_RAID << 8, 0xffff << 8, 0},
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, cciss_pci_device_id);
@@ -98,6 +118,15 @@ static struct board_type products[] = {
 	{ 0x409C0E11, "Smart Array 6400", &SA5_access},
 	{ 0x409D0E11, "Smart Array 6400 EM", &SA5_access},
 	{ 0x40910E11, "Smart Array 6i", &SA5_access},
+	{ 0x409E0E11, "Smart Array 6422", &SA5_access},
+	{ 0x3234103c, "Smart Array P400", &SA5_access},
+	{ 0x3235103c, "Smart Array P400i", &SA5_access},
+	{ 0x3211103c, "Smart Array E200i", &SA5_access},
+	{ 0x3212103c, "Smart Array E200", &SA5_access},
+	{ 0x3213103c, "Smart Array E200i", &SA5_access},
+	{ 0x3214103c, "Smart Array E200i", &SA5_access},
+	{ 0x3215103c, "Smart Array E200i", &SA5_access},
+	{ 0xFFFF103C, "Unknown Smart Array", &SA5_access},
 };
 
 /* How long to wait (in millesconds) for board to go into simple mode */
@@ -119,7 +148,7 @@ static struct board_type products[] = {
 /* Originally cciss driver only supports 8 major number */
 #define MAX_CTLR_ORIG  COMPAQ_CISS_MAJOR7 - COMPAQ_CISS_MAJOR + 1
 
-#define CCISS_DMA_MASK 0xFFFFFFFFFFFFFFFF /* 64 bit DMA */
+#define CCISS_DMA_MASK 0xFFFFFFFFFFFFFFFFULL /* 64 bit DMA */
 
 #ifdef CONFIG_CISS_MONITOR_THREAD
 static int cciss_monitor(void *ctlr);
@@ -161,6 +190,35 @@ static int cciss_proc_get_info(char *buffer, char **start, off_t offset,
 		int length, int *eof, void *data) { return 0;}
 static void cciss_procinit(int i) {}
 #endif /* CONFIG_PROC_FS */
+
+/*
+ * Enqueuing and dequeuing functions for cmdlists.
+ */
+static inline void addQ(CommandList_struct **Qptr, CommandList_struct *c)
+{
+        if (*Qptr == NULL) {
+                *Qptr = c;
+                c->next = c->prev = c;
+        } else {
+                c->prev = (*Qptr)->prev;
+                c->next = (*Qptr);
+                (*Qptr)->prev->next = c;
+                (*Qptr)->prev = c;
+        }
+}
+
+static inline CommandList_struct *removeQ(CommandList_struct **Qptr, 
+						CommandList_struct *c)
+{
+        if (c && c->next != c) {
+                if (*Qptr == c) *Qptr = c->next;
+                c->prev->next = c->next;
+                c->next->prev = c->prev;
+        } else {
+                *Qptr = NULL;
+        }
+        return c;
+}
 
 static struct block_device_operations cciss_fops  = {
 	owner:			THIS_MODULE,
@@ -487,6 +545,146 @@ static int cciss_release(struct inode *inode, struct file *filep)
 	return 0;
 }
 
+#ifdef __x86_64__
+/* for AMD 64 bit kernel compatibility with 32-bit userland ioctls */
+extern int sys_ioctl(unsigned int fd, unsigned cmd, unsigned long arg);
+
+extern int 
+register_ioctl32_conversion(unsigned int cmd, int (*handler)(unsigned int,
+      unsigned int, unsigned long, struct file *));
+extern int unregister_ioctl32_conversion(unsigned int cmd);
+
+static int cciss_ioctl32_passthru(unsigned int fd, unsigned cmd, unsigned long arg, struct file *file);
+static int cciss_ioctl32_big_passthru(unsigned int fd, unsigned cmd, unsigned long arg, struct file *file);
+
+typedef int (*handler_type) (unsigned int, unsigned int, unsigned long,
+				struct file *);
+
+static struct ioctl32_map {
+	unsigned int cmd; 
+	handler_type handler;
+	int registered;
+} cciss_ioctl32_map[] = {
+	{ CCISS_GETPCIINFO,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_GETINTINFO,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_SETINTINFO,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_GETNODENAME,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_SETNODENAME,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_GETHEARTBEAT,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_GETBUSTYPES,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_GETFIRMVER,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_GETDRIVVER,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_REVALIDVOLS,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_PASSTHRU32,	cciss_ioctl32_passthru, 0 },
+	{ CCISS_DEREGDISK,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_REGNEWDISK,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_REGNEWD,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_RESCANDISK,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_GETLUNINFO,	(handler_type) sys_ioctl, 0 },
+	{ CCISS_BIG_PASSTHRU32,	cciss_ioctl32_big_passthru, 0 },
+};
+#define NCCISS_IOCTL32_ENTRIES (sizeof(cciss_ioctl32_map) / sizeof(cciss_ioctl32_map[0]))
+static void register_cciss_ioctl32(void)
+{
+	int i, rc;
+
+	for (i=0; i < NCCISS_IOCTL32_ENTRIES; i++) {
+		rc = register_ioctl32_conversion(
+			cciss_ioctl32_map[i].cmd,
+			cciss_ioctl32_map[i].handler);
+		if (rc != 0) {
+			printk(KERN_WARNING "cciss: failed to register "
+				"32 bit compatible ioctl 0x%08x\n", 
+				cciss_ioctl32_map[i].cmd);
+			cciss_ioctl32_map[i].registered = 0;
+		} else
+			cciss_ioctl32_map[i].registered = 1;
+	}
+}
+static void unregister_cciss_ioctl32(void)
+{
+	int i, rc;
+
+	for (i=0; i < NCCISS_IOCTL32_ENTRIES; i++) {
+		if (!cciss_ioctl32_map[i].registered)
+			continue;
+		rc = unregister_ioctl32_conversion(
+			cciss_ioctl32_map[i].cmd);
+		if (rc == 0) {
+			cciss_ioctl32_map[i].registered = 0;
+			continue;
+		}
+		printk(KERN_WARNING "cciss: failed to unregister "
+			"32 bit compatible ioctl 0x%08x\n",
+			cciss_ioctl32_map[i].cmd);
+	}
+}
+int cciss_ioctl32_passthru(unsigned int fd, unsigned cmd, unsigned long arg, 
+				struct file *file)
+{
+	IOCTL32_Command_struct *arg32 = 
+		(IOCTL32_Command_struct *) arg;
+	IOCTL_Command_struct arg64;
+	mm_segment_t old_fs; 
+	int err;
+	__u64 tmp_ptr;
+
+	err = 0;
+	err |= copy_from_user(&arg64.LUN_info, &arg32->LUN_info, sizeof(arg64.LUN_info));
+	err |= copy_from_user(&arg64.Request, &arg32->Request, sizeof(arg64.Request));
+	err |= copy_from_user(&arg64.error_info, &arg32->error_info, sizeof(arg64.error_info));
+	err |= get_user(arg64.buf_size, &arg32->buf_size);
+	err |= get_user(tmp_ptr, &arg32->buf);
+	arg64.buf = (BYTE *) tmp_ptr;
+	if (err) 
+		return -EFAULT; 
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+	err = sys_ioctl(fd, CCISS_PASSTHRU, (unsigned long) &arg64);
+	set_fs(old_fs);
+	if (err)
+		return err;
+	err |= copy_to_user(&arg32->error_info, &arg64.error_info, sizeof(arg32->error_info));
+	if (err) 
+		return -EFAULT; 
+	return err;
+}
+int cciss_ioctl32_big_passthru(unsigned int fd, unsigned cmd, unsigned long arg,
+					struct file *file)
+{
+	BIG_IOCTL32_Command_struct *arg32 = 
+		(BIG_IOCTL32_Command_struct *) arg;
+	BIG_IOCTL_Command_struct arg64;
+	mm_segment_t old_fs; 
+	int err;
+	__u64 tmp_ptr;
+
+	err = 0;
+	err |= copy_from_user(&arg64.LUN_info, &arg32->LUN_info, sizeof(arg64.LUN_info));
+	err |= copy_from_user(&arg64.Request, &arg32->Request, sizeof(arg64.Request));
+	err |= copy_from_user(&arg64.error_info, &arg32->error_info, sizeof(arg64.error_info));
+	err |= get_user(arg64.buf_size, &arg32->buf_size);
+	err |= get_user(arg64.malloc_size, &arg32->malloc_size);
+	err |= get_user(tmp_ptr, &arg32->buf);
+	arg64.buf = (BYTE *) tmp_ptr;
+	if (err) return -EFAULT; 
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+	err = sys_ioctl(fd, CCISS_BIG_PASSTHRU, (unsigned long) &arg64);
+	set_fs(old_fs);
+	if (err)
+		return err;
+	err |= copy_to_user(&arg32->error_info, &arg64.error_info, sizeof(arg32->error_info));
+	if (err) 
+		return -EFAULT; 
+	return err;
+}
+#else 
+static inline void register_cciss_ioctl32(void) {}
+static inline void unregister_cciss_ioctl32(void) {}
+#endif
+
 /*
  * ioctl 
  */
@@ -802,6 +1000,8 @@ static int cciss_ioctl(struct inode *inode, struct file *filep,
 				return -EFAULT;
 			}
 		}
+		else 
+			memset(buff, 0, iocommand.buf_size);
 		if ((c = cmd_alloc(h , 0)) == NULL) {
 			kfree(buff);
 			return -ENOMEM;
@@ -918,13 +1118,16 @@ static int cciss_ioctl(struct inode *inode, struct file *filep,
 					goto cleanup1;
 				}
 				if (iocommand.Request.Type.Direction == 
-						XFER_WRITE)
+						XFER_WRITE) {
 				   /* Copy the data into the buffer created */
 				   if (copy_from_user(buff[sg_used], data_ptr, 
 						buff_size[sg_used])) {
-					status = -ENOMEM;
+					status = -EFAULT;
 					goto cleanup1;			
 				   }
+				   }
+				else
+					memset(buff[sg_used], 0, buff_size[sg_used]);
 				size_left_alloc -= buff_size[sg_used];
 				data_ptr += buff_size[sg_used];
 				sg_used++;
@@ -1987,35 +2190,6 @@ static ulong remap_pci_mem(ulong base, ulong size)
         return (ulong) (page_remapped ? (page_remapped + page_offs) : 0UL);
 }
 
-/*
- * Enqueuing and dequeuing functions for cmdlists.
- */
-static inline void addQ(CommandList_struct **Qptr, CommandList_struct *c)
-{
-        if (*Qptr == NULL) {
-                *Qptr = c;
-                c->next = c->prev = c;
-        } else {
-                c->prev = (*Qptr)->prev;
-                c->next = (*Qptr);
-                (*Qptr)->prev->next = c;
-                (*Qptr)->prev = c;
-        }
-}
-
-static inline CommandList_struct *removeQ(CommandList_struct **Qptr, 
-						CommandList_struct *c)
-{
-        if (c && c->next != c) {
-                if (*Qptr == c) *Qptr = c->next;
-                c->prev->next = c->next;
-                c->next->prev = c->prev;
-        } else {
-                *Qptr = NULL;
-        }
-        return c;
-}
-
 /* 
  * Takes jobs of the Q and sends them to the hardware, then puts it on 
  * the Q to wait for completion. 
@@ -2529,7 +2703,7 @@ static int find_PCI_BAR_index(struct pci_dev *pdev,
 static int cciss_pci_init(ctlr_info_t *c, struct pci_dev *pdev)
 {
 	ushort subsystem_vendor_id, subsystem_device_id, command;
-	unchar irq = pdev->irq, ready = 0;
+	int ready = 0;
 	__u32 board_id, scratchpad;
 	__u64 cfg_offset;
 	__u32 cfg_base_addr;
@@ -2585,11 +2759,11 @@ static int cciss_pci_init(ctlr_info_t *c, struct pci_dev *pdev)
 
 #ifdef CCISS_DEBUG
 	printk("command = %x\n", command);
-	printk("irq = %x\n", irq);
+	printk("irq = %x\n", pdev->irq);
 	printk("board_id = %x\n", board_id);
 #endif /* CCISS_DEBUG */ 
 
-	c->intr = irq;
+	c->intr = pdev->irq;
 
 	/*
 	 * Memory base addr is first addr , the second points to the config
@@ -2654,18 +2828,31 @@ static int cciss_pci_init(ctlr_info_t *c, struct pci_dev *pdev)
 			break;
 		}
 	}
-	if (i == NR_PRODUCTS) {
-		printk(KERN_WARNING "cciss: Sorry, I don't know how"
-			" to access the Smart Array controller %08lx\n", 
-				(unsigned long)board_id);
-		return -1;
-	}
 	if (  (readb(&c->cfgtable->Signature[0]) != 'C') ||
 	      (readb(&c->cfgtable->Signature[1]) != 'I') ||
 	      (readb(&c->cfgtable->Signature[2]) != 'S') ||
 	      (readb(&c->cfgtable->Signature[3]) != 'S') ) {
 		printk("Does not appear to be a valid CISS config table\n");
 		return -1;
+	}
+	/* We didn't find the controller in our list. We know the
+	 * signature is valid. If it's an HP device let's try to
+	 * bind to the device and fire it up. Otherwise we bail.
+	 */
+	if (i == NR_PRODUCTS) {
+		if (subsystem_vendor_id == PCI_VENDOR_ID_HP) {
+			c->product_name = products[NR_PRODUCTS-1].product_name;
+			c->access = *(products[NR_PRODUCTS-1].access);
+			printk(KERN_WARNING "cciss: This is an unknown "
+				"Smart Array controller.\n"
+				"cciss: Please update to the latest driver "
+				"available from www.hp.com.\n");
+		} else {
+			printk(KERN_WARNING "cciss: Sorry, I don't know how"
+				" to access the Smart Array controller %08lx\n"
+					, (unsigned long)board_id);
+			return -1;
+		}
 	}
 
 #ifdef CONFIG_X86
@@ -3317,7 +3504,7 @@ int __init cciss_init(void)
 EXPORT_NO_SYMBOLS;
 static int __init init_cciss_module(void)
 {
-
+	register_cciss_ioctl32();
 	return cciss_init();
 }
 
@@ -3325,6 +3512,7 @@ static void __exit cleanup_cciss_module(void)
 {
 	int i;
 
+	unregister_cciss_ioctl32();
 	pci_unregister_driver(&cciss_pci_driver);
 	/* double check that all controller entrys have been removed */
 	for (i=0; i< MAX_CTLR; i++) {

@@ -23,8 +23,6 @@ LINKFLAGS =-T $(TOPDIR)/arch/i386/vmlinux.lds $(LDFLAGS)
 
 CFLAGS += -pipe
 
-check_gcc = $(shell if $(CC) $(1) -S -o /dev/null -xc /dev/null > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi)
-
 # prevent gcc from keeping the stack 16 byte aligned
 CFLAGS += $(call check_gcc,-mpreferred-stack-boundary=2,)
 
@@ -73,6 +71,10 @@ CFLAGS += -march=i686
 CFLAGS += $(call check_gcc,-falign-functions=0 -falign-jumps=0 -falign-loops=0,-malign-functions=0 -malign-jumps=0 -malign-loops=0)
 endif
 
+ifdef CONFIG_MGEODE_LX
+CFLAGS += -march=i686
+endif
+
 ifdef CONFIG_MWINCHIPC6
 CFLAGS += -march=i586
 endif
@@ -93,6 +95,13 @@ endif
 ifdef CONFIG_MVIAC3_2
 CFLAGS += $(call check_gcc,-march=c3-2,-march=i686)
 endif
+
+# Disable unit-at-a-time mode on pre-gcc-4.0 compilers, it makes gcc use
+# a lot more stack due to the lack of sharing of stacklots.
+# CFLAGS += $(call if_gcc4,,$(call check_gcc,-fno-unit-at-a-time,))
+# Disable unit-at-a-time on gcc >= 4 too, because it removes seemingly unused
+# variables which are indeed module params.
+CFLAGS += $(call check_gcc,-fno-unit-at-a-time,)
 
 HEAD := arch/i386/kernel/head.o arch/i386/kernel/init_task.o
 

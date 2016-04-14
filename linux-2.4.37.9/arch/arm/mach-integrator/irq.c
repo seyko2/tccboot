@@ -55,7 +55,7 @@ void __init integrator_init_irq(void)
 	unsigned int i;
 
 	for (i = 0; i < NR_IRQS; i++) {
-	        if (((1 << i) && INTEGRATOR_SC_VALID_INT) != 0) {
+	        if (((1 << i) & INTEGRATOR_SC_VALID_INT) != 0) {
 		        irq_desc[i].valid	= 1;
 			irq_desc[i].probe_ok	= 1;
 			irq_desc[i].mask_ack	= sc_mask_irq;

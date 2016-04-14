@@ -70,11 +70,13 @@
  *					arp_xmit so intermediate drivers like
  *					bonding can change the skb before
  *					sending (e.g. insert 8021q tag).
+ *		Harald Welte	:	convert to make use of jenkins hash
  */
 
 #include <linux/types.h>
 #include <linux/string.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/config.h>
 #include <linux/socket.h>
@@ -92,6 +94,8 @@
 #include <linux/proc_fs.h>
 #include <linux/stat.h>
 #include <linux/init.h>
+#include <linux/jhash.h>
+#include <linux/module.h>
 #ifdef CONFIG_SYSCTL
 #include <linux/sysctl.h>
 #endif
@@ -218,15 +222,7 @@ int arp_mc_map(u32 addr, u8 *haddr, struct net_device *dev, int dir)
 
 static u32 arp_hash(const void *pkey, const struct net_device *dev)
 {
-	u32 hash_val;
-
-	hash_val = *(u32*)pkey;
-	hash_val ^= (hash_val>>16);
-	hash_val ^= hash_val>>8;
-	hash_val ^= hash_val>>3;
-	hash_val = (hash_val^dev->ifindex)&NEIGH_HASHMASK;
-
-	return hash_val;
+	return jhash_2words(*(u32 *)pkey, dev->ifindex, arp_tbl.hash_rnd);
 }
 
 static int arp_constructor(struct neighbour *neigh)
@@ -849,7 +845,8 @@ int arp_process(struct sk_buff *skb)
 		if (arp->ar_op == htons(ARPOP_REQUEST) &&
 		    inet_addr_type(tip) == RTN_LOCAL &&
 		    !arp_ignore(in_dev,dev,sip,tip))
-			arp_send(ARPOP_REPLY,ETH_P_ARP,tip,dev,tip,sha,dev->dev_addr,dev->dev_addr);
+			arp_send(ARPOP_REPLY, ETH_P_ARP, sip, dev, tip, sha,
+			         dev->dev_addr, sha);
 		goto out;
 	}
 
@@ -1024,8 +1021,26 @@ int arp_req_set(struct arpreq *r, struct net_device * dev)
 		if (!dev)
 			return -EINVAL;
 	}
-	if (r->arp_ha.sa_family != dev->type)	
-		return -EINVAL;
+	switch (dev->type) {
+#ifdef CONFIG_FDDI
+	case ARPHRD_FDDI:
+		/*
+		 * According to RFC 1390, FDDI devices should accept ARP
+		 * hardware types of 1 (Ethernet).  However, to be more
+		 * robust, we'll accept hardware types of either 1 (Ethernet)
+		 * or 6 (IEEE 802.2).
+		 */
+		if (r->arp_ha.sa_family != ARPHRD_FDDI &&
+		    r->arp_ha.sa_family != ARPHRD_ETHER &&
+		    r->arp_ha.sa_family != ARPHRD_IEEE802)
+			return -EINVAL;
+		break;
+#endif
+	default:
+		if (r->arp_ha.sa_family != dev->type)
+			return -EINVAL;
+		break;
+	}
 
 	neigh = __neigh_lookup_errno(&arp_tbl, &ip, dev);
 	err = PTR_ERR(neigh);
@@ -1185,129 +1200,155 @@ out:
 	return err;
 }
 
-/*
- *	Write the contents of the ARP cache to a PROCfs file.
- */
-#ifndef CONFIG_PROC_FS
-static int arp_get_info(char *buffer, char **start, off_t offset, int length) { return 0; }
-#else
+#ifdef CONFIG_PROC_FS
 #if defined(CONFIG_AX25) || defined(CONFIG_AX25_MODULE)
-static char *ax2asc2(ax25_address *a, char *buf);
-#endif
+
+/* ------------------------------------------------------------------------ */
+/*
+ *	ax25 -> ASCII conversion
+ */
+static char *ax2asc2(ax25_address *a, char *buf)
+{
+	char c, *s;
+	int n;
+
+	for (n = 0, s = buf; n < 6; n++) {
+		c = (a->ax25_call[n] >> 1) & 0x7F;
+
+		if (c != ' ') *s++ = c;
+	}
+	
+	*s++ = '-';
+
+	if ((n = ((a->ax25_call[6] >> 1) & 0x0F)) > 9) {
+		*s++ = '1';
+		n -= 10;
+	}
+	
+	*s++ = n + '0';
+	*s++ = '\0';
+
+	if (*buf == '\0' || *buf == '-')
+	   return "*";
+
+	return buf;
+
+}
+#endif /* CONFIG_AX25 */
+
 #define HBUFFERLEN 30
 
-static int arp_get_info(char *buffer, char **start, off_t offset, int length)
+static void arp_format_neigh_entry(struct seq_file *seq,
+				   struct neighbour *n)
 {
-	int len=0;
-	off_t pos=0;
-	int size;
 	char hbuffer[HBUFFERLEN];
-	int i,j,k;
 	const char hexbuf[] =  "0123456789ABCDEF";
+	int k, j;
+	char tbuf[16];
+	struct net_device *dev = n->dev;
+	int hatype = dev->type;
 
-	size = sprintf(buffer,"IP address       HW type     Flags       HW address            Mask     Device\n");
+	read_lock(&n->lock);
 
-	pos+=size;
-	len+=size;
-
-	for(i=0; i<=NEIGH_HASHMASK; i++) {
-		struct neighbour *n;
-		read_lock_bh(&arp_tbl.lock);
-		for (n=arp_tbl.hash_buckets[i]; n; n=n->next) {
-			struct net_device *dev = n->dev;
-			int hatype = dev->type;
-
-			/* Do not confuse users "arp -a" with magic entries */
-			if (!(n->nud_state&~NUD_NOARP))
-				continue;
-
-			read_lock(&n->lock);
-
-/*
- *	Convert hardware address to XX:XX:XX:XX ... form.
- */
+	/* Convert hardware address to XX:XX:XX:XX ... form. */
 #if defined(CONFIG_AX25) || defined(CONFIG_AX25_MODULE)
-			if (hatype == ARPHRD_AX25 || hatype == ARPHRD_NETROM)
-				ax2asc2((ax25_address *)n->ha, hbuffer);
-			else {
+	if (hatype == ARPHRD_AX25 || hatype == ARPHRD_NETROM)
+		ax2asc2((ax25_address *)n->ha, hbuffer);
+	else {
 #endif
-			for (k=0,j=0;k<HBUFFERLEN-3 && j<dev->addr_len;j++) {
-				hbuffer[k++]=hexbuf[(n->ha[j]>>4)&15 ];
-				hbuffer[k++]=hexbuf[n->ha[j]&15     ];
-				hbuffer[k++]=':';
-			}
-			hbuffer[--k]=0;
-
+	for (k=0,j=0;k<HBUFFERLEN-3 && j<dev->addr_len;j++) {
+		hbuffer[k++]=hexbuf[(n->ha[j]>>4)&15 ];
+		hbuffer[k++]=hexbuf[n->ha[j]&15     ];
+		hbuffer[k++]=':';
+	}
+	hbuffer[--k]=0;
 #if defined(CONFIG_AX25) || defined(CONFIG_AX25_MODULE)
-		}
+	}
 #endif
-
-			{
-				char tbuf[16];
-				sprintf(tbuf, "%u.%u.%u.%u", NIPQUAD(*(u32*)n->primary_key));
-				size = sprintf(buffer+len, "%-16s 0x%-10x0x%-10x%s"
-							"     *        %s\n",
-					tbuf,
-					hatype,
-					arp_state_to_flags(n), 
-					hbuffer,
-					dev->name);
-			}
-
-			read_unlock(&n->lock);
-
-			len += size;
-			pos += size;
-		  
-			if (pos <= offset)
-				len=0;
-			if (pos >= offset+length) {
-				read_unlock_bh(&arp_tbl.lock);
- 				goto done;
-			}
-		}
-		read_unlock_bh(&arp_tbl.lock);
-	}
-
-	for (i=0; i<=PNEIGH_HASHMASK; i++) {
-		struct pneigh_entry *n;
-		for (n=arp_tbl.phash_buckets[i]; n; n=n->next) {
-			struct net_device *dev = n->dev;
-			int hatype = dev ? dev->type : 0;
-
-			{
-				char tbuf[16];
-				sprintf(tbuf, "%u.%u.%u.%u", NIPQUAD(*(u32*)n->key));
-				size = sprintf(buffer+len, "%-16s 0x%-10x0x%-10x%s"
-							"     *        %s\n",
-					tbuf,
-					hatype,
- 					ATF_PUBL|ATF_PERM,
-					"00:00:00:00:00:00",
-					dev ? dev->name : "*");
-			}
-
-			len += size;
-			pos += size;
-		  
-			if (pos <= offset)
-				len=0;
-			if (pos >= offset+length)
-				goto done;
-		}
-	}
-
-done:
-  
-	*start = buffer+len-(pos-offset);	/* Start of wanted data */
-	len = pos-offset;			/* Start slop */
-	if (len>length)
-		len = length;			/* Ending slop */
-	if (len<0)
-		len = 0;
-	return len;
+	sprintf(tbuf, "%u.%u.%u.%u", NIPQUAD(*(u32*)n->primary_key));
+	seq_printf(seq, "%-16s 0x%-10x0x%-10x%s     *        %s\n",
+		   tbuf, hatype, arp_state_to_flags(n), hbuffer, dev->name);
+	read_unlock(&n->lock);
 }
-#endif
+
+static void arp_format_pneigh_entry(struct seq_file *seq,
+				    struct pneigh_entry *n)
+{
+	struct net_device *dev = n->dev;
+	int hatype = dev ? dev->type : 0;
+	char tbuf[16];
+
+	sprintf(tbuf, "%u.%u.%u.%u", NIPQUAD(*(u32*)n->key));
+	seq_printf(seq, "%-16s 0x%-10x0x%-10x%s     *        %s\n",
+		   tbuf, hatype, ATF_PUBL | ATF_PERM, "00:00:00:00:00:00",
+		   dev ? dev->name : "*");
+}
+
+static int arp_seq_show(struct seq_file *seq, void *v)
+{
+	if (v == SEQ_START_TOKEN) {
+		seq_puts(seq, "IP address       HW type     Flags       "
+			      "HW address            Mask     Device\n");
+	} else {
+		struct neigh_seq_state *state = seq->private;
+
+		if (state->flags & NEIGH_SEQ_IS_PNEIGH)
+			arp_format_pneigh_entry(seq, v);
+		else
+			arp_format_neigh_entry(seq, v);
+	}
+
+	return 0;
+}
+
+static void *arp_seq_start(struct seq_file *seq, loff_t *pos)
+{
+	/* Don't want to confuse "arp -a" w/ magic entries,
+	 * so we tell the generic iterator to skip NUD_NOARP.
+	 */
+	return neigh_seq_start(seq, pos, &arp_tbl, NEIGH_SEQ_SKIP_NOARP);
+}
+
+/* ------------------------------------------------------------------------ */
+
+static struct seq_operations arp_seq_ops = {
+	.start	= arp_seq_start,
+	.next	= neigh_seq_next,
+	.stop	= neigh_seq_stop,
+	.show	= arp_seq_show,
+};
+
+static int arp_seq_open(struct inode *inode, struct file *file)
+{
+	struct seq_file *seq;
+	int rc = -ENOMEM;
+	struct neigh_seq_state *s = kmalloc(sizeof(*s), GFP_KERNEL);
+
+	if (!s)
+		goto out;
+
+	memset(s, 0, sizeof(*s));
+	rc = seq_open(file, &arp_seq_ops);
+	if (rc)
+		goto out_kfree;
+
+	seq = file->private_data;
+	seq->private = s;
+out:
+	return rc;
+out_kfree:
+	kfree(s);
+	goto out;
+}
+
+static struct file_operations arp_seq_fops = {
+	.owner		= THIS_MODULE,
+	.open		= arp_seq_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release_private,
+};
+#endif /* CONFIG_PROC_FS */
 
 static int arp_netdev_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
@@ -1355,8 +1396,10 @@ void __init arp_init (void)
 
 	dev_add_pack(&arp_packet_type);
 
-	proc_net_create ("arp", 0, arp_get_info);
-
+#ifdef CONFIG_PROC_FS
+	if (!proc_net_fops_create("arp", S_IRUGO, &arp_seq_fops))
+		panic("unable to create arp proc entry");
+#endif
 #ifdef CONFIG_SYSCTL
 	neigh_sysctl_register(NULL, &arp_tbl.parms, NET_IPV4, NET_IPV4_NEIGH, "ipv4");
 #endif
@@ -1364,39 +1407,3 @@ void __init arp_init (void)
 }
 
 
-#ifdef CONFIG_PROC_FS
-#if defined(CONFIG_AX25) || defined(CONFIG_AX25_MODULE)
-
-/*
- *	ax25 -> ASCII conversion
- */
-char *ax2asc2(ax25_address *a, char *buf)
-{
-	char c, *s;
-	int n;
-
-	for (n = 0, s = buf; n < 6; n++) {
-		c = (a->ax25_call[n] >> 1) & 0x7F;
-
-		if (c != ' ') *s++ = c;
-	}
-	
-	*s++ = '-';
-
-	if ((n = ((a->ax25_call[6] >> 1) & 0x0F)) > 9) {
-		*s++ = '1';
-		n -= 10;
-	}
-	
-	*s++ = n + '0';
-	*s++ = '\0';
-
-	if (*buf == '\0' || *buf == '-')
-	   return "*";
-
-	return buf;
-
-}
-
-#endif
-#endif

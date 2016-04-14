@@ -47,11 +47,9 @@ struct i2c_msg;
 
 /* --- General options ------------------------------------------------	*/
 
-#define I2C_ALGO_MAX	4		/* control memory consumption	*/
-#define I2C_ADAP_MAX	16
+#define I2C_ADAP_MAX	16		/* control memory consumption	*/
 #define I2C_DRIVER_MAX	16
 #define I2C_CLIENT_MAX	32
-#define I2C_DUMMY_MAX 4
 
 struct i2c_algorithm;
 struct i2c_adapter;
@@ -72,15 +70,7 @@ extern int i2c_master_recv(struct i2c_client *,char* ,int);
 
 /* Transfer num messages.
  */
-extern int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg msg[],int num);
-
-/*
- * Some adapter types (i.e. PCF 8584 based ones) may support slave behaviuor. 
- * This is not tested/implemented yet and will change in the future.
- */
-extern int i2c_slave_send(struct i2c_client *,char*,int);
-extern int i2c_slave_recv(struct i2c_client *,char*,int);
-
+extern int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msg,int num);
 
 
 /* This is the very generalized SMBus access routine. You probably do not
@@ -149,14 +139,14 @@ struct i2c_driver {
 	 */
 	int (*command)(struct i2c_client *client,unsigned int cmd, void *arg);
 	
-	/* These two are mainly used for bookkeeping & dynamic unloading of 
+	/* These two are used for bookkeeping & dynamic unloading of
 	 * kernel modules. inc_use tells the driver that a client is being  
 	 * used by another module & that it should increase its ref. counter.
 	 * dec_use is the inverse operation.
 	 * NB: Make sure you have no circular dependencies, or else you get a 
 	 * deadlock when trying to unload the modules.
-	* You should use the i2c_{inc,dec}_use_client functions instead of
-	* calling this function directly.
+	 * You should use the i2c_{inc,dec}_use_client functions instead of
+	 * calling this function directly.
 	 */
 	void (*inc_use)(struct i2c_client *client);
 	void (*dec_use)(struct i2c_client *client);
@@ -195,11 +185,11 @@ struct i2c_algorithm {
 	char name[32];				/* textual description 	*/
 	unsigned int id;
 
-	/* If an adapter algorithm can't to I2C-level access, set master_xfer
+	/* If an adapter algorithm can't do I2C-level access, set master_xfer
 	   to NULL. If an adapter algorithm can do SMBus access, set 
 	   smbus_xfer. If set to NULL, the SMBus protocol is simulated
 	   using common I2C messages */
-	int (*master_xfer)(struct i2c_adapter *adap,struct i2c_msg msgs[], 
+	int (*master_xfer)(struct i2c_adapter *adap,struct i2c_msg *msgs,
 	                   int num);
 	int (*smbus_xfer) (struct i2c_adapter *adap, u16 addr, 
 	                   unsigned short flags, char read_write,
@@ -389,26 +379,26 @@ struct i2c_msg {
 #define I2C_FUNC_SMBUS_PROC_CALL	0x00800000 
 #define I2C_FUNC_SMBUS_READ_BLOCK_DATA	0x01000000 
 #define I2C_FUNC_SMBUS_WRITE_BLOCK_DATA 0x02000000 
-#define I2C_FUNC_SMBUS_READ_I2C_BLOCK	0x04000000 /* New I2C-like block */
-#define I2C_FUNC_SMBUS_WRITE_I2C_BLOCK	0x08000000 /* transfer */
+#define I2C_FUNC_SMBUS_READ_I2C_BLOCK	0x04000000 /* I2C-like block xfer  */
+#define I2C_FUNC_SMBUS_WRITE_I2C_BLOCK	0x08000000 /* w/ 1-byte reg. addr. */
 
-#define I2C_FUNC_SMBUS_BYTE I2C_FUNC_SMBUS_READ_BYTE | \
-                            I2C_FUNC_SMBUS_WRITE_BYTE
-#define I2C_FUNC_SMBUS_BYTE_DATA I2C_FUNC_SMBUS_READ_BYTE_DATA | \
-                                 I2C_FUNC_SMBUS_WRITE_BYTE_DATA
-#define I2C_FUNC_SMBUS_WORD_DATA I2C_FUNC_SMBUS_READ_WORD_DATA | \
-                                 I2C_FUNC_SMBUS_WRITE_WORD_DATA
-#define I2C_FUNC_SMBUS_BLOCK_DATA I2C_FUNC_SMBUS_READ_BLOCK_DATA | \
-                                  I2C_FUNC_SMBUS_WRITE_BLOCK_DATA
-#define I2C_FUNC_SMBUS_I2C_BLOCK I2C_FUNC_SMBUS_READ_I2C_BLOCK | \
-                                  I2C_FUNC_SMBUS_WRITE_I2C_BLOCK
+#define I2C_FUNC_SMBUS_BYTE (I2C_FUNC_SMBUS_READ_BYTE | \
+                             I2C_FUNC_SMBUS_WRITE_BYTE)
+#define I2C_FUNC_SMBUS_BYTE_DATA (I2C_FUNC_SMBUS_READ_BYTE_DATA | \
+                                  I2C_FUNC_SMBUS_WRITE_BYTE_DATA)
+#define I2C_FUNC_SMBUS_WORD_DATA (I2C_FUNC_SMBUS_READ_WORD_DATA | \
+                                  I2C_FUNC_SMBUS_WRITE_WORD_DATA)
+#define I2C_FUNC_SMBUS_BLOCK_DATA (I2C_FUNC_SMBUS_READ_BLOCK_DATA | \
+                                   I2C_FUNC_SMBUS_WRITE_BLOCK_DATA)
+#define I2C_FUNC_SMBUS_I2C_BLOCK (I2C_FUNC_SMBUS_READ_I2C_BLOCK | \
+                                  I2C_FUNC_SMBUS_WRITE_I2C_BLOCK)
 
-#define I2C_FUNC_SMBUS_EMUL I2C_FUNC_SMBUS_QUICK | \
-                            I2C_FUNC_SMBUS_BYTE | \
-                            I2C_FUNC_SMBUS_BYTE_DATA | \
-                            I2C_FUNC_SMBUS_WORD_DATA | \
-                            I2C_FUNC_SMBUS_PROC_CALL | \
-                            I2C_FUNC_SMBUS_WRITE_BLOCK_DATA
+#define I2C_FUNC_SMBUS_EMUL (I2C_FUNC_SMBUS_QUICK | \
+                             I2C_FUNC_SMBUS_BYTE | \
+                             I2C_FUNC_SMBUS_BYTE_DATA | \
+                             I2C_FUNC_SMBUS_WORD_DATA | \
+                             I2C_FUNC_SMBUS_PROC_CALL | \
+                             I2C_FUNC_SMBUS_WRITE_BLOCK_DATA)
 
 /* 
  * Data for SMBus Messages 
@@ -460,16 +450,8 @@ union i2c_smbus_data {
 
 #define I2C_FUNCS	0x0705	/* Get the adapter functionality */
 #define I2C_RDWR	0x0707	/* Combined R/W transfer (one stop only)*/
-#if 0
-#define I2C_ACK_TEST	0x0710	/* See if a slave is at a specific address */
-#endif
 
 #define I2C_SMBUS	0x0720	/* SMBus-level access */
-
-/* ... algo-bit.c recognizes */
-#define I2C_UDELAY	0x0705	/* set delay in microsecs between each	*/
-				/* written byte (except address)	*/
-#define I2C_MDELAY	0x0706	/* millisec delay between written bytes */
 
 /* ----- I2C-DEV: char device interface stuff ------------------------- */
 

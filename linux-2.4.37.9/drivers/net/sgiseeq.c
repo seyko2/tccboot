@@ -162,12 +162,6 @@ static int seeq_init_ring(struct net_device *dev)
 
 	seeq_load_eaddr(dev, sp->sregs);
 
-	/* XXX for now just accept packets directly to us
-	 * XXX and ether-broadcast.  Will do multicast and
-	 * XXX promiscuous mode later. -davem
-	 */
-	sp->mode = SEEQ_RCMD_RBCAST;
-
 	/* Setup tx ring. */
 	for(i = 0; i < SEEQ_TX_BUFFERS; i++) {
 		if (!ib->tx_desc[i].tdma.pbuf) {
@@ -332,10 +326,17 @@ static inline void sgiseeq_rx(struct net_device *dev, struct sgiseeq_private *sp
 				/* Copy out of kseg1 to avoid silly cache flush. */
 				eth_copy_and_sum(skb, pkt_pointer + 2, len, 0);
 				skb->protocol = eth_type_trans(skb, dev);
-				netif_rx(skb);
-				dev->last_rx = jiffies;
-				sp->stats.rx_packets++;
-				sp->stats.rx_bytes += len;
+
+				/* We don't want to receive our own packets */
+				if (memcmp(skb->mac.ethernet->h_source, dev->dev_addr, 6)) {
+					netif_rx(skb);
+					dev->last_rx = jiffies;
+					sp->stats.rx_packets++;
+					sp->stats.rx_bytes += len;
+				} else {
+					/* Silently drop my own packets */
+					dev_kfree_skb_irq(skb);
+				}
 			} else {
 				printk (KERN_NOTICE "%s: Memory squeeze, deferring packet.\n",
 					dev->name);
@@ -570,6 +571,22 @@ static struct net_device_stats *sgiseeq_get_stats(struct net_device *dev)
 
 static void sgiseeq_set_multicast(struct net_device *dev)
 {
+	struct sgiseeq_private *sp = (struct sgiseeq_private *) dev->priv;
+	unsigned char oldmode = sp->mode;
+
+	if(dev->flags & IFF_PROMISC)
+		sp->mode = SEEQ_RCMD_RANY;
+	else if ((dev->flags & IFF_ALLMULTI) || dev->mc_count)
+		sp->mode = SEEQ_RCMD_RBMCAST;
+	else
+		sp->mode = SEEQ_RCMD_RBCAST;
+
+	/* XXX I know this sucks, but is there a better way to reprogram
+	 * XXX the receiver? At least, this shouldn't happen too often.
+	 */
+
+	if (oldmode != sp->mode)
+		sgiseeq_reset(dev);
 }
 
 static inline void setup_tx_ring(struct sgiseeq_tx_desc *buf, int nbufs)
@@ -640,6 +657,7 @@ int sgiseeq_init(struct hpc3_regs* regs, int irq)
 	sp->sregs = (struct sgiseeq_regs *) &hpc3c0->eth_ext[0];
 	sp->hregs = &hpc3c0->ethregs;
 	sp->name = sgiseeqstr;
+	sp->mode = SEEQ_RCMD_RBCAST;
 
 	sp->srings.rx_desc = (struct sgiseeq_rx_desc *)
 	                     KSEG1ADDR(ALIGNED(&sp->srings.rxvector[0]));

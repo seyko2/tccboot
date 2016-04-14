@@ -48,6 +48,8 @@
 
 #define MIN(a,b)	((a) < (b) ? (a) : (b))
 #define p5		5
+#define PRED_USER_STACK pUser
+#define p3		3	/* for pUser */
 
 #define UNW_LOG_CACHE_SIZE	7	/* each unw_script is ~256 bytes in size */
 #define UNW_CACHE_SIZE		(1 << UNW_LOG_CACHE_SIZE)
@@ -1750,7 +1752,7 @@ run_script (struct unw_script *script, struct unw_frame_info *state)
 			if (!state->pri_unat_loc)
 				state->pri_unat_loc = &state->sw->ar_unat;
 			/* register off. is a multiple of 8, so the least 3 bits (type) are 0 */
-			s[dst+1] = (*state->pri_unat_loc - s[dst]) | UNW_NAT_MEMSTK;
+			s[dst+1] = ((unsigned long) state->pri_unat_loc - s[dst]) | UNW_NAT_MEMSTK;
 			break;
 
 		      case UNW_INSN_SETNAT_TYPE:
@@ -1916,24 +1918,30 @@ EXPORT_SYMBOL(unw_unwind);
 int
 unw_unwind_to_user (struct unw_frame_info *info)
 {
-	unsigned long ip;
+	unsigned long ip, sp, pr = 0;
 
 	while (unw_unwind(info) >= 0) {
-		if (unw_get_rp(info, &ip) < 0) {
-			unw_get_ip(info, &ip);
-			UNW_DPRINT(0, "unwind.%s: failed to read return pointer (ip=0x%lx)\n",
-				   __FUNCTION__, ip);
+		unw_get_sp(info, &sp);
+		if ((long)((unsigned long)info->task + IA64_STK_OFFSET - sp)
+		    < IA64_PT_REGS_SIZE) {
+			UNW_DPRINT(0, "unwind.%s: ran off the top of the kernel stack\n",
+				   __FUNCTION__);
+			break;
+		}
+		if (unw_is_intr_frame(info) &&
+		    (pr & (1UL << PRED_USER_STACK)))
+			return 0;
+		if (unw_get_pr (info, &pr) < 0) {
+			unw_get_rp(info, &ip);
+			UNW_DPRINT(0, "unwind.%s: failed to read "
+				   "predicate register (ip=0x%lx)\n",
+				__FUNCTION__, ip);
 			return -1;
 		}
-		/*
-		 * We don't have unwind info for the gate page, so we consider that part
-		 * of user-space for the purpose of unwinding.
-		 */
-		if (ip < GATE_ADDR + PAGE_SIZE)
-			return 0;
 	}
 	unw_get_ip(info, &ip);
-	UNW_DPRINT(0, "unwind.%s: failed to unwind to user-level (ip=0x%lx)\n", __FUNCTION__, ip);
+	UNW_DPRINT(0, "unwind.%s: failed to unwind to user-level (ip=0x%lx)\n",
+		   __FUNCTION__, ip);
 	return -1;
 }
 EXPORT_SYMBOL(unw_unwind_to_user);

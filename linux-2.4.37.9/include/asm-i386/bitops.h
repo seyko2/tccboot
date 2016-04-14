@@ -38,7 +38,7 @@ static __inline__ void set_bit(int nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btsl %1,%0"
 		:"=m" (ADDR)
-		:"Ir" (nr));
+		:"Ir" (nr), "m" (ADDR));
 }
 
 /**
@@ -55,7 +55,7 @@ static __inline__ void __set_bit(int nr, volatile void * addr)
 	__asm__(
 		"btsl %1,%0"
 		:"=m" (ADDR)
-		:"Ir" (nr));
+		:"Ir" (nr), "m" (ADDR));
 }
 
 /**
@@ -73,7 +73,7 @@ static __inline__ void clear_bit(int nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btrl %1,%0"
 		:"=m" (ADDR)
-		:"Ir" (nr));
+		:"Ir" (nr), "m" (ADDR));
 }
 #define smp_mb__before_clear_bit()	barrier()
 #define smp_mb__after_clear_bit()	barrier()
@@ -92,7 +92,7 @@ static __inline__ void __change_bit(int nr, volatile void * addr)
 	__asm__ __volatile__(
 		"btcl %1,%0"
 		:"=m" (ADDR)
-		:"Ir" (nr));
+		:"Ir" (nr), "m" (ADDR));
 }
 
 /**
@@ -109,7 +109,7 @@ static __inline__ void change_bit(int nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btcl %1,%0"
 		:"=m" (ADDR)
-		:"Ir" (nr));
+		:"Ir" (nr), "m" (ADDR));
 }
 
 /**
@@ -127,7 +127,7 @@ static __inline__ int test_and_set_bit(int nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btsl %2,%1\n\tsbbl %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"Ir" (nr) : "memory");
+		:"Ir" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 
@@ -147,7 +147,7 @@ static __inline__ int __test_and_set_bit(int nr, volatile void * addr)
 	__asm__(
 		"btsl %2,%1\n\tsbbl %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"Ir" (nr));
+		:"Ir" (nr), "m" (ADDR));
 	return oldbit;
 }
 
@@ -166,7 +166,7 @@ static __inline__ int test_and_clear_bit(int nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btrl %2,%1\n\tsbbl %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"Ir" (nr) : "memory");
+		:"Ir" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 
@@ -186,7 +186,7 @@ static __inline__ int __test_and_clear_bit(int nr, volatile void * addr)
 	__asm__(
 		"btrl %2,%1\n\tsbbl %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"Ir" (nr));
+		:"Ir" (nr), "m" (ADDR));
 	return oldbit;
 }
 
@@ -198,7 +198,7 @@ static __inline__ int __test_and_change_bit(int nr, volatile void * addr)
 	__asm__ __volatile__(
 		"btcl %2,%1\n\tsbbl %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"Ir" (nr) : "memory");
+		:"Ir" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 
@@ -217,7 +217,7 @@ static __inline__ int test_and_change_bit(int nr, volatile void * addr)
 	__asm__ __volatile__( LOCK_PREFIX
 		"btcl %2,%1\n\tsbbl %0,%0"
 		:"=r" (oldbit),"=m" (ADDR)
-		:"Ir" (nr) : "memory");
+		:"Ir" (nr), "m" (ADDR) : "memory");
 	return oldbit;
 }
 
@@ -266,7 +266,6 @@ static __inline__ int find_first_zero_bit(void * addr, unsigned size)
 
 	if (!size)
 		return 0;
-	/* This looks at memory. Mark it volatile to tell gcc not to move it around */
 	__asm__ __volatile__(
 		"movl $-1,%%eax\n\t"
 		"xorl %%edx,%%edx\n\t"
@@ -279,7 +278,7 @@ static __inline__ int find_first_zero_bit(void * addr, unsigned size)
 		"shll $3,%%edi\n\t"
 		"addl %%edi,%%edx"
 		:"=d" (res), "=&c" (d0), "=&D" (d1), "=&a" (d2)
-		:"1" ((size + 31) >> 5), "2" (addr), "b" (addr));
+		:"1" ((size + 31) >> 5), "2" (addr), "b" (addr) : "memory");
 	return res;
 }
 

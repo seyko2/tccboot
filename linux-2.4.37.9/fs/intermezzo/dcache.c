@@ -248,7 +248,7 @@ inline struct presto_dentry_data *izo_alloc_ddata(void)
 /* This uses the BKL! */
 int presto_set_dd(struct dentry * dentry)
 {
-        struct presto_file_set *fset;
+        struct presto_file_set *fset = NULL;
         struct presto_dentry_data *dd;
         int is_under_d_izo;
         int error=0;
@@ -324,6 +324,13 @@ out_unlock:
                         dentry, dentry->d_name.len, dentry->d_name.name, 
                         dentry->d_fsdata);
         unlock_kernel();
+
+	if (fset) {
+	        filter_setup_dentry_ops(fset->fset_cache->cache_filter,
+	                                dentry->d_op, &presto_dentry_ops);
+	        dentry->d_op = filter_c2udops(fset->fset_cache->cache_filter);
+	}
+
         return error; 
 }
 

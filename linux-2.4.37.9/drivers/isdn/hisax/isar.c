@@ -428,6 +428,21 @@ reterror:
 	return(ret);
 }
 
+static inline void
+ll_deliver_faxstat(struct BCState *bcs, u_char status)
+{
+        isdn_ctrl ic;
+	struct Channel *chanp = (struct Channel *) bcs->st->lli.userdata;
+ 
+	if (bcs->cs->debug & L1_DEB_HSCX)
+		debugl1(bcs->cs, "HL->LL FAXIND %x", status);
+	ic.driver = bcs->cs->myid;
+	ic.command = ISDN_STAT_FAXIND;
+	ic.arg = chanp->chan;
+	ic.parm.aux.cmd = status;
+	bcs->cs->iif.statcallb(&ic);
+}
+
 extern void BChannel_bh(struct BCState *);
 #define B_LL_NOCARRIER	8
 #define B_LL_CONNECT	9
@@ -960,21 +975,6 @@ isar_pump_statev_modem(struct BCState *bcs, u_char devt) {
 				debugl1(cs, "unknown pump stev %x", devt);
 			break;
 	}
-}
-
-static inline void
-ll_deliver_faxstat(struct BCState *bcs, u_char status)
-{
-        isdn_ctrl ic;
-	struct Channel *chanp = (struct Channel *) bcs->st->lli.userdata;
- 
-	if (bcs->cs->debug & L1_DEB_HSCX)
-		debugl1(bcs->cs, "HL->LL FAXIND %x", status);
-	ic.driver = bcs->cs->myid;
-	ic.command = ISDN_STAT_FAXIND;
-	ic.arg = chanp->chan;
-	ic.parm.aux.cmd = status;
-	bcs->cs->iif.statcallb(&ic);
 }
 
 static void

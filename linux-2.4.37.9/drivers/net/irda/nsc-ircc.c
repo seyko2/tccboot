@@ -6,8 +6,8 @@
  * Status:        Stable.
  * Author:        Dag Brattli <dagb@cs.uit.no>
  * Created at:    Sat Nov  7 21:43:15 1998
- * Modified at:   Wed Mar  1 11:29:34 2000
- * Modified by:   Dag Brattli <dagb@cs.uit.no>
+ * Modified at:   Sat Aug 14 04:14:57 2004
+ * Modified by:   Maik Broemme <mbroemme@plusserver.de>
  * 
  *     Copyright (c) 1998-2000 Dag Brattli <dagb@cs.uit.no>
  *     Copyright (c) 1998 Lichen Wang, <lwang@actisys.com>
@@ -369,15 +369,22 @@ static int nsc_ircc_open(int i, chipio_t *info)
 	}
 	MESSAGE("IrDA: Registered device %s\n", dev->name);
 
-	/* Check if user has supplied the dongle id or not */
+	/* Check if user has supplied the dongle id and if it is in the range of available ids or not. */
 	if (!dongle_id) {
 		dongle_id = nsc_ircc_read_dongle_id(self->io.fir_base);
 		
 		MESSAGE("%s, Found dongle: %s\n", driver_name,
 			dongle_types[dongle_id]);
 	} else {
-		MESSAGE("%s, Using dongle: %s\n", driver_name,
-			dongle_types[dongle_id]);
+		if (dongle_id < sizeof(dongle_types) / sizeof(dongle_types[0])) {
+			MESSAGE("%s, Using dongle: %s\n", driver_name,
+				dongle_types[dongle_id]);
+		} else {
+			MESSAGE("%s, dongle id %i out of range, start autodetect.\n", driver_name, dongle_id);
+			dongle_id = nsc_ircc_read_dongle_id(self->io.fir_base);
+			MESSAGE("%s, Found dongle: %s\n", driver_name,
+				dongle_types[dongle_id]);
+		}
 	}
 	
 	self->io.dongle_id = dongle_id;

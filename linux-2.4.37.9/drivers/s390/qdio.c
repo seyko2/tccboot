@@ -57,7 +57,7 @@ void volatile qdio_eyecatcher(void)
 
 #include <asm/qdio.h>
 
-#define VERSION_QDIO_C "$Revision: 1.145 $"
+#define VERSION_QDIO_C "$Revision: 1.145.4.9 $"
 
 /****************** MODULE PARAMETER VARIABLES ********************/
 MODULE_AUTHOR("Utz Bacher <utz.bacher@de.ibm.com>");
@@ -97,10 +97,12 @@ static struct {
 #endif /* QDIO_PERFORMANCE_STATS */
 
 static int hydra_thinints=0;
+static int omit_svs=0;
 
 static int indicator_used[INDICATORS_PER_CACHELINE];
 static __u32 * volatile indicators;
 static __u32 volatile spare_indicator;
+static atomic_t spare_indicator_usecount;
 
 static debug_info_t *qdio_dbf_setup=NULL;
 static debug_info_t *qdio_dbf_sbal=NULL;
@@ -121,6 +123,7 @@ static rwlock_t irq_list_lock[QDIO_IRQ_BUCKETS]={
 static struct semaphore init_sema;
 
 static qdio_chsc_area_t *chsc_area;
+static spinlock_t chsc_area_lock=SPIN_LOCK_UNLOCKED;
 /* iQDIO stuff: */
 static volatile qdio_q_t *tiq_list=NULL; /* volatile as it could change
 					   during a while loop */
@@ -198,7 +201,7 @@ static inline volatile __u64 qdio_get_micros(void)
 }
 static inline unsigned long qdio_get_millis(void)
 {
-	return (unsigned long)(qdio_get_micros()>>12);
+	return (unsigned long)(qdio_get_micros()>>10);
 }
 
 static __inline__ int atomic_return_add (int i, atomic_t *v)
@@ -518,8 +521,10 @@ static __u32 * volatile qdio_get_indicator(void)
 
 	if (found)
 		return indicators+i;
-	else
+	else {
+		atomic_inc(&spare_indicator_usecount);
 		return (__u32 * volatile) &spare_indicator;
+	}
 }
 
 /* locked by the locks in qdio_activate and qdio_cleanup */
@@ -530,6 +535,9 @@ static void qdio_put_indicator(__u32 *addr)
 	if ( (addr) && (addr!=&spare_indicator) ) {
 		i=addr-indicators;
 		indicator_used[i]=0;
+	}
+	if (addr==&spare_indicator) {
+		atomic_dec(&spare_indicator_usecount);
 	}
 }
 
@@ -621,8 +629,8 @@ static inline int qdio_stop_polling(qdio_q_t *q)
 		set_slsb(&q->slsb.acc.val[(gsf+QDIO_MAX_BUFFERS_PER_Q-1)&
 			 (QDIO_MAX_BUFFERS_PER_Q-1)],SLSB_P_INPUT_NOT_INIT);
 		/* we don't issue this SYNC_MEMORY, as we trust Rick T and
-		 * moreover will not use the PROCESSING state, so q->polling
-		 * was 0
+		 * moreover will not use the PROCESSING state under VM,
+		 * so q->polling was 0 anyway.
 		SYNC_MEMORY;*/
 		if (q->slsb.acc.val[gsf]==SLSB_P_INPUT_PRIMED) {
 			/* set our summary bit again, as otherwise there is a
@@ -655,6 +663,11 @@ static inline void qdio_unmark_q(qdio_q_t *q)
 	if ((q->is_thinint_q)&&(q->is_input_q)) {
 		/* iQDIO */
 		spin_lock_irqsave(&ttiq_list_lock,flags);
+		/* in case cleanup has done this already and simultanously
+		 * qdio_unmark_q is called from the interrupt handler, we've
+		 * got to check this in this specific case again */
+		if ((!q->list_prev)||(!q->list_next))
+			goto out;
 		if (q->list_next==q) {
 			/* q was the only interesting q */
 			tiq_list=NULL;
@@ -667,6 +680,7 @@ static inline void qdio_unmark_q(qdio_q_t *q)
 			q->list_next=NULL;
 			q->list_prev=NULL;
 		}
+out:
 		spin_unlock_irqrestore(&ttiq_list_lock,flags);
 	}
 }
@@ -710,7 +724,7 @@ static inline void qdio_translate_buffer_back(qdio_q_t *q,int bufno)
 		       (void*)q->sbal[bufno],SBAL_SIZE);
 }
 
-inline static int qdio_get_outbound_buffer_frontier(qdio_q_t *q)
+static inline int qdio_get_outbound_buffer_frontier(qdio_q_t *q)
 {
 	int f,f_mod_no;
 	volatile char *slsb;
@@ -739,7 +753,7 @@ check_next:
 	if (f==first_not_to_check) goto out;
 	slsbyte=slsb[f_mod_no];
 
-	/* the hydra has not fetched the output yet */
+	/* the card has not fetched the output yet */
 	if (slsbyte==SLSB_CU_OUTPUT_PRIMED) {
 #ifdef QDIO_DBF_LIKE_HELL
 		QDIO_DBF_TEXT5(0,trace,"outpprim");
@@ -747,7 +761,7 @@ check_next:
 		goto out;
 	}
 
-	/* the hydra got it */
+	/* the card got it */
 	if (slsbyte==SLSB_P_OUTPUT_EMPTY) {
 		atomic_dec(&q->number_of_buffers_used);
 		f++;
@@ -797,7 +811,7 @@ out:
 }
 
 /* all buffers are processed */
-inline static int qdio_is_outbound_q_done(qdio_q_t *q)
+static inline int qdio_is_outbound_q_done(qdio_q_t *q)
 {
 	int no_used;
 #ifdef QDIO_DBF_LIKE_HELL
@@ -818,7 +832,7 @@ inline static int qdio_is_outbound_q_done(qdio_q_t *q)
 	return (no_used==0);
 }
 
-inline static int qdio_has_outbound_q_moved(qdio_q_t *q)
+static inline int qdio_has_outbound_q_moved(qdio_q_t *q)
 {
 	int i;
 
@@ -827,7 +841,6 @@ inline static int qdio_has_outbound_q_moved(qdio_q_t *q)
 	if ( (i!=GET_SAVED_FRONTIER(q)) ||
 	     (q->error_status_flags&QDIO_STATUS_LOOK_FOR_ERROR) ) {
 		SAVE_FRONTIER(q,i);
-		SAVE_TIMESTAMP(q);
 #ifdef QDIO_DBF_LIKE_HELL
 		QDIO_DBF_TEXT4(0,trace,"oqhasmvd");
 		QDIO_DBF_HEX4(0,trace,&q,sizeof(void*));
@@ -842,9 +855,10 @@ inline static int qdio_has_outbound_q_moved(qdio_q_t *q)
 	}
 }
 
-inline static void qdio_kick_outbound_q(qdio_q_t *q)
+static inline void qdio_kick_outbound_q(qdio_q_t *q)
 {
 	int result;
+	char dbf_text[15];
 #ifdef QDIO_DBF_LIKE_HELL
 	QDIO_DBF_TEXT4(0,trace,"kickoutq");
 	QDIO_DBF_HEX4(0,trace,&q,sizeof(void*));
@@ -852,9 +866,66 @@ inline static void qdio_kick_outbound_q(qdio_q_t *q)
 
 	if (!q->siga_out) return;
 
+	/* here's the story with cc=2 and busy bit set (thanks, Rick):
+	 * VM's CP could present us cc=2 and busy bit set on SIGA-write
+	 * during reconfiguration of their Guest LAN (only in HIPERS mode,
+	 * QDIO mode is asynchronous -- cc=2 and busy bit there will take
+	 * the queues down immediately; and not being under VM we have a
+	 * problem on cc=2 and busy bit set right away).
+	 *
+	 * Therefore qdio_siga_output will try for a short time constantly,
+	 * if such a condition occurs. If it doesn't change, it will
+	 * increase the busy_siga_counter and save the timestamp, and
+	 * schedule the queue for later processing (via mark_q, using the
+	 * queue tasklet). __qdio_outbound_processing will check out the
+	 * counter. If non-zero, it will call qdio_kick_outbound_q as often
+	 * as the value of the counter. This will attempt further SIGA
+	 * instructions.
+	 * Every successful SIGA instruction will decrease the counter.
+	 * After some time of no movement, qdio_kick_outbound_q will
+	 * finally fail and reflect corresponding error codes to call
+	 * the upper layer module and have it take the queues down.
+	 *
+	 * Note that this is a change from the original HiperSockets design
+	 * (saying cc=2 and busy bit means take the queues down), but in
+	 * these days Guest LAN didn't exist... excessive cc=2 with busy bit
+	 * conditions will still take the queues down, but the threshold is
+	 * higher due to the Guest LAN environment.
+	 */
+
 	result=qdio_siga_output(q);
 
-	if (result) {
+		switch (result) {
+		case 0:
+		/* went smooth this time, reset timestamp */
+			QDIO_DBF_TEXT3(0,trace,"cc2reslv");
+			sprintf(dbf_text,"%4x%2x%2x",q->irq,q->q_no,
+				atomic_read(&q->busy_siga_counter));
+			QDIO_DBF_TEXT3(0,trace,dbf_text);
+			q->timing.busy_start=0;
+			break;
+		case (2|QDIO_SIGA_ERROR_B_BIT_SET):
+			/* cc=2 and busy bit: */
+		atomic_inc(&q->busy_siga_counter);
+
+			/* if the last siga was successful, save
+			 * timestamp here */
+			if (!q->timing.busy_start)
+				q->timing.busy_start=NOW;
+
+			/* if we're in time, don't touch error_status_flags
+			 * and siga_error */
+			if (NOW-q->timing.busy_start<QDIO_BUSY_BIT_GIVE_UP) {
+				qdio_mark_q(q);
+				break;
+			}
+			QDIO_DBF_TEXT2(0,trace,"cc2REPRT");
+			sprintf(dbf_text,"%4x%2x%2x",q->irq,q->q_no,
+				atomic_read(&q->busy_siga_counter));
+			QDIO_DBF_TEXT3(0,trace,dbf_text);
+			/* else fallthrough and report error */
+		default:
+			/* for plain cc=1, 2 or 3: */
 		if (q->siga_error)
 			q->error_status_flags|=
 				QDIO_STATUS_MORE_THAN_ONE_SIGA_ERROR;
@@ -864,7 +935,7 @@ inline static void qdio_kick_outbound_q(qdio_q_t *q)
 	}
 }
 
-inline static void qdio_kick_outbound_handler(qdio_q_t *q)
+static inline void qdio_kick_outbound_handler(qdio_q_t *q)
 {
 #ifdef QDIO_DBF_LIKE_HELL
 	char dbf_text[15];
@@ -901,8 +972,9 @@ inline static void qdio_kick_outbound_handler(qdio_q_t *q)
 	q->error_status_flags=0;
 }
 
-static void qdio_outbound_processing(qdio_q_t *q)
+static inline void __qdio_outbound_processing(qdio_q_t *q)
 {
+	int siga_attempts;
 #ifdef QDIO_DBF_LIKE_HELL
 	QDIO_DBF_TEXT4(0,trace,"qoutproc");
 	QDIO_DBF_HEX4(0,trace,&q,sizeof(void*));
@@ -926,6 +998,14 @@ static void qdio_outbound_processing(qdio_q_t *q)
 	o_p_nc++;
 #endif /* QDIO_PERFORMANCE_STATS */
 
+	/* see comment in qdio_kick_outbound_q */
+	siga_attempts=atomic_read(&q->busy_siga_counter);
+	while (siga_attempts) {
+		atomic_dec(&q->busy_siga_counter);
+		qdio_kick_outbound_q(q);
+		siga_attempts--;
+	}
+
 #ifdef QDIO_PERFORMANCE_STATS
 	perf_stats.tl_runs++;
 #endif /* QDIO_PERFORMANCE_STATS */
@@ -936,7 +1016,8 @@ static void qdio_outbound_processing(qdio_q_t *q)
 
 	if (q->is_iqdio_q) {
 		/* for asynchronous queues, we better check, if the fill
-		 * level is too high */
+		 * level is too high. for synchronous queues, the fill
+		 * level will never be that high. */
 		if (atomic_read(&q->number_of_buffers_used)>
 		    IQDIO_FILL_LEVEL_TO_POLL) {
 			qdio_mark_q(q);
@@ -950,16 +1031,24 @@ static void qdio_outbound_processing(qdio_q_t *q)
 	qdio_release_q(q);
 }
 
+static void qdio_outbound_processing(qdio_q_t *q)
+{
+	__qdio_outbound_processing(q);
+}
+
 /************************* INBOUND ROUTINES *******************************/
 
 
-inline static int qdio_get_inbound_buffer_frontier(qdio_q_t *q)
+static inline int qdio_get_inbound_buffer_frontier(qdio_q_t *q)
 {
 	int f,f_mod_no;
 	volatile char *slsb;
 	char slsbyte;
 	int first_not_to_check;
 	char dbf_text[15];
+#ifdef QDIO_USE_PROCESSING_STATE
+	int last_position=-1;
+#endif /* QDIO_USE_PROCESSING_STATE */
 
 #ifdef QDIO_DBF_LIKE_HELL
 	QDIO_DBF_TEXT4(0,trace,"getibfro");
@@ -1002,8 +1091,14 @@ check_next:
 		if (q->siga_sync) {
 			set_slsb(&slsb[f_mod_no],SLSB_P_INPUT_NOT_INIT);
 		} else {
-			set_slsb(&slsb[f_mod_no],SLSB_P_INPUT_PROCESSING);
+			/* set the previous buffer to NOT_INIT. The current
+			 * buffer will be set to PROCESSING at the end of
+			 * this function to avoid further interrupts. */
+			if (last_position>=0)
+				set_slsb(&slsb[last_position],
+					SLSB_P_INPUT_NOT_INIT);
 			atomic_set(&q->polling,1);
+			last_position=f_mod_no;
 		}
 #else /* QDIO_USE_PROCESSING_STATE */
 		set_slsb(&slsb[f_mod_no],SLSB_P_INPUT_NOT_INIT);
@@ -1044,12 +1139,21 @@ check_next:
 		f_mod_no=(f_mod_no+1)&(QDIO_MAX_BUFFERS_PER_Q-1);
 		atomic_dec(&q->number_of_buffers_used);
 
+#ifdef QDIO_USE_PROCESSING_STATE
+		last_position=-1;
+#endif /* QDIO_USE_PROCESSING_STATE */
+
 		goto out;
 	}
 
 	/* everything else means frontier not changed (HALTED or so) */
 out:
 	q->first_to_check=f_mod_no;
+
+#ifdef QDIO_USE_PROCESSING_STATE
+	if (last_position>=0)
+		set_slsb(&slsb[last_position],SLSB_P_INPUT_PROCESSING);
+#endif /* QDIO_USE_PROCESSING_STATE */
 
 #ifdef QDIO_DBF_LIKE_HELL
 	QDIO_DBF_HEX4(0,trace,&q->first_to_check,sizeof(int));
@@ -1058,7 +1162,7 @@ out:
 	return q->first_to_check;
 }
 
-inline static int qdio_has_inbound_q_moved(qdio_q_t *q)
+static inline int qdio_has_inbound_q_moved(qdio_q_t *q)
 {
 	int i;
 
@@ -1095,7 +1199,7 @@ inline static int qdio_has_inbound_q_moved(qdio_q_t *q)
 }
 
 /* means, no more buffers to be filled */
-inline static int iqdio_is_inbound_q_done(qdio_q_t *q)
+static inline int iqdio_is_inbound_q_done(qdio_q_t *q)
 {
 	int no_used;
 #ifdef QDIO_DBF_LIKE_HELL
@@ -1148,7 +1252,7 @@ inline static int iqdio_is_inbound_q_done(qdio_q_t *q)
 	return 0;
 }
 
-inline static int qdio_is_inbound_q_done(qdio_q_t *q)
+static inline int qdio_is_inbound_q_done(qdio_q_t *q)
 {
 	int no_used;
 #ifdef QDIO_DBF_LIKE_HELL
@@ -1157,7 +1261,7 @@ inline static int qdio_is_inbound_q_done(qdio_q_t *q)
 
 	no_used=atomic_read(&q->number_of_buffers_used);
 
-	/* we need that one for synchronization with Hydra, as Hydra
+	/* we need that one for synchronization with the OSA/FCP card, as it
 	 * does a kind of PCI avoidance */
 	SYNC_MEMORY;
 
@@ -1204,7 +1308,7 @@ inline static int qdio_is_inbound_q_done(qdio_q_t *q)
 	}
 }
 
-inline static void qdio_kick_inbound_handler(qdio_q_t *q)
+static inline void qdio_kick_inbound_handler(qdio_q_t *q)
 {
 	int count=0;
 	int start,end,real_end,i;
@@ -1250,7 +1354,8 @@ inline static void qdio_kick_inbound_handler(qdio_q_t *q)
 #endif /* QDIO_PERFORMANCE_STATS */
 }
 
-static inline void tiqdio_inbound_processing(qdio_q_t *q)
+static inline void __tiqdio_inbound_processing(qdio_q_t *q,
+					       int spare_ind_was_set)
 {
 	qdio_irq_t *irq_ptr;
 	qdio_q_t *oq;
@@ -1282,8 +1387,18 @@ static inline void tiqdio_inbound_processing(qdio_q_t *q)
 		goto out;
 	}
 
-	if (*(q->dev_st_chg_ind)) {
-		tiqdio_clear_summary_bit((__u32*)q->dev_st_chg_ind);
+	/* we reset spare_ind_was_set, when the queue does not use the
+	 * spare indicator */
+	if (spare_ind_was_set) {
+		spare_ind_was_set==(q->dev_st_chg_ind==&spare_indicator);
+	}
+
+	if ( (*(q->dev_st_chg_ind)) || (spare_ind_was_set) ) {
+		/* q->dev_st_chg_ind is the indicator, be it shared or not.
+		 * only clear it, if indicator is non-shared */
+		if (!spare_ind_was_set) {
+			tiqdio_clear_summary_bit((__u32*)q->dev_st_chg_ind);
+		}
 
 		if (q->hydra_gives_outbound_pcis) {
 			if (!q->siga_sync_done_on_thinints) {
@@ -1297,7 +1412,7 @@ static inline void tiqdio_inbound_processing(qdio_q_t *q)
 		}
 
 		/* maybe we have to do work on our outbound queues... at least
-		 * we have to check Hydra outbound-int-capable thinint-capable
+		 * we have to check for outbound-int-capable thinint-capable
 		 * queues */
 		if (q->hydra_gives_outbound_pcis) {
 			irq_ptr=(qdio_irq_t*)q->irq_ptr;
@@ -1307,7 +1422,7 @@ static inline void tiqdio_inbound_processing(qdio_q_t *q)
 				perf_stats.tl_runs--;
 #endif /* QDIO_PERFORMANCE_STATS */
 				if (!qdio_is_outbound_q_done(oq)) {
-					qdio_outbound_processing(oq);
+					__qdio_outbound_processing(oq);
 				}
 			}
 		}
@@ -1330,7 +1445,12 @@ out:
 	qdio_release_q(q);
 }
 
-static void qdio_inbound_processing(qdio_q_t *q)
+static void tiqdio_inbound_processing(qdio_q_t *q)
+{
+	__tiqdio_inbound_processing(q,atomic_read(&spare_indicator_usecount));
+}
+
+static inline void __qdio_inbound_processing(qdio_q_t *q)
 {
 	int q_laps=0;
 
@@ -1375,11 +1495,17 @@ again:
 	qdio_release_q(q);
 }
 
+static void qdio_inbound_processing(qdio_q_t *q)
+{
+	__qdio_inbound_processing(q);
+}
+
 /************************* MAIN ROUTINES *******************************/
 
 static inline void tiqdio_inbound_checks(void)
 {
 	qdio_q_t *q;
+	int spare_ind_was_set=0;
 #ifdef QDIO_USE_PROCESSING_STATE
 	int q_laps=0;
 #endif /* QDIO_USE_PROCESSING_STATE */
@@ -1398,15 +1524,22 @@ static inline void tiqdio_inbound_checks(void)
 again:
 #endif /* QDIO_USE_PROCESSING_STATE */
 
+	/* when the spare indicator is used and set, save that and clear it */
+	if ( (atomic_read(&spare_indicator_usecount)) && (spare_indicator) ) {
+		spare_ind_was_set=1;
+		tiqdio_clear_summary_bit((__u32*)&spare_indicator);
+	}
+
 	q=(qdio_q_t*)tiq_list;
 	/* switch all active queues to processing state */
 	do {
 		if (!q) break;
-		tiqdio_inbound_processing(q);
+		__tiqdio_inbound_processing(q,spare_ind_was_set);
 		q=(qdio_q_t*)q->list_next;
 	} while (q!=(qdio_q_t*)tiq_list);
 
-	/* switch off all queues' processing state */
+	/* switch off all queues' processing state, see comments in
+	 * qdio_get_inbound_buffer_frontier */
 #ifdef QDIO_USE_PROCESSING_STATE
 	q=(qdio_q_t*)tiq_list;
 	do {
@@ -1589,7 +1722,7 @@ next:
 		kfree(irq_ptr->output_qs[i]);
 
 	}
-	if (irq_ptr->qdr) kfree(irq_ptr->qdr);
+	kfree(irq_ptr->qdr);
 	kfree(irq_ptr);
 }
 
@@ -1758,6 +1891,10 @@ static int qdio_alloc_qs(qdio_irq_t *irq_ptr,int no_input_qs,int no_output_qs,
 			((irq_ptr->is_thinint_irq)?&tiqdio_inbound_processing:
 			 &qdio_inbound_processing);
 
+		/* actually this is not used for inbound queues. yet. */
+		atomic_set(&q->busy_siga_counter,0);
+		q->timing.busy_start=0;
+
 /*		for (j=0;j<QDIO_STATS_NUMBER;j++)
 			q->timing.last_transfer_times[j]=(qdio_get_micros()/
 							  QDIO_STATS_NUMBER)*j;
@@ -1849,6 +1986,9 @@ static int qdio_alloc_qs(qdio_irq_t *irq_ptr,int no_input_qs,int no_output_qs,
 		q->tasklet.func=(void(*)(unsigned long))
 			&qdio_outbound_processing;
 
+		atomic_set(&q->busy_siga_counter,0);
+		q->timing.busy_start=0;
+
 		/* fill in slib */
 		if (i>0) irq_ptr->output_qs[i-1]->slib->nsliba=
 				 QDIO_PFIX_GET_ADDR(q->slib);
@@ -1928,9 +2068,10 @@ static int tiqdio_thinint_handler(__u32 intparm)
 	perf_stats.start_time_inbound=NOW;
 #endif /* QDIO_PERFORMANCE_STATS */
 
-	/* VM will do the SVS for us
-	 * issue SVS to benefit from iqdio interrupt avoidance (SVS clears AISOI)*/
-	if (!MACHINE_IS_VM) {
+	/* SVS only when needed:
+	 * issue SVS to benefit from iqdio interrupt avoidance
+	 * (SVS clears AISOI)*/
+	if (!omit_svs) {
 		tiqdio_clear_global_summary();
 	}
 
@@ -2014,7 +2155,7 @@ static void qdio_handler(int irq,devstat_t *devstat,struct pt_regs *p)
 #ifdef QDIO_PERFORMANCE_STATS
 				perf_stats.tl_runs--;
 #endif /* QDIO_PERFORMANCE_STATS */
-				qdio_inbound_processing(q);
+				__qdio_inbound_processing(q);
 			}
 		}
 		if (irq_ptr->hydra_gives_outbound_pcis) {
@@ -2027,7 +2168,7 @@ static void qdio_handler(int irq,devstat_t *devstat,struct pt_regs *p)
 					if (!irq_ptr->sync_done_on_outb_pcis) {
 						SYNC_MEMORY;
 					}
-					qdio_outbound_processing(q);
+					__qdio_outbound_processing(q);
 				}
 			}
 		}
@@ -2206,6 +2347,9 @@ static int qdio_chsc(qdio_chsc_area_t *chsc_area)
 static unsigned char qdio_check_siga_needs(int sch)
 {
 	int resp_code,result;
+	unsigned long flags;
+
+	spin_lock_irqsave(&chsc_area_lock,flags);
 
 	memset(chsc_area,0,sizeof(qdio_chsc_area_t));
 	chsc_area->request_block.command_code1=0x0010; /* length */
@@ -2219,7 +2363,8 @@ static unsigned char qdio_check_siga_needs(int sch)
 		QDIO_PRINT_WARN("CHSC returned cc %i. Using all " \
 				"SIGAs for sch x%x.\n",
 				result,sch);
-		return -1; /* all flags set */
+		result=-1; /* all flags set */
+		goto out;
 	}
 
 	resp_code=chsc_area->request_block.operation_data_area.
@@ -2228,7 +2373,8 @@ static unsigned char qdio_check_siga_needs(int sch)
 		QDIO_PRINT_WARN("response upon checking SIGA needs " \
 				"is 0x%x. Using all SIGAs for sch x%x.\n",
 				resp_code,sch);
-		return -1; /* all flags set */
+		result=-1; /* all flags set */
+		goto out;
 	}
 	if (
 	    (!(chsc_area->request_block.operation_data_area.
@@ -2240,18 +2386,25 @@ static unsigned char qdio_check_siga_needs(int sch)
 	    ) {
 		QDIO_PRINT_WARN("huh? problems checking out sch x%x... " \
 				"using all SIGAs.\n",sch);
-		return CHSC_FLAG_SIGA_INPUT_NECESSARY |
+		result=CHSC_FLAG_SIGA_INPUT_NECESSARY |
 			CHSC_FLAG_SIGA_OUTPUT_NECESSARY |
 			CHSC_FLAG_SIGA_SYNC_NECESSARY; /* worst case */
+		goto out;
 	}
 
-	return chsc_area->request_block.operation_data_area.
+	result=chsc_area->request_block.operation_data_area.
 		store_qdio_data_response.qdioac;
+out:
+	spin_unlock_irqrestore(&chsc_area_lock,flags);
+	return result;
 }
 
-static int qdio_check_for_hydra_thinints(void)
+static void qdio_check_for_machine_features(void)
 {
 	int i,result;
+	unsigned long flags;
+
+	spin_lock_irqsave(&chsc_area_lock,flags);
 
 	memset(chsc_area,0,sizeof(qdio_chsc_area_t));
 	chsc_area->request_block.command_code1=0x0010;
@@ -2260,16 +2413,19 @@ static int qdio_check_for_hydra_thinints(void)
 
 	if (result) {
 		QDIO_PRINT_WARN("CHSC returned cc %i. Won't use adapter " \
-				"interrupts for any Hydra.\n",result);
-		return 0;
+				"interrupts for any QDIO device.\n",result);
+		result=0;
+		goto out;
 	}
 
 	i=chsc_area->request_block.operation_data_area.
 		store_qdio_data_response.response_code;
 	if (i!=1) {
 		QDIO_PRINT_WARN("Was not able to determine general " \
-				"characteristics of all Hydras aboard.\n");
-		return 0;
+				"characteristics of all QDIO devices " \
+				"aboard.\n");
+		result=0;
+		goto out;
 	}
 
 	/* 4: request block
@@ -2277,16 +2433,29 @@ static int qdio_check_for_hydra_thinints(void)
 	 * 512: chsc char */
 	/* check for bit 67 */
 	if ( (*(((unsigned int*)(chsc_area))+4+2+2)&0x10000000)!=0x10000000) {
-		return 0;
+		hydra_thinints=0;
 	} else {
-		return 1;
+		hydra_thinints=1;
 	}
+
+	/* check for bit 56: if aif time delay disablement fac installed,
+	 * omit svs even under lpar (good point by rick again) */
+	if ( (*(((unsigned int*)(chsc_area))+4+2+1)&0x00000080)!=0x00000080) {
+		omit_svs=1;
+	} else {
+		omit_svs=0;
+	}
+out:
+	spin_unlock_irqrestore(&chsc_area_lock,flags);
 }
 
 /* the chsc_area is locked by the lock in qdio_activate */
 static unsigned int tiqdio_check_chsc_availability(void) {
 	int result;
 	int i;
+	unsigned long flags;
+
+	spin_lock_irqsave(&chsc_area_lock,flags);
 
 	memset(chsc_area,0,sizeof(qdio_chsc_area_t));
 	chsc_area->request_block.command_code1=0x0010;
@@ -2327,6 +2496,7 @@ static unsigned int tiqdio_check_chsc_availability(void) {
 		goto exit;
 	}
 exit:
+	spin_unlock_irqrestore(&chsc_area_lock,flags);
 	return result;
 }
 
@@ -2337,6 +2507,7 @@ static unsigned int tiqdio_set_subchannel_ind(qdio_irq_t *irq_ptr,
 	unsigned long real_addr_local_summary_bit;
 	unsigned long real_addr_dev_st_chg_ind;
 	void *ptr;
+	unsigned long flags;
 	char dbf_text[15];
 
 	unsigned int resp_code;
@@ -2353,6 +2524,8 @@ static unsigned int tiqdio_set_subchannel_ind(qdio_irq_t *irq_ptr,
 		real_addr_dev_st_chg_ind=
 			virt_to_phys((volatile void *)irq_ptr->dev_st_chg_ind);
 	}
+
+	spin_lock_irqsave(&chsc_area_lock,flags);
 
 	memset(chsc_area,0,sizeof(qdio_chsc_area_t));
 	chsc_area->request_block.command_code1=0x0fe0;
@@ -2377,7 +2550,8 @@ static unsigned int tiqdio_set_subchannel_ind(qdio_irq_t *irq_ptr,
 	if (result) {
 		QDIO_PRINT_WARN("could not set indicators on irq x%x, " \
 				"cc=%i.\n",irq_ptr->irq,result);
-		return -EIO;
+		result=-EIO;
+		goto out;
 	}
 
 	resp_code=chsc_area->response_block.response_code;
@@ -2389,14 +2563,18 @@ static unsigned int tiqdio_set_subchannel_ind(qdio_irq_t *irq_ptr,
 		QDIO_DBF_TEXT1(0,setup,dbf_text);
 		ptr=&chsc_area->response_block;
 		QDIO_DBF_HEX2(1,setup,&ptr,QDIO_DBF_SETUP_LEN);
-		return -EIO;
+		result=-EIO;
+		goto out;
 	}
 
 	QDIO_DBF_TEXT2(0,setup,"setscind");
 	QDIO_DBF_HEX2(0,setup,&real_addr_local_summary_bit,
 		      sizeof(unsigned long));
 	QDIO_DBF_HEX2(0,setup,&real_addr_dev_st_chg_ind,sizeof(unsigned long));
-	return 0;
+	result=0;
+out:
+	spin_unlock_irqrestore(&chsc_area_lock,flags);
+	return result;
 }
 
 /* chsc_area would have to be locked if called from outside qdio_activate */
@@ -2406,9 +2584,12 @@ static unsigned int tiqdio_set_delay_target(qdio_irq_t *irq_ptr,
 	unsigned int resp_code;
 	int result;
 	void *ptr;
+	unsigned long flags;
 	char dbf_text[15];
 
 	if (!irq_ptr->is_thinint_irq) return -ENODEV;
+
+	spin_lock_irqsave(&chsc_area_lock,flags);
 
 	memset(chsc_area,0,sizeof(qdio_chsc_area_t));
 	chsc_area->request_block.command_code1=0x0fe0;
@@ -2420,7 +2601,8 @@ static unsigned int tiqdio_set_delay_target(qdio_irq_t *irq_ptr,
 	if (result) {
 		QDIO_PRINT_WARN("could not set delay target on irq x%x, " \
 				"cc=%i. Continuing.\n",irq_ptr->irq,result);
-		return -EIO;
+		result=-EIO;
+		goto out;
 	}
 
 	resp_code=chsc_area->response_block.response_code;
@@ -2435,7 +2617,10 @@ static unsigned int tiqdio_set_delay_target(qdio_irq_t *irq_ptr,
 	}
 	QDIO_DBF_TEXT2(0,trace,"delytrgt");
 	QDIO_DBF_HEX2(0,trace,&delay_target,sizeof(unsigned long));
-	return 0;
+	result=0;
+out:
+	spin_unlock_irqrestore(&chsc_area_lock,flags);
+	return result;
 }
 
 int qdio_cleanup(int irq,int how)
@@ -2445,7 +2630,7 @@ int qdio_cleanup(int irq,int how)
 	int do_an_irqrestore=0;
 	unsigned long flags;
 	int timeout;
-	char dbf_text[15]="12345678";
+	char dbf_text[15];
 
 	result=0;
 	sprintf(dbf_text,"qcln%4x",irq);
@@ -2455,7 +2640,7 @@ int qdio_cleanup(int irq,int how)
 	irq_ptr=qdio_get_irq_ptr(irq);
 	if (!irq_ptr) return -ENODEV;
 
-	spin_lock(&irq_ptr->setting_up_lock);
+	down(&irq_ptr->setting_up_lock);
 
 	/* mark all qs as uninteresting */
 	for (i=0;i<irq_ptr->no_input_qs;i++) {
@@ -2527,7 +2712,7 @@ int qdio_cleanup(int irq,int how)
 	if (do_an_irqrestore)
 		s390irq_spin_unlock_irqrestore(irq,flags);
 
-	spin_unlock(&irq_ptr->setting_up_lock);
+	up(&irq_ptr->setting_up_lock);
 
 	qdio_remove_irq_ptr(irq_ptr);
 	qdio_release_irq_memory(irq_ptr);
@@ -2574,16 +2759,15 @@ int qdio_initialize(qdio_initialize_t *init_data)
 	int result,result2;
 	int found;
 	unsigned long flags;
-	char dbf_text[20]; /* if a printf would print out more than 8 chars */
+	char dbf_text[20]; /* if a printf printed out more than 8 chars */
 
-	down_interruptible(&init_sema);
+	down(&init_sema);
 
 	sprintf(dbf_text,"qini%4x",init_data->irq);
 	QDIO_DBF_TEXT0(0,setup,dbf_text);
 	QDIO_DBF_TEXT0(0,trace,dbf_text);
 	sprintf(dbf_text,"qfmt:%x",init_data->q_format);
 	QDIO_DBF_TEXT0(0,setup,dbf_text);
-	QDIO_DBF_TEXT0(0,setup,init_data->adapter_name);
 	QDIO_DBF_HEX0(0,setup,init_data->adapter_name,8);
 	sprintf(dbf_text,"qpff%4x",init_data->qib_param_field_format);
 	QDIO_DBF_TEXT0(0,setup,dbf_text);
@@ -2672,7 +2856,6 @@ int qdio_initialize(qdio_initialize_t *init_data)
 
 	irq_ptr->qdr=kmalloc(sizeof(qdr_t),GFP_DMA);
   	if (!(irq_ptr->qdr)) {
-   		kfree(irq_ptr->qdr);
    		kfree(irq_ptr);
     		QDIO_PRINT_ERR("kmalloc of irq_ptr->qdr failed!\n");
      		result=-ENOMEM;
@@ -2736,12 +2919,12 @@ int qdio_initialize(qdio_initialize_t *init_data)
 
 	qdio_set_state(irq_ptr,QDIO_IRQ_STATE_INACTIVE);
 
-	irq_ptr->setting_up_lock=SPIN_LOCK_UNLOCKED;
+	sema_init(&irq_ptr->setting_up_lock,1);
 
 	MOD_INC_USE_COUNT;
 	QDIO_DBF_TEXT3(0,setup,"MOD_INC_");
 
-	spin_lock(&irq_ptr->setting_up_lock);
+	down(&irq_ptr->setting_up_lock);
 
 	qdio_insert_irq_ptr(irq_ptr);
 
@@ -2867,10 +3050,10 @@ int qdio_initialize(qdio_initialize_t *init_data)
 		}
 		result=tiqdio_set_subchannel_ind(irq_ptr,0);
 		if (result) {
-			spin_unlock(&irq_ptr->setting_up_lock);
+			up(&irq_ptr->setting_up_lock);
 			qdio_cleanup(irq_ptr->irq,
 				     QDIO_FLAG_CLEANUP_USING_CLEAR);
-			goto out2;
+			goto out;
 		}
 		tiqdio_set_delay_target(irq_ptr,TIQDIO_DELAY_TARGET);
 	}
@@ -2906,9 +3089,9 @@ int qdio_initialize(qdio_initialize_t *init_data)
 	s390irq_spin_unlock_irqrestore(irq_ptr->irq,saveflags);
 
 	if (result) {
-		spin_unlock(&irq_ptr->setting_up_lock);
+		up(&irq_ptr->setting_up_lock);
 		qdio_cleanup(irq_ptr->irq,QDIO_FLAG_CLEANUP_USING_CLEAR);
-		goto out2;
+		goto out;
 	}
 
 	result=qdio_sleepon(&irq_ptr->interrupt_has_arrived,
@@ -2918,9 +3101,9 @@ int qdio_initialize(qdio_initialize_t *init_data)
 		QDIO_PRINT_ERR("establish queues on irq %04x: timed out\n",
 			   irq_ptr->irq);
 		QDIO_DBF_TEXT2(1,setup,"eq:timeo");
-		spin_unlock(&irq_ptr->setting_up_lock);
+		up(&irq_ptr->setting_up_lock);
 		qdio_cleanup(irq_ptr->irq,QDIO_FLAG_CLEANUP_USING_CLEAR);
-		goto out2;
+		goto out;
 	}
 
 	if (!(irq_ptr->io_result_dstat & DEV_STAT_DEV_END)) {
@@ -2937,10 +3120,10 @@ int qdio_initialize(qdio_initialize_t *init_data)
 			       irq_ptr->irq,irq_ptr->io_result_dstat,
 			       irq_ptr->io_result_cstat,
 			       irq_ptr->io_result_flags);
-		spin_unlock(&irq_ptr->setting_up_lock);
+		up(&irq_ptr->setting_up_lock);
 		qdio_cleanup(irq_ptr->irq,QDIO_FLAG_CLEANUP_USING_CLEAR);
 		result=-EIO;
-		goto out2;
+		goto out;
 	}
 
 	if (irq_ptr->io_result_dstat & ~(DEV_STAT_CHN_END|DEV_STAT_DEV_END)) {
@@ -2958,17 +3141,18 @@ int qdio_initialize(qdio_initialize_t *init_data)
 			       irq_ptr->io_result_cstat,
 			       irq_ptr->io_result_flags);
 		result=-EIO;
+		up(&irq_ptr->setting_up_lock);
 		goto out;
 	}
 
-	if (MACHINE_IS_VM)
 		irq_ptr->qdioac=qdio_check_siga_needs(irq_ptr->irq);
-	else { 
-                irq_ptr->qdioac=CHSC_FLAG_SIGA_INPUT_NECESSARY
-                        | CHSC_FLAG_SIGA_OUTPUT_NECESSARY;
-        }
 	sprintf(dbf_text,"qdioac%2x",irq_ptr->qdioac);
 	QDIO_DBF_TEXT2(0,setup,dbf_text);
+
+	/* if this gets set once, we're running under VM and can omit SVSes */
+	if (irq_ptr->qdioac&CHSC_FLAG_SIGA_SYNC_NECESSARY) {
+		omit_svs=1;
+	}
 
 	sprintf(dbf_text,"qib ac%2x",irq_ptr->qib.ac);
 	QDIO_DBF_TEXT2(0,setup,dbf_text);
@@ -3026,11 +3210,10 @@ int qdio_initialize(qdio_initialize_t *init_data)
 
 	qdio_set_state(irq_ptr,QDIO_IRQ_STATE_ESTABLISHED);
 
- out:
 	if (irq_ptr) {
-		spin_unlock(&irq_ptr->setting_up_lock);
+		up(&irq_ptr->setting_up_lock);
 	}
- out2:
+ out:
 	up(&init_sema);
 
 	return result;
@@ -3046,7 +3229,7 @@ int qdio_activate(int irq,int flags)
 	irq_ptr=qdio_get_irq_ptr(irq);
 	if (!irq_ptr) return -ENODEV;
 
-	spin_lock(&irq_ptr->setting_up_lock);
+	down(&irq_ptr->setting_up_lock);
 	if (irq_ptr->state==QDIO_IRQ_STATE_INACTIVE) {
 		result=-EBUSY;
 		goto out;
@@ -3141,14 +3324,15 @@ int qdio_activate(int irq,int flags)
 	qdio_set_state(irq_ptr,QDIO_IRQ_STATE_ACTIVE);
 
  out:
-	spin_unlock(&irq_ptr->setting_up_lock);
+	up(&irq_ptr->setting_up_lock);
 
 	return result;
 }
 
 /* buffers filled forwards again to make Rick happy */
-static void qdio_do_qdio_fill_input(qdio_q_t *q,unsigned int qidx,
-				    unsigned int count,qdio_buffer_t *buffers)
+static inline void qdio_do_qdio_fill_input(qdio_q_t *q,unsigned int qidx,
+	       				   unsigned int count,
+					   qdio_buffer_t *buffers)
 {
 	for (;;) {
 		if (!q->is_0copy_sbals_q) {
@@ -3281,7 +3465,7 @@ int do_QDIO(int irq,unsigned int callflags,unsigned int queue_number,
 					qdio_kick_outbound_q(q);
 				}
 
-				qdio_outbound_processing(q);
+				__qdio_outbound_processing(q);
 			} else {
 				/* under VM, we do a SIGA sync
 				 * unconditionally */
@@ -3309,7 +3493,7 @@ int do_QDIO(int irq,unsigned int callflags,unsigned int queue_number,
 				 * too long, the upper layer
 				 * module could do a lot of
 				 * traffic in that time */
-				qdio_outbound_processing(q);
+				__qdio_outbound_processing(q);
 			}
 		}
 
@@ -3349,7 +3533,7 @@ static int qdio_perf_procfile_read(char *buffer,char **buffer_location,
 		 perf_stats.siga_ins);
 	_OUTP_IT("Number of SIGA out's issued                     : %u\n",
 		 perf_stats.siga_outs);
-	_OUTP_IT("Number of PCI's caught                          : %u\n",
+	_OUTP_IT("Number of PCIs caught                           : %u\n",
 		 perf_stats.pcis);
 	_OUTP_IT("Number of adapter interrupts caught             : %u\n",
 		 perf_stats.thinints);
@@ -3576,9 +3760,11 @@ int init_QDIO(void)
 
 	qdio_add_procfs_entry();
 
-	hydra_thinints=qdio_check_for_hydra_thinints();
+	qdio_check_for_machine_features();
 
 	sprintf(dbf_text,"hydrati%1x",hydra_thinints);
+	QDIO_DBF_TEXT0(0,setup,dbf_text);
+	sprintf(dbf_text,"omitsvs%1x",omit_svs);
 	QDIO_DBF_TEXT0(0,setup,dbf_text);
 
 	tiqdio_register_thinints();

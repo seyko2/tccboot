@@ -1347,7 +1347,7 @@ packet_setsockopt(struct socket *sock, int level, int optname, char *optval, int
 int packet_getsockopt(struct socket *sock, int level, int optname,
 		      char *optval, int *optlen)
 {
-	int len;
+	unsigned int len;
 	struct sock *sk = sock->sk;
 
 	if (level != SOL_PACKET)
@@ -1356,7 +1356,7 @@ int packet_getsockopt(struct socket *sock, int level, int optname,
   	if (get_user(len,optlen))
   		return -EFAULT;
 
-	if (len < 0)
+	if ((int)len < 0)
 		return -EINVAL;
 		
 	switch(optname)	{
@@ -1777,6 +1777,7 @@ static int packet_mmap(struct file *file, struct socket *sock, struct vm_area_st
 
 	atomic_inc(&po->mapped);
 	start = vma->vm_start;
+	vma->vm_flags |= VM_IO;
 	err = -EAGAIN;
 	for (i=0; i<po->pg_vec_len; i++) {
 		if (remap_page_range(start, __pa(po->pg_vec[i]),

@@ -96,8 +96,9 @@ static ssize_t read_kcore(struct file *file, char *buf, size_t count, loff_t *pp
 		if (copy_to_user(buf, (void *) (PAGE_OFFSET+p-PAGE_SIZE), count))
 			return -EFAULT;
 		read += count;
+		p += count;
 	}
-	*ppos += read;
+	*ppos = p;
 	return read;
 }
 #else /* CONFIG_KCORE_AOUT */
@@ -135,7 +136,10 @@ static unsigned long get_kcore_size(int *num_vma, size_t *elf_buflen)
 	}
 	*elf_buflen =	sizeof(struct elfhdr) + 
 			(*num_vma + 2)*sizeof(struct elf_phdr) + 
-			3 * sizeof(struct memelfnote);
+			3 * (sizeof(struct elf_note) + 4) +
+			sizeof(struct elf_prstatus) +
+			sizeof(struct elf_prpsinfo) +
+			sizeof(struct task_struct);
 	*elf_buflen = PAGE_ALIGN(*elf_buflen);
 	return (size - PAGE_OFFSET + *elf_buflen);
 }
@@ -278,7 +282,7 @@ static void elf_kcore_store_hdr(char *bufp, int num_vma, int dataoff)
 
 	memset(&prstatus, 0, sizeof(struct elf_prstatus));
 
-	nhdr->p_filesz	= notesize(&notes[0]);
+	nhdr->p_filesz += notesize(&notes[0]);
 	bufp = storenote(&notes[0], bufp);
 
 	/* set up the process info */
@@ -295,7 +299,7 @@ static void elf_kcore_store_hdr(char *bufp, int num_vma, int dataoff)
 	strcpy(prpsinfo.pr_fname, "vmlinux");
 	strncpy(prpsinfo.pr_psargs, saved_command_line, ELF_PRARGSZ);
 
-	nhdr->p_filesz	= notesize(&notes[1]);
+	nhdr->p_filesz += notesize(&notes[1]);
 	bufp = storenote(&notes[1], bufp);
 
 	/* set up the task structure */
@@ -304,7 +308,7 @@ static void elf_kcore_store_hdr(char *bufp, int num_vma, int dataoff)
 	notes[2].datasz	= sizeof(struct task_struct);
 	notes[2].data	= current;
 
-	nhdr->p_filesz	= notesize(&notes[2]);
+	nhdr->p_filesz += notesize(&notes[2]);
 	bufp = storenote(&notes[2], bufp);
 
 } /* end elf_kcore_store_hdr() */

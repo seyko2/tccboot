@@ -325,18 +325,22 @@ static int raid1_map (mddev_t *mddev, kdev_t *rdev)
 {
 	raid1_conf_t *conf = mddev_to_conf(mddev);
 	int i, disks = MD_SB_DISKS;
+	unsigned long flags;
 
 	/*
 	 * Later we do read balancing on the read side 
 	 * now we use the first available disk.
 	 */
 
+	md_spin_lock_irqsave(&conf->device_lock, flags);
 	for (i = 0; i < disks; i++) {
 		if (conf->mirrors[i].operational) {
 			*rdev = conf->mirrors[i].dev;
+			md_spin_unlock_irqrestore(&conf->device_lock, flags);
 			return (0);
 		}
 	}
+	md_spin_unlock_irqrestore(&conf->device_lock, flags);
 
 	printk (KERN_ERR "raid1_map(): huh, no more operational devices?\n");
 	return (-1);
@@ -592,6 +596,7 @@ static int raid1_make_request (mddev_t *mddev, int rw,
 	int disks = MD_SB_DISKS;
 	int i, sum_bhs = 0;
 	struct mirror_info *mirror;
+	kdev_t dev;
 
 	if (!buffer_locked(bh))
 		BUG();
@@ -635,13 +640,16 @@ static int raid1_make_request (mddev_t *mddev, int rw,
 		/*
 		 * read balancing logic:
 		 */
+		spin_lock_irq(&conf->device_lock);
 		mirror = conf->mirrors + raid1_read_balance(conf, bh);
+		dev = mirror->dev;
+		spin_unlock_irq(&conf->device_lock);
 
 		bh_req = &r1_bh->bh_req;
 		memcpy(bh_req, bh, sizeof(*bh));
 		bh_req->b_blocknr = bh->b_rsector;
-		bh_req->b_dev = mirror->dev;
-		bh_req->b_rdev = mirror->dev;
+		bh_req->b_dev = dev;
+		bh_req->b_rdev = dev;
 	/*	bh_req->b_rsector = bh->n_rsector; */
 		bh_req->b_end_io = raid1_end_request;
 		bh_req->b_private = r1_bh;
@@ -654,6 +662,7 @@ static int raid1_make_request (mddev_t *mddev, int rw,
 	 */
 
 	bhl = raid1_alloc_bh(conf, conf->raid_disks);
+	spin_lock_irq(&conf->device_lock);
 	for (i = 0; i < disks; i++) {
 		struct buffer_head *mbh;
 		if (!conf->mirrors[i].operational) 
@@ -702,6 +711,7 @@ static int raid1_make_request (mddev_t *mddev, int rw,
 		r1_bh->mirror_bh_list = mbh;
 		sum_bhs++;
 	}
+	spin_unlock_irq(&conf->device_lock);
 	if (bhl) raid1_free_bh(conf,bhl);
 	if (!sum_bhs) {
 		/* Gag - all mirrors non-operational.. */
@@ -771,6 +781,8 @@ static void mark_disk_bad (mddev_t *mddev, int failed)
 	mark_disk_inactive(sb->disks+mirror->number);
 	if (!mirror->write_only)
 		sb->active_disks--;
+	else
+		sb->spare_disks--;
 	sb->working_disks--;
 	sb->failed_disks++;
 	mddev->sb_dirty = 1;
@@ -787,6 +799,7 @@ static int raid1_error (mddev_t *mddev, kdev_t dev)
 	struct mirror_info * mirrors = conf->mirrors;
 	int disks = MD_SB_DISKS;
 	int i;
+	unsigned long flags;
 
 	/* Find the drive.
 	 * If it is not operational, then we have already marked it as dead
@@ -808,7 +821,9 @@ static int raid1_error (mddev_t *mddev, kdev_t dev)
 
 		return 1;
 	}
+	md_spin_lock_irqsave(&conf->device_lock, flags);
 	mark_disk_bad(mddev, i);
+	md_spin_unlock_irqrestore(&conf->device_lock, flags);
 	return 0;
 }
 
@@ -876,7 +891,8 @@ static int raid1_diskop(mddev_t *mddev, mdp_disk_t **d, int state)
 	mdp_disk_t *failed_desc, *spare_desc, *added_desc;
 	mdk_rdev_t *spare_rdev, *failed_rdev;
 
-	print_raid1_conf(conf);
+	if (conf->resync_mirrors)
+		return 1; /* Cannot do any diskops during a resync */
 
 	switch (state) {
 	case DISKOP_SPARE_ACTIVE:
@@ -886,6 +902,10 @@ static int raid1_diskop(mddev_t *mddev, mdp_disk_t **d, int state)
 	}
 
 	md_spin_lock_irq(&conf->device_lock);
+	/*
+	 * Need the conf lock when printing out state else we get BUG()s
+	 */
+	print_raid1_conf(conf);
 	/*
 	 * find the disk ...
 	 */
@@ -1136,12 +1156,12 @@ static int raid1_diskop(mddev_t *mddev, mdp_disk_t **d, int state)
 		goto abort;
 	}
 abort:
+	print_raid1_conf(conf);
 	md_spin_unlock_irq(&conf->device_lock);
 	if (state == DISKOP_SPARE_ACTIVE || state == DISKOP_SPARE_INACTIVE)
 		/* should move to "END_REBUILD" when such exists */
 		raid1_shrink_buffers(conf);
 
-	print_raid1_conf(conf);
 	return err;
 }
 
@@ -1196,6 +1216,7 @@ static void raid1d (void *data)
 				
 				conf = mddev_to_conf(mddev);
 				bhl = raid1_alloc_bh(conf, conf->raid_disks); /* don't really need this many */
+				spin_lock_irq(&conf->device_lock);
 				for (i = 0; i < disks ; i++) {
 					if (!conf->mirrors[i].operational)
 						continue;
@@ -1238,6 +1259,7 @@ static void raid1d (void *data)
 
 					sum_bhs++;
 				}
+				spin_unlock_irq(&conf->device_lock);
 				md_atomic_set(&r1_bh->remaining, sum_bhs);
 				if (bhl) raid1_free_bh(conf, bhl);
 				mbh = r1_bh->mirror_bh_list;
@@ -1313,6 +1335,8 @@ static void raid1syncd (void *data)
 
 	up(&mddev->recovery_sem);
 	raid1_shrink_buffers(conf);
+
+	md_recover_arrays(); /* incase we are degraded and a spare is available */
 }
 
 /*
@@ -1373,6 +1397,7 @@ static int raid1_sync_request (mddev_t *mddev, unsigned long sector_nr)
 	int disk;
 	int block_nr;
 	int buffs;
+	kdev_t dev;
 
 	if (!sector_nr) {
 		/* we want enough buffers to hold twice the window of 128*/
@@ -1426,6 +1451,7 @@ static int raid1_sync_request (mddev_t *mddev, unsigned long sector_nr)
 	 * could dedicate one to rebuild and others to
 	 * service read requests ..
 	 */
+	spin_lock_irq(&conf->device_lock);
 	disk = conf->last_used;
 	/* make sure disk is operational */
 	while (!conf->mirrors[disk].operational) {
@@ -1437,6 +1463,8 @@ static int raid1_sync_request (mddev_t *mddev, unsigned long sector_nr)
 	conf->last_used = disk;
 	
 	mirror = conf->mirrors+conf->last_used;
+	dev = mirror->dev;
+	spin_unlock_irq(&conf->device_lock);
 	
 	r1_bh = raid1_alloc_buf (conf);
 	r1_bh->master_bh = NULL;
@@ -1453,8 +1481,8 @@ static int raid1_sync_request (mddev_t *mddev, unsigned long sector_nr)
 	}
 	bh->b_size = bsize;
 	bh->b_list = BUF_LOCKED;
-	bh->b_dev = mirror->dev;
-	bh->b_rdev = mirror->dev;
+	bh->b_dev = dev;
+	bh->b_rdev = dev;
 	bh->b_state = (1<<BH_Req) | (1<<BH_Mapped) | (1<<BH_Lock);
 	if (!bh->b_page)
 		BUG();
@@ -1717,10 +1745,6 @@ static int raid1_run (mddev_t *mddev)
 	conf->last_used = j;
 
 
-	if (conf->working_disks != sb->raid_disks) {
-		printk(KERN_ALERT "raid1: md%d, not all disks are operational -- trying to recover array\n", mdidx(mddev));
-		start_recovery = 1;
-	}
 
 	{
 		const char * name = "raid1d";
@@ -1732,7 +1756,7 @@ static int raid1_run (mddev_t *mddev)
 		}
 	}
 
-	if (!start_recovery && !(sb->state & (1 << MD_SB_CLEAN)) &&
+	if (!(sb->state & (1 << MD_SB_CLEAN)) &&
 	    (conf->working_disks > 1)) {
 		const char * name = "raid1syncd";
 
@@ -1745,6 +1769,9 @@ static int raid1_run (mddev_t *mddev)
 		printk(START_RESYNC, mdidx(mddev));
 		conf->resync_mirrors = 1;
 		md_wakeup_thread(conf->resync_thread);
+	} else if (conf->working_disks != sb->raid_disks) {
+		printk(KERN_ALERT "raid1: md%d, not all disks are operational -- trying to recover array\n", mdidx(mddev));
+		start_recovery = 1;
 	}
 
 	/*

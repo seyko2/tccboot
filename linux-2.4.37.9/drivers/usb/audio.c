@@ -217,9 +217,6 @@
 
 #define dprintk(x)
 
-#undef abs
-extern int abs(int __x) __attribute__ ((__const__)); /* Shut up warning */
-
 /* --------------------------------------------------------------------- */
 
 /*
@@ -461,8 +458,8 @@ struct usb_audio_state {
 /* --------------------------------------------------------------------- */
 
 /* prevent picking up a bogus abs macro */
-#undef abs
-static inline int abs(int x)
+#undef my_abs
+static inline int my_abs(int x)
 {
         if (x < 0)
 		return -x;
@@ -593,9 +590,10 @@ static int dmabuf_mmap(struct dmabuf *db, unsigned long start, unsigned long siz
 	return 0;
 }
 
-static void dmabuf_copyin(struct dmabuf *db, const void *buffer, unsigned int size)
+static void dmabuf_copyin(struct dmabuf *db, const void *_buffer, unsigned int size)
 {
 	unsigned int pgrem, rem;
+	const char *buffer = _buffer;
 
 	db->total_bytes += size;
 	for (;;) {
@@ -609,16 +607,17 @@ static void dmabuf_copyin(struct dmabuf *db, const void *buffer, unsigned int si
 			pgrem = rem;
 		memcpy((db->sgbuf[db->wrptr >> PAGE_SHIFT]) + (db->wrptr & (PAGE_SIZE-1)), buffer, pgrem);
 		size -= pgrem;
-		(char *)buffer += pgrem;
+		buffer += pgrem;
 		db->wrptr += pgrem;
 		if (db->wrptr >= db->dmasize)
 			db->wrptr = 0;
 	}
 }
 
-static void dmabuf_copyout(struct dmabuf *db, void *buffer, unsigned int size)
+static void dmabuf_copyout(struct dmabuf *db, void *_buffer, unsigned int size)
 {
 	unsigned int pgrem, rem;
+	char *buffer = _buffer;
 
 	db->total_bytes += size;
 	for (;;) {
@@ -632,16 +631,17 @@ static void dmabuf_copyout(struct dmabuf *db, void *buffer, unsigned int size)
 			pgrem = rem;
 		memcpy(buffer, (db->sgbuf[db->rdptr >> PAGE_SHIFT]) + (db->rdptr & (PAGE_SIZE-1)), pgrem);
 		size -= pgrem;
-		(char *)buffer += pgrem;
+		buffer += pgrem;
 		db->rdptr += pgrem;
 		if (db->rdptr >= db->dmasize)
 			db->rdptr = 0;
 	}
 }
 
-static int dmabuf_copyin_user(struct dmabuf *db, unsigned int ptr, const void *buffer, unsigned int size)
+static int dmabuf_copyin_user(struct dmabuf *db, unsigned int ptr, const void *_buffer, unsigned int size)
 {
 	unsigned int pgrem, rem;
+	const char *buffer = _buffer;
 
 	if (!db->ready || db->mapped)
 		return -EINVAL;
@@ -657,16 +657,17 @@ static int dmabuf_copyin_user(struct dmabuf *db, unsigned int ptr, const void *b
 		if (copy_from_user((db->sgbuf[ptr >> PAGE_SHIFT]) + (ptr & (PAGE_SIZE-1)), buffer, pgrem))
 			return -EFAULT;
 		size -= pgrem;
-		(char *)buffer += pgrem;
+		buffer += pgrem;
 		ptr += pgrem;
 		if (ptr >= db->dmasize)
 			ptr = 0;
 	}
 }
 
-static int dmabuf_copyout_user(struct dmabuf *db, unsigned int ptr, void *buffer, unsigned int size)
+static int dmabuf_copyout_user(struct dmabuf *db, unsigned int ptr, void *_buffer, unsigned int size)
 {
 	unsigned int pgrem, rem;
+	char *buffer = _buffer;
 
 	if (!db->ready || db->mapped)
 		return -EINVAL;
@@ -682,7 +683,7 @@ static int dmabuf_copyout_user(struct dmabuf *db, unsigned int ptr, void *buffer
 		if (copy_to_user(buffer, (db->sgbuf[ptr >> PAGE_SHIFT]) + (ptr & (PAGE_SIZE-1)), pgrem))
 			return -EFAULT;
 		size -= pgrem;
-		(char *)buffer += pgrem;
+		buffer += pgrem;
 		ptr += pgrem;
 		if (ptr >= db->dmasize)
 			ptr = 0;
@@ -1397,7 +1398,7 @@ static int usbout_sync_retire_desc(struct usbout *u, struct urb *urb)
 			continue;
 		}
 		f = cp[0] | (cp[1] << 8) | (cp[2] << 16);
-		if (abs(f - u->freqn) > (u->freqn >> 3) || f > u->freqmax) {
+		if (my_abs(f - u->freqn) > (u->freqn >> 3) || f > u->freqmax) {
 			printk(KERN_WARNING "usbout_sync_retire_desc: requested frequency %u (nominal %u) out of range!\n", f, u->freqn);
 			continue;
 		}
@@ -2141,6 +2142,8 @@ static int usb_audio_ioctl_mixdev(struct inode *inode, struct file *file, unsign
   
 	if (cmd == SOUND_MIXER_INFO) {
 		mixer_info info;
+
+		memset(&info, 0, sizeof(info));
 		strncpy(info.id, "USB_AUDIO", sizeof(info.id));
 		strncpy(info.name, "USB Audio Class Driver", sizeof(info.name));
 		info.modify_counter = ms->modcnt;
@@ -2150,6 +2153,8 @@ static int usb_audio_ioctl_mixdev(struct inode *inode, struct file *file, unsign
 	}
 	if (cmd == SOUND_OLD_MIXER_INFO) {
 		_old_mixer_info info;
+
+		memset(&info, 0, sizeof(info));
 		strncpy(info.id, "USB_AUDIO", sizeof(info.id));
 		strncpy(info.name, "USB Audio Class Driver", sizeof(info.name));
 		if (copy_to_user((void *)arg, &info, sizeof(info)))
@@ -3606,7 +3611,7 @@ static void usb_audio_featureunit(struct consmixstate *state, unsigned char *ftr
 			printk(KERN_INFO "usbaudio: assuming that a stereo channel connected directly to a mixer is missing in search (got Labtec headset?). Should be fine.\n");
 			state->nrchannels=nr_logical_channels;
 		} else {
-			printk(KERN_WARNING "usbaudio: no idea what's going on..., contact linux-usb-devel@lists.sourceforge.net\n");
+			printk(KERN_WARNING "usbaudio: no idea what's going on with channels.\n");
 		}
 	}
 

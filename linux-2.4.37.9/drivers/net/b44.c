@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2002 David S. Miller (davem@redhat.com)
  * Fixed by Pekka Pietikainen (pp@ee.oulu.fi)
+ *
+ * Distribute under GPL.
  */
 
 #include <linux/kernel.h>
@@ -25,8 +27,8 @@
 
 #define DRV_MODULE_NAME		"b44"
 #define PFX DRV_MODULE_NAME	": "
-#define DRV_MODULE_VERSION	"0.92"
-#define DRV_MODULE_RELDATE	"Nov 4, 2003"
+#define DRV_MODULE_VERSION	"0.93"
+#define DRV_MODULE_RELDATE	"Mar, 2004"
 
 #define B44_DEF_MSG_ENABLE	  \
 	(NETIF_MSG_DRV		| \
@@ -83,6 +85,10 @@ static int b44_debug = -1;	/* -1 == use B44_DEF_MSG_ENABLE as value */
 static struct pci_device_id b44_pci_tbl[] = {
 	{ PCI_VENDOR_ID_BROADCOM, PCI_DEVICE_ID_BCM4401,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0UL },
+	{ PCI_VENDOR_ID_BROADCOM, PCI_DEVICE_ID_BCM4401B0,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0UL },
+	{ PCI_VENDOR_ID_BROADCOM, PCI_DEVICE_ID_BCM4401B1,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0UL },
 	{ }	/* terminate list with empty entry */
 };
 
@@ -90,7 +96,7 @@ MODULE_DEVICE_TABLE(pci, b44_pci_tbl);
 
 static void b44_halt(struct b44 *);
 static void b44_init_rings(struct b44 *);
-static int b44_init_hw(struct b44 *);
+static void b44_init_hw(struct b44 *);
 
 static int b44_wait_bit(struct b44 *bp, unsigned long reg,
 			u32 bit, unsigned long timeout, const int clear)
@@ -1170,16 +1176,16 @@ static int b44_set_mac_addr(struct net_device *dev, void *p)
  * packet processing.  Invoked with bp->lock held.
  */
 static void __b44_set_rx_mode(struct net_device *);
-static int b44_init_hw(struct b44 *bp)
+static void b44_init_hw(struct b44 *bp)
 {
 	u32 val;
 
-	b44_disable_ints(bp);
 	b44_chip_reset(bp);
 	b44_phy_reset(bp);
 	b44_setup_phy(bp);
-	val = br32(B44_MAC_CTRL);
-	bw32(B44_MAC_CTRL, val | MAC_CTRL_CRC32_ENAB);
+
+	/* Enable CRC32, set proper LED modes and power on PHY */
+	bw32(B44_MAC_CTRL, MAC_CTRL_CRC32_ENAB | MAC_CTRL_PHY_LEDCTRL);
 	bw32(B44_RCV_LAZY, (1 << RCV_LAZY_FC_SHIFT));
 
 	/* This sets the MAC address too.  */
@@ -1203,8 +1209,6 @@ static int b44_init_hw(struct b44 *bp)
 
 	val = br32(B44_ENET_CTRL);
 	bw32(B44_ENET_CTRL, (val | ENET_CTRL_ENABLE));
-
-	return 0;
 }
 
 static int b44_open(struct net_device *dev)
@@ -1223,9 +1227,7 @@ static int b44_open(struct net_device *dev)
 	spin_lock_irq(&bp->lock);
 
 	b44_init_rings(bp);
-	err = b44_init_hw(bp);
-	if (err)
-		goto err_out_noinit;
+	b44_init_hw(bp);
 	bp->flags |= B44_FLAG_INIT_COMPLETE;
 
 	spin_unlock_irq(&bp->lock);
@@ -1240,11 +1242,6 @@ static int b44_open(struct net_device *dev)
 
 	return 0;
 
-err_out_noinit:
-	b44_halt(bp);
-	b44_free_rings(bp);
-	spin_unlock_irq(&bp->lock);
-	free_irq(dev->irq, dev);
 err_out_free:
 	b44_free_consistent(bp);
 	return err;
@@ -1323,12 +1320,15 @@ static struct net_device_stats *b44_get_stats(struct net_device *dev)
 				   hwstat->rx_symbol_errs);
 
 	nstat->tx_aborted_errors = hwstat->tx_underruns;
+#if 0
+	/* Carrier lost counter seems to be broken for some devices */
 	nstat->tx_carrier_errors = hwstat->tx_carrier_lost;
+#endif
 
 	return nstat;
 }
 
-static void __b44_load_mcast(struct b44 *bp, struct net_device *dev)
+static int __b44_load_mcast(struct b44 *bp, struct net_device *dev)
 {
 	struct dev_mc_list *mclist;
 	int i, num_ents;
@@ -1338,12 +1338,15 @@ static void __b44_load_mcast(struct b44 *bp, struct net_device *dev)
 	for (i = 0; mclist && i < num_ents; i++, mclist = mclist->next) {
 		__b44_cam_write(bp, mclist->dmi_addr, i + 1);
 	}
+	return i+1;
 }
 
 static void __b44_set_rx_mode(struct net_device *dev)
 {
 	struct b44 *bp = dev->priv;
 	u32 val;
+	int i=0;
+	unsigned char zero[6] = {0,0,0,0,0,0};
 
 	val = br32(B44_RXCONFIG);
 	val &= ~(RXCONFIG_PROMISC | RXCONFIG_ALLMULTI);
@@ -1356,8 +1359,11 @@ static void __b44_set_rx_mode(struct net_device *dev)
 		if (dev->flags & IFF_ALLMULTI)
 			val |= RXCONFIG_ALLMULTI;
 		else
-			__b44_load_mcast(bp, dev);
-
+			i=__b44_load_mcast(bp, dev);
+		
+		for(;i<64;i++) {
+			__b44_cam_write(bp, zero, i);			
+		}
 		bw32(B44_RXCONFIG, val);
         	val = br32(B44_CAM_CTRL);
 	        bw32(B44_CAM_CTRL, val | CAM_CTRL_ENABLE);
@@ -1373,7 +1379,7 @@ static void b44_set_rx_mode(struct net_device *dev)
 	spin_unlock_irq(&bp->lock);
 }
 
-static int b44_ethtool_ioctl (struct net_device *dev, void *useraddr)
+static int b44_ethtool_ioctl (struct net_device *dev, void __user *useraddr)
 {
 	struct b44 *bp = dev->priv;
 	struct pci_dev *pci_dev = bp->pdev;
@@ -1383,7 +1389,7 @@ static int b44_ethtool_ioctl (struct net_device *dev, void *useraddr)
 		return -EFAULT;
 
 	switch (ethcmd) {
-	case ETHTOOL_GDRVINFO:{
+	case ETHTOOL_GDRVINFO: {
 		struct ethtool_drvinfo info = { ETHTOOL_GDRVINFO };
 		strcpy (info.driver, DRV_MODULE_NAME);
 		strcpy (info.version, DRV_MODULE_VERSION);
@@ -1616,13 +1622,13 @@ static int b44_ethtool_ioctl (struct net_device *dev, void *useraddr)
 
 static int b44_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
-	struct mii_ioctl_data *data = (struct mii_ioctl_data *)&ifr->ifr_data;
+	struct mii_ioctl_data __user *data = (struct mii_ioctl_data __user *)&ifr->ifr_data;
 	struct b44 *bp = dev->priv;
 	int err;
 
 	switch (cmd) {
 	case SIOCETHTOOL:
-		return b44_ethtool_ioctl(dev, (void *) ifr->ifr_data);
+		return b44_ethtool_ioctl(dev, (void __user*) ifr->ifr_data);
 
 	case SIOCGMIIPHY:
 		data->phy_id = bp->phy_addr;
@@ -1758,6 +1764,7 @@ static int __devinit b44_init_one(struct pci_dev *pdev,
 	}
 
 	SET_MODULE_OWNER(dev);
+	SET_NETDEV_DEV(dev,&pdev->dev);
 
 	/* No interesting netdevice features in this card... */
 	dev->features |= 0;
@@ -1822,6 +1829,11 @@ static int __devinit b44_init_one(struct pci_dev *pdev,
 
 	pci_save_state(bp->pdev, bp->pci_cfg_state);
 
+	/* Chip reset provides power to the b44 MAC & PCI cores, which 
+	 * is necessary for MAC register access.
+	 */ 
+	b44_chip_reset(bp);
+
 	printk(KERN_INFO "%s: Broadcom 4400 10/100BaseT Ethernet ", dev->name);
 	for (i = 0; i < 6; i++)
 		printk("%2.2x%c", dev->dev_addr[i],
@@ -1883,6 +1895,8 @@ static int b44_resume(struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct b44 *bp = dev->priv;
+
+	pci_restore_state(pdev, bp->pci_cfg_state);
 
 	if (!netif_running(dev))
 		return 0;

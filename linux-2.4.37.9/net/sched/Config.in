@@ -15,7 +15,7 @@ tristate '  SFQ queue' CONFIG_NET_SCH_SFQ
 tristate '  TEQL queue' CONFIG_NET_SCH_TEQL
 tristate '  TBF queue' CONFIG_NET_SCH_TBF
 tristate '  GRED queue' CONFIG_NET_SCH_GRED
-tristate '  Network delay simulator' CONFIG_NET_SCH_DELAY
+tristate '  Network emulator' CONFIG_NET_SCH_NETEM
 tristate '  Diffserv field marker' CONFIG_NET_SCH_DSMARK
 if [ "$CONFIG_NETFILTER" = "y" ]; then
    tristate '  Ingress Qdisc' CONFIG_NET_SCH_INGRESS

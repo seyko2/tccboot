@@ -78,13 +78,14 @@ struct Qdisc
 	unsigned		flags;
 #define TCQ_F_BUILTIN	1
 #define TCQ_F_THROTTLED	2
-#define TCQ_F_INGRES	4
+#define TCQ_F_INGRESS	4
 	struct Qdisc_ops	*ops;
-	struct Qdisc		*next;
 	u32			handle;
+	u32			parent;
 	atomic_t		refcnt;
 	struct sk_buff_head	q;
 	struct net_device	*dev;
+	struct list_head	list;
 
 	struct tc_stats		stats;
 	int			(*reshape_fail)(struct sk_buff *skb, struct Qdisc *q);

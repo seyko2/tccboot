@@ -235,8 +235,7 @@ static unsigned long do_mmap2(unsigned long addr, unsigned long len,
 	len = PAGE_ALIGN(len);
 	if (ARCH_SUN4C_SUN4 &&
 	    (len > 0x20000000 ||
-	     ((flags & MAP_FIXED) &&
-	      addr < 0xe0000000 && addr + len > 0x20000000)))
+	     (addr < 0xe0000000 && addr + len > 0x20000000)))
 		goto out_putf;
 
 	/* See asm-sparc/uaccess.h */

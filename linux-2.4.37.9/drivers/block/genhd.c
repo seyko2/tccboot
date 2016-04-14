@@ -49,8 +49,9 @@ void
 add_gendisk(struct gendisk *gp)
 {
 	struct gendisk *sgp;
+	unsigned long flags;
 
-	write_lock(&gendisk_lock);
+	write_lock_irqsave(&gendisk_lock, flags);
 
 	/*
  	 *	In 2.5 this will go away. Fix the drivers who rely on
@@ -70,7 +71,7 @@ add_gendisk(struct gendisk *gp)
 	gp->next = gendisk_head;
 	gendisk_head = gp;
 out:
-	write_unlock(&gendisk_lock);
+	write_unlock_irqrestore(&gendisk_lock, flags);
 }
 
 EXPORT_SYMBOL(add_gendisk);
@@ -87,15 +88,16 @@ void
 del_gendisk(struct gendisk *gp)
 {
 	struct gendisk **gpp;
+	unsigned long flags;
 
-	write_lock(&gendisk_lock);
+	write_lock_irqsave(&gendisk_lock, flags);
 	gendisk_array[gp->major] = NULL;
 	for (gpp = &gendisk_head; *gpp; gpp = &((*gpp)->next))
 		if (*gpp == gp)
 			break;
 	if (*gpp)
 		*gpp = (*gpp)->next;
-	write_unlock(&gendisk_lock);
+	write_unlock_irqrestore(&gendisk_lock, flags);
 }
 
 EXPORT_SYMBOL(del_gendisk);
@@ -113,8 +115,9 @@ get_gendisk(kdev_t dev)
 {
 	struct gendisk *gp = NULL;
 	int maj = MAJOR(dev);
+	unsigned long flags;
 
-	read_lock(&gendisk_lock);
+	read_lock_irqsave(&gendisk_lock, flags);
 	if ((gp = gendisk_array[maj]))
 		goto out;
 
@@ -123,7 +126,7 @@ get_gendisk(kdev_t dev)
 		if (gp->major == maj)
 			break;
 out:
-	read_unlock(&gendisk_lock);
+	read_unlock_irqrestore(&gendisk_lock, flags);
 	return gp;
 }
 
@@ -143,12 +146,13 @@ walk_gendisk(int (*walk)(struct gendisk *, void *), void *data)
 {
 	struct gendisk *gp;
 	int error = 0;
+	unsigned long flags;
 
-	read_lock(&gendisk_lock);
+	read_lock_irqsave(&gendisk_lock, flags);
 	for (gp = gendisk_head; gp; gp = gp->next)
 		if ((error = walk(gp, data)))
 			break;
-	read_unlock(&gendisk_lock);
+	read_unlock_irqrestore(&gendisk_lock, flags);
 
 	return error;
 }
@@ -160,7 +164,7 @@ static void *part_start(struct seq_file *s, loff_t *ppos)
 	struct gendisk *gp;
 	loff_t pos = *ppos;
 
-	read_lock(&gendisk_lock);
+	read_lock_irq(&gendisk_lock);
 	for (gp = gendisk_head; gp; gp = gp->next)
 		if (!pos--)
 			return gp;
@@ -175,7 +179,7 @@ static void *part_next(struct seq_file *s, void *v, loff_t *pos)
 
 static void part_stop(struct seq_file *s, void *v)
 {
-	read_unlock(&gendisk_lock);
+	read_unlock_irq(&gendisk_lock);
 }
 
 static int part_show(struct seq_file *s, void *v)

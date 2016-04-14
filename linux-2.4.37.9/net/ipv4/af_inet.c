@@ -724,6 +724,7 @@ int inet_getname(struct socket *sock, struct sockaddr *uaddr,
 		sin->sin_port = sk->sport;
 		sin->sin_addr.s_addr = addr;
 	}
+	memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
 	*uaddr_len = sizeof(*sin);
 	return(0);
 }
@@ -972,6 +973,27 @@ struct proto_ops inet_dgram_ops = {
 	socketpair:	sock_no_socketpair,
 	accept:		sock_no_accept,
 	getname:	inet_getname, 
+	poll:		udp_poll,
+	ioctl:		inet_ioctl,
+	listen:		sock_no_listen,
+	shutdown:	inet_shutdown,
+	setsockopt:	inet_setsockopt,
+	getsockopt:	inet_getsockopt,
+	sendmsg:	inet_sendmsg,
+	recvmsg:	inet_recvmsg,
+	mmap:		sock_no_mmap,
+	sendpage:	sock_no_sendpage,
+};
+
+struct proto_ops inet_sockraw_ops = {
+	family:		PF_INET,
+
+	release:	inet_release,
+	bind:		inet_bind,
+	connect:	inet_dgram_connect,
+	socketpair:	sock_no_socketpair,
+	accept:		sock_no_accept,
+	getname:	inet_getname, 
 	poll:		datagram_poll,
 	ioctl:		inet_ioctl,
 	listen:		sock_no_listen,
@@ -1023,7 +1045,7 @@ static struct inet_protosw inetsw_array[] =
                type:        SOCK_RAW,
                protocol:    IPPROTO_IP,	/* wild card */
                prot:        &raw_prot,
-               ops:         &inet_dgram_ops,
+               ops:         &inet_sockraw_ops,
                capability:  CAP_NET_RAW,
                no_check:    UDP_CSUM_DEFAULT,
                flags:       INET_PROTOSW_REUSE,
@@ -1042,7 +1064,7 @@ inet_register_protosw(struct inet_protosw *p)
 
 	br_write_lock_bh(BR_NETPROTO_LOCK);
 
-	if (p->type > SOCK_MAX)
+	if (p->type >= SOCK_MAX)
 		goto out_illegal;
 
 	/* If we are trying to override a permanent protocol, bail. */

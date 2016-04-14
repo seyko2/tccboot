@@ -265,19 +265,19 @@ acpi_enter_sleep_state (
 	sleep_type_reg_info = acpi_hw_get_bit_register_info (ACPI_BITREG_SLEEP_TYPE_A);
 	sleep_enable_reg_info = acpi_hw_get_bit_register_info (ACPI_BITREG_SLEEP_ENABLE);
 
+	/* Clear wake status */
+
+	status = acpi_set_register (ACPI_BITREG_WAKE_STATUS, 1, ACPI_MTX_DO_NOT_LOCK);
+	if (ACPI_FAILURE (status)) {
+		return_ACPI_STATUS (status);
+	}
+
+	status = acpi_hw_clear_acpi_status (ACPI_MTX_DO_NOT_LOCK);
+	if (ACPI_FAILURE (status)) {
+		return_ACPI_STATUS (status);
+	}
+
 	if (sleep_state != ACPI_STATE_S5) {
-		/* Clear wake status */
-
-		status = acpi_set_register (ACPI_BITREG_WAKE_STATUS, 1, ACPI_MTX_DO_NOT_LOCK);
-		if (ACPI_FAILURE (status)) {
-			return_ACPI_STATUS (status);
-		}
-
-		status = acpi_hw_clear_acpi_status (ACPI_MTX_DO_NOT_LOCK);
-		if (ACPI_FAILURE (status)) {
-			return_ACPI_STATUS (status);
-		}
-
 		/* Disable BM arbitration */
 
 		status = acpi_set_register (ACPI_BITREG_ARB_DISABLE, 1, ACPI_MTX_DO_NOT_LOCK);

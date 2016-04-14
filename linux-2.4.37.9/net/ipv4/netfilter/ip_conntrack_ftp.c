@@ -11,7 +11,7 @@
 #include <linux/netfilter_ipv4/ip_conntrack_helper.h>
 #include <linux/netfilter_ipv4/ip_conntrack_ftp.h>
 
-DECLARE_LOCK(ip_ftp_lock);
+static DECLARE_LOCK(ip_ftp_lock);
 struct module *ip_conntrack_ftp = THIS_MODULE;
 
 #define MAX_PORTS 8
@@ -338,7 +338,6 @@ static int help(const struct iphdr *iph, size_t len,
 	memset(&expect, 0, sizeof(expect));
 
 	/* Update the ftp info */
-	LOCK_BH(&ip_ftp_lock);
 	if (htonl((array[0] << 24) | (array[1] << 16) | (array[2] << 8) | array[3])
 	    == ct->tuplehash[dir].tuple.src.ip) {
 		exp->seq = ntohl(tcph->seq) + matchoff;
@@ -358,7 +357,8 @@ static int help(const struct iphdr *iph, size_t len,
 		   <lincoln@cesar.org.br> for reporting this potential
 		   problem (DMZ machines opening holes to internal
 		   networks, or the packet filter itself). */
-		if (!loose) goto out;
+		if (!loose)
+			return NF_ACCEPT;
 	}
 
 	exp->tuple = ((struct ip_conntrack_tuple)
@@ -376,9 +376,6 @@ static int help(const struct iphdr *iph, size_t len,
 
 	/* Ignore failure; should only happen with NAT */
 	ip_conntrack_expect_related(ct, &expect);
- out:
-	UNLOCK_BH(&ip_ftp_lock);
-
 	return NF_ACCEPT;
 }
 

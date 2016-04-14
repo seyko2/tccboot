@@ -15,7 +15,7 @@
 
 #define QETH_NAME " qeth"
 
-#define VERSION_QETH_H "$Revision: 1.113 $"
+#define VERSION_QETH_H "$Revision: 1.113.4.8 $"
 
 /******************** CONFIG STUFF ***********************/
 //#define QETH_DBF_LIKE_HELL
@@ -47,7 +47,7 @@
 /********************* TUNING STUFF **************************/
 #define HIGH_WATERMARK_PACK		5
 #define LOW_WATERMARK_PACK		2
-#define WATERMARK_FUZZ			2
+#define WATERMARK_FUZZ			1
 
 #define QETH_MAX_INPUT_THRESHOLD 500
 #define QETH_MAX_OUTPUT_THRESHOLD 300 /* ? */
@@ -84,6 +84,22 @@
 #define QETH_HARDSETUP_LAPS 5
 #define QETH_HARDSETUP_CLEAR_LAPS 3
 #define QETH_RECOVERY_HARDSETUP_RETRY 2
+
+/* the worst case stack usage is:
+ * qeth_hard_start_xmit
+ * do_QDIO
+ * qeth_qdio_output_handler
+ * do_QDIO
+ * qeth_qdio_output_handler
+ * (no more recursion as we have called netif_stop_queue)
+ */
+#ifdef CONFIG_ARCH_S390X
+#define STACK_PTR_MASK 0x3fff
+#define WORST_CASE_STACK_USAGE 1100
+#else /* CONFIG_ARCH_S390X */
+#define STACK_PTR_MASK 0x1fff
+#define WORST_CASE_STACK_USAGE 800
+#endif /* CONFIG_ARCH_S390X */
 
 /************************* DEBUG FACILITY STUFF *********************/
 
@@ -252,6 +268,12 @@
 /* flags for the header: */
 #define QETH_HEADER_PASSTHRU	0x10
 #define QETH_HEADER_IPV6	0x80
+
+#define QETH_ETH_MAC_V4      0x0100 /* like v4 */
+#define QETH_ETH_MAC_V6      0x3333 /* like v6 */
+/* tr mc mac is longer, but that will be enough to detect mc frames */
+#define QETH_TR_MAC_NC       0xc000 /* non-canonical */
+#define QETH_TR_MAC_C        0x0300 /* canonical */
 
 #define QETH_CAST_FLAGS		0x07
 #define QETH_CAST_UNICAST	6
@@ -529,7 +551,7 @@ typedef struct sparebufs_t {
 #define QETH_FAKE_LL_ADDR_LEN ETH_ALEN /* 6 */
 #define QETH_FAKE_LL_DEST_MAC_POS 0
 #define QETH_FAKE_LL_SRC_MAC_POS 6
-#define QETH_FAKE_LL_SRC_MAC_POS_IN_QDIO_HDR 6
+#define QETH_FAKE_LL_SRC_MAC_POS_IN_QDIO_HDR 18
 #define QETH_FAKE_LL_PROT_POS 12 
 #define QETH_FAKE_LL_V4_ADDR_POS 16
 #define QETH_FAKE_LL_V6_ADDR_POS 24
@@ -603,7 +625,7 @@ typedef struct sparebufs_t {
 #define MULTICAST_ROUTER 3
 #define PRIMARY_CONNECTOR 4
 #define SECONDARY_CONNECTOR 5
-#define ROUTER_MASK 0xf /* used to remove SET_ROUTING_FLAG
+#define ROUTER_MASK 0xf /* used to remove RESET_ROUTING_FLAG
 			   from routing_type */
 #define RESET_ROUTING_FLAG 0x10 /* used to indicate, that setting
 				   the routing type is desired */
@@ -628,6 +650,9 @@ typedef struct sparebufs_t {
 #define QETH_WAIT_FOR_LOCK 0
 #define QETH_DONT_WAIT_FOR_LOCK 1
 #define QETH_LOCK_ALREADY_HELD 2
+
+#define BROADCAST_WITH_ECHO 1
+#define BROADCAST_WITHOUT_ECHO 2
 
 #define PROBLEM_CARD_HAS_STARTLANED 1
 #define PROBLEM_RECEIVED_IDX_TERMINATE 2
@@ -782,6 +807,7 @@ typedef struct qeth_card_t {			/* pointed to by dev->priv */
 
 	__u8 link_type;
 
+	int is_guest_lan;
 	int do_pfix; /* to avoid doing diag98 for vm guest lan devices */
 
 	/* inbound buffer management */
@@ -852,7 +878,7 @@ typedef struct qeth_card_t {			/* pointed to by dev->priv */
 	/* prevents deadlocks :-O */
 	spinlock_t softsetup_lock;
 	spinlock_t hardsetup_lock;
-	spinlock_t ioctl_lock;
+	struct semaphore ioctl_sem;
 	atomic_t softsetup_thread_is_running;
 	struct semaphore softsetup_thread_sem;
 	struct tq_struct tqueue_sst;
@@ -906,6 +932,8 @@ typedef struct qeth_card_t {			/* pointed to by dev->priv */
 	__u32 ipa6_supported;
 	__u32 ipa6_enabled;
 	__u32 adp_supported;
+
+	__u32 csum_enable_mask;
 
 	atomic_t startlan_attempts;
 	atomic_t enable_routing_attempts4;
@@ -1004,6 +1032,15 @@ typedef struct mydevreg_t {
 	struct mydevreg_t *prev;
 } mydevreg_t;
 
+/*user process notification stuff */
+spinlock_t notify_lock;
+struct list_head notify_list;
+struct qeth_notify_list {
+	struct list_head list;
+	struct task_struct *task;
+	int signum;
+};
+
 inline static int qeth_get_arphrd_type(int cardtype,int linktype)
 {
 	switch (cardtype) {
@@ -1011,7 +1048,7 @@ inline static int qeth_get_arphrd_type(int cardtype,int linktype)
 				  case QETH_MPC_LINK_TYPE_LANE_TR:
 					  /* fallthrough */
 				  case QETH_MPC_LINK_TYPE_HSTR:
-					  return ARPHRD_IEEE802;
+					  return ARPHRD_IEEE802_TR;
 				  default: return ARPHRD_ETHER;
 				  }
 	case QETH_CARD_TYPE_IQD: return ARPHRD_ETHER;
@@ -1036,22 +1073,33 @@ inline static __u8 qeth_get_adapter_type_for_ipa(int link_type)
 	}
 }
 
-inline static const char *qeth_get_cardname(int cardtype)
+inline static const char *qeth_get_cardname(int cardtype,int is_guest_lan)
 {
-	switch (cardtype) {
-	case QETH_CARD_TYPE_UNKNOWN: return "n unknown";
-	case QETH_CARD_TYPE_OSAE: return "n OSD Express";
-	case QETH_CARD_TYPE_IQD: return " HiperSockets";
-	default: return " strange";
+	if (is_guest_lan) {
+		switch (cardtype) {
+		case QETH_CARD_TYPE_UNKNOWN: return "n unknown";
+		case QETH_CARD_TYPE_OSAE: return " Guest LAN QDIO";
+		case QETH_CARD_TYPE_IQD: return " Guest LAN Hiper";
+		default: return " strange";
+		}
+	} else {
+		switch (cardtype) {
+		case QETH_CARD_TYPE_UNKNOWN: return "n unknown";
+		case QETH_CARD_TYPE_OSAE: return "n OSD Express";
+		case QETH_CARD_TYPE_IQD: return " HiperSockets";
+		default: return " strange";
+		}
 	}
 }
 
 /* max length to be returned: 14 */
-inline static const char *qeth_get_cardname_short(int cardtype,__u8 link_type)
+inline static const char *qeth_get_cardname_short(int cardtype,__u8 link_type,int is_guest_lan)
 {
 	switch (cardtype) {
 	case QETH_CARD_TYPE_UNKNOWN: return "unknown";
-	case QETH_CARD_TYPE_OSAE: switch (link_type) {
+	case QETH_CARD_TYPE_OSAE: if (is_guest_lan)
+					  return "GuestLAN QDIO";
+				  switch (link_type) {
 			      	  case QETH_MPC_LINK_TYPE_FAST_ETHERNET:
 		     			  return "OSD_100";
 			      	  case QETH_MPC_LINK_TYPE_HSTR:
@@ -1068,7 +1116,7 @@ inline static const char *qeth_get_cardname_short(int cardtype,__u8 link_type)
      					  return "OSD_ATM_LANE";
 				  default: return "OSD_Express";
 				  }
-	case QETH_CARD_TYPE_IQD: return "HiperSockets";
+	case QETH_CARD_TYPE_IQD: return (is_guest_lan)?"GuestLAN Hiper":"HiperSockets";
 	default: return " strange";
 	}
 }

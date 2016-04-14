@@ -53,7 +53,7 @@ noforce (default) Don't enable by default for heap/stack/data,
 
 */ 
 
-static int __init nonx_setup(char *str)
+int __init nonx_setup(char *str)
 {
 	if (!strncmp(str, "on",3)) { 
 		__supported_pte_mask |= _PAGE_NX; 

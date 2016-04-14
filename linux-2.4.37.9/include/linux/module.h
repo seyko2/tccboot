@@ -8,6 +8,7 @@
 #define _LINUX_MODULE_H
 
 #include <linux/config.h>
+#include <linux/compiler.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
 
@@ -284,7 +285,7 @@ static const struct gtype##_id * __module_##gtype##_table \
  */
  
 #define MODULE_LICENSE(license) 	\
-static const char __module_license[] __attribute__((section(".modinfo"))) =   \
+static const char __module_license[] __attribute_used__ __attribute__((section(".modinfo"))) =   \
 "license=" license
 
 /* Define the module variable, and usage macros.  */
@@ -296,10 +297,10 @@ extern struct module __this_module;
 #define MOD_IN_USE		__MOD_IN_USE(THIS_MODULE)
 
 #include <linux/version.h>
-static const char __module_kernel_version[] __attribute__((section(".modinfo"))) =
+static const char __module_kernel_version[] __attribute_used__ __attribute__((section(".modinfo"))) =
 "kernel_version=" UTS_RELEASE;
 #ifdef MODVERSIONS
-static const char __module_using_checksums[] __attribute__((section(".modinfo"))) =
+static const char __module_using_checksums[] __attribute_used__ __attribute__((section(".modinfo"))) =
 "using_checksums=1";
 #endif
 

@@ -165,20 +165,24 @@ xfs_imap_to_bmap(
 		nisize = io->io_new_size;
 
 	for (pbm = 0; imaps && pbm < iomaps; imaps--, iomapp++, imap++, pbm++) {
-		iomapp->iomap_target = io->io_flags & XFS_IOCORE_RT ?
-			mp->m_rtdev_targp : mp->m_ddev_targp;
 		iomapp->iomap_offset = XFS_FSB_TO_B(mp, imap->br_startoff);
 		iomapp->iomap_delta = offset - iomapp->iomap_offset;
 		iomapp->iomap_bsize = XFS_FSB_TO_B(mp, imap->br_blockcount);
 		iomapp->iomap_flags = flags;
 
+		if (io->io_flags & XFS_IOCORE_RT) {
+			iomapp->iomap_flags |= IOMAP_REALTIME;
+			iomapp->iomap_target = mp->m_rtdev_targp;
+		} else {
+			iomapp->iomap_target = mp->m_ddev_targp;
+		}
 		start_block = imap->br_startblock;
 		if (start_block == HOLESTARTBLOCK) {
 			iomapp->iomap_bn = IOMAP_DADDR_NULL;
-			iomapp->iomap_flags = IOMAP_HOLE;
+			iomapp->iomap_flags |= IOMAP_HOLE;
 		} else if (start_block == DELAYSTARTBLOCK) {
 			iomapp->iomap_bn = IOMAP_DADDR_NULL;
-			iomapp->iomap_flags = IOMAP_DELAY;
+			iomapp->iomap_flags |= IOMAP_DELAY;
 		} else {
 			iomapp->iomap_bn = XFS_FSB_TO_DB_IO(io, start_block);
 			if (ISUNWRITTEN(imap))
@@ -512,6 +516,15 @@ xfs_iomap_write_direct(
 
 	*ret_imap = imap[0];
 	*nmaps = 1;
+	if ( !(io->io_flags & XFS_IOCORE_RT)  && !ret_imap->br_startblock) {
+                cmn_err(CE_PANIC,"Access to block zero:  fs <%s> inode: %lld "
+                        "start_block : %llx start_off : %llx blkcnt : %llx "
+                        "extent-state : %x \n",
+                        (ip->i_mount)->m_fsname,
+                        (long long)ip->i_ino,
+                        ret_imap->br_startblock, ret_imap->br_startoff,
+                        ret_imap->br_blockcount,ret_imap->br_state);
+        }
 	return 0;
 
  error0:	/* Cancel bmap, unlock inode, and cancel trans */
@@ -572,29 +585,92 @@ retry:
 	 * out to the file system's write iosize.  We clean up any extra
 	 * space left over when the file is closed in xfs_inactive().
 	 *
-	 * We don't bother with this for sync writes, because we need
-	 * to minimize the amount we write for good performance.
+	 * For sync writes, we are flushing delayed allocate space to
+	 * try to make additional space available for allocation near
+	 * the filesystem full boundary - preallocation hurts in that
+	 * situation, of course.
 	 */
 	if (!(ioflag & BMAPI_SYNC) && ((offset + count) > ip->i_d.di_size)) {
 		xfs_off_t	aligned_offset;
+		xfs_filblks_t   count_fsb;
 		unsigned int	iosize;
 		xfs_fileoff_t	ioalign;
+		int		n;
+		xfs_fileoff_t   start_fsb;
 
+		/*
+		 * If there are any real blocks past eof, then don't
+		 * do any speculative allocation.
+		 */
+		start_fsb = XFS_B_TO_FSBT(mp,
+					((xfs_ufsize_t)(offset + count - 1)));
+		count_fsb = XFS_B_TO_FSB(mp, (xfs_ufsize_t)XFS_MAXIOFFSET(mp));
+		while (count_fsb > 0) {
+			nimaps = XFS_WRITE_IMAPS;
+			error = XFS_BMAPI(mp, NULL, io, start_fsb, count_fsb,
+					0, &firstblock, 0, imap, &nimaps, NULL);
+			if (error) {
+				return error;
+			}
+			for (n = 0; n < nimaps; n++) {
+				if ( !(io->io_flags & XFS_IOCORE_RT)  && 
+					!imap[n].br_startblock) {
+					cmn_err(CE_PANIC,"Access to block "
+						"zero:  fs <%s> inode: %lld "
+						"start_block : %llx start_off "
+						": %llx blkcnt : %llx "
+						"extent-state : %x \n",
+						(ip->i_mount)->m_fsname,
+						(long long)ip->i_ino,
+						imap[n].br_startblock,
+						imap[n].br_startoff,
+						imap[n].br_blockcount,
+						imap[n].br_state);
+        			}
+				if ((imap[n].br_startblock != HOLESTARTBLOCK) &&
+				    (imap[n].br_startblock != DELAYSTARTBLOCK)) {
+					goto write_map;
+				}
+				start_fsb += imap[n].br_blockcount;
+				count_fsb -= imap[n].br_blockcount;
+			}
+		}
 		iosize = mp->m_writeio_blocks;
 		aligned_offset = XFS_WRITEIO_ALIGN(mp, (offset + count - 1));
 		ioalign = XFS_B_TO_FSBT(mp, aligned_offset);
 		last_fsb = ioalign + iosize;
 		aeof = 1;
 	}
-
+write_map:
 	nimaps = XFS_WRITE_IMAPS;
 	firstblock = NULLFSBLOCK;
 
 	/*
-	 * roundup the allocation request to m_dalign boundary if file size
-	 * is greater that 512K and we are allocating past the allocation eof
+	 * If mounted with the "-o swalloc" option, roundup the allocation
+	 * request to a stripe width boundary if the file size is >=
+	 * stripe width and we are allocating past the allocation eof.
 	 */
-	if (mp->m_dalign && (isize >= mp->m_dalign) && aeof) {
+	if (!(io->io_flags & XFS_IOCORE_RT) && mp->m_swidth 
+	    && (mp->m_flags & XFS_MOUNT_SWALLOC)
+	    && (isize >= XFS_FSB_TO_B(mp, mp->m_swidth)) && aeof) {
+		int eof;
+		xfs_fileoff_t new_last_fsb;
+
+		new_last_fsb = roundup_64(last_fsb, mp->m_swidth);
+		error = xfs_bmap_eof(ip, new_last_fsb, XFS_DATA_FORK, &eof);
+		if (error) {
+			return error;
+		}
+		if (eof) {
+			last_fsb = new_last_fsb;
+		}
+	/*
+	 * Roundup the allocation request to a stripe unit (m_dalign) boundary
+	 * if the file size is >= stripe unit size, and we are allocating past
+	 * the allocation eof.
+	 */
+	} else if (!(io->io_flags & XFS_IOCORE_RT) && mp->m_dalign &&
+		   (isize >= XFS_FSB_TO_B(mp, mp->m_dalign)) && aeof) {
 		int eof;
 		xfs_fileoff_t new_last_fsb;
 		new_last_fsb = roundup_64(last_fsb, mp->m_dalign);
@@ -605,8 +681,22 @@ retry:
 		if (eof) {
 			last_fsb = new_last_fsb;
 		}
-	}
+	/*
+	 * Round up the allocation request to a real-time extent boundary
+	 * if the file is on the real-time subvolume.
+	 */
+	} else if (io->io_flags & XFS_IOCORE_RT && aeof) {
+		int eof;
+		xfs_fileoff_t new_last_fsb;
 
+		new_last_fsb = roundup_64(last_fsb, mp->m_sb.sb_rextsize);
+		error = XFS_BMAP_EOF(mp, io, new_last_fsb, XFS_DATA_FORK, &eof);
+		if (error) {
+			return error;
+		}
+		if (eof)
+			last_fsb = new_last_fsb;
+	}
 	error = xfs_bmapi(NULL, ip, offset_fsb,
 			  (xfs_filblks_t)(last_fsb - offset_fsb),
 			  XFS_BMAPI_DELAY | XFS_BMAPI_WRITE |
@@ -634,6 +724,15 @@ retry:
 
 	*ret_imap = imap[0];
 	*nmaps = 1;
+	if ( !(io->io_flags & XFS_IOCORE_RT)  && !ret_imap->br_startblock) {
+		cmn_err(CE_PANIC,"Access to block zero:  fs <%s> inode: %lld "
+                        "start_block : %llx start_off : %llx blkcnt : %llx "
+                        "extent-state : %x \n",
+                        (ip->i_mount)->m_fsname,
+                        (long long)ip->i_ino,
+                        ret_imap->br_startblock, ret_imap->br_startoff,
+                        ret_imap->br_blockcount,ret_imap->br_state);
+	}
 	return 0;
 }
 
@@ -651,6 +750,7 @@ xfs_iomap_write_allocate(
 	int		*retmap)
 {
 	xfs_mount_t	*mp = ip->i_mount;
+	xfs_iocore_t    *io = &ip->i_iocore;
 	xfs_fileoff_t	offset_fsb, last_block;
 	xfs_fileoff_t	end_fsb, map_start_fsb;
 	xfs_fsblock_t	first_block;
@@ -756,6 +856,18 @@ xfs_iomap_write_allocate(
 		 */
 
 		for (i = 0; i < nimaps; i++) {
+			if ( !(io->io_flags & XFS_IOCORE_RT)  && 
+				!imap[i].br_startblock) {
+				cmn_err(CE_PANIC,"Access to block zero:  "
+					"fs <%s> inode: %lld "
+					"start_block : %llx start_off : %llx " 
+					"blkcnt : %llx extent-state : %x \n",
+					(ip->i_mount)->m_fsname,
+					(long long)ip->i_ino,
+					imap[i].br_startblock,
+					imap[i].br_startoff,
+				        imap[i].br_blockcount,imap[i].br_state);
+                        }
 			if ((map->br_startoff >= imap[i].br_startoff) &&
 			    (map->br_startoff < (imap[i].br_startoff +
 						 imap[i].br_blockcount))) {
@@ -791,6 +903,7 @@ xfs_iomap_write_unwritten(
 	size_t		count)
 {
 	xfs_mount_t	*mp = ip->i_mount;
+	xfs_iocore_t    *io = &ip->i_iocore;
 	xfs_trans_t	*tp;
 	xfs_fileoff_t	offset_fsb;
 	xfs_filblks_t	count_fsb;
@@ -807,7 +920,8 @@ xfs_iomap_write_unwritten(
 				&ip->i_iocore, offset, count);
 
 	offset_fsb = XFS_B_TO_FSBT(mp, offset);
-	count_fsb = XFS_B_TO_FSB(mp, count);
+	count_fsb = XFS_B_TO_FSB(mp, (xfs_ufsize_t)offset + count);
+	count_fsb = (xfs_filblks_t)(count_fsb - offset_fsb);
 
 	do {
 		nres = XFS_DIOSTRAT_SPACE_RES(mp, 0);
@@ -852,6 +966,16 @@ xfs_iomap_write_unwritten(
 		xfs_iunlock(ip, XFS_ILOCK_EXCL);
 		if (error)
 			goto error0;
+		
+		if ( !(io->io_flags & XFS_IOCORE_RT)  && !imap.br_startblock) {
+			cmn_err(CE_PANIC,"Access to block zero:  fs <%s> "
+				"inode: %lld start_block : %llx start_off : "
+				"%llx blkcnt : %llx extent-state : %x \n",
+				(ip->i_mount)->m_fsname,
+				(long long)ip->i_ino,
+				imap.br_startblock,imap.br_startoff,
+				imap.br_blockcount,imap.br_state);
+        	}
 
 		if ((numblks_fsb = imap.br_blockcount) == 0) {
 			/*

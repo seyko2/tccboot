@@ -1,6 +1,6 @@
 
 /* Advanced  Micro Devices Inc. AMD8111E Linux Network Driver 
- * Copyright (C) 2003 Advanced Micro Devices 
+ * Copyright (C) 2004 Advanced Micro Devices 
  *
  * 
  * Copyright 2001,2002 Jeff Garzik <jgarzik@mandrakesoft.com> [ 8139cp.c,tg3.c ]
@@ -55,6 +55,14 @@ Revision History:
 	 4. Dynamic IPG support is disabled by default.
 	3.0.3 06/05/2003
 	 1. Bug fix: Fixed failure to close the interface if SMP is enabled.
+	3.0.4 12/09/2003
+	 1. Added set_mac_address routine for bonding driver support.
+	 2. Tested the driver for bonding support
+	 3. Bug fix: Fixed mismach in actual receive buffer lenth and lenth 
+	    indicated to the h/w.
+	 4. Modified amd8111e_rx() routine to receive all the received packets 
+	    in the first interrupt.
+	 5. Bug fix: Corrected  rx_errors  reported in get_stats() function.  
 
 */
 
@@ -91,9 +99,9 @@ Revision History:
 
 #include "amd8111e.h"
 #define MODULE_NAME	"amd8111e"
-#define MODULE_VERSION	"3.0.3"
+#define MODULE_VERSION	"3.0.4"
 MODULE_AUTHOR("Advanced Micro Devices, Inc.");
-MODULE_DESCRIPTION ("AMD8111 based 10/100 Ethernet Controller. Driver Version 3.0.3");
+MODULE_DESCRIPTION ("AMD8111 based 10/100 Ethernet Controller. Driver Version 3.0.4");
 MODULE_LICENSE("GPL");
 MODULE_PARM(speed_duplex, "1-" __MODULE_STRING (MAX_UNITS) "i");
 MODULE_PARM_DESC(speed_duplex, "Set device speed and duplex modes, 0: Auto Negotitate, 1: 10Mbps Half Duplex, 2: 10Mbps Full Duplex, 3: 100Mbps Half Duplex, 4: 100Mbps Full Duplex");
@@ -276,8 +284,10 @@ static inline void amd8111e_set_rx_buff_len(struct net_device* dev)
 	unsigned int mtu = dev->mtu;
 	
 	if (mtu > ETH_DATA_LEN){
-		/* MTU + ethernet header + FCS + optional VLAN tag */
-		lp->rx_buff_len = mtu + ETH_HLEN + 8;
+		/* MTU + ethernet header + FCS
+		+ optional VLAN tag + skb reserve space 2 */
+
+		lp->rx_buff_len = mtu + ETH_HLEN + 10;
 		lp->options |= OPTION_JUMBO_ENABLE;
 	} else{
 		lp->rx_buff_len = PKT_BUFF_SZ;
@@ -337,7 +347,7 @@ static int amd8111e_init_ring(struct net_device *dev)
 			lp->rx_skbuff[i]->data,lp->rx_buff_len-2, PCI_DMA_FROMDEVICE);
 
 		lp->rx_ring[i].buff_phy_addr = cpu_to_le32(lp->rx_dma_addr[i]);
-		lp->rx_ring[i].buff_count = cpu_to_le16(lp->rx_buff_len);
+		lp->rx_ring[i].buff_count = cpu_to_le16(lp->rx_buff_len-2);
 		lp->rx_ring[i].rx_flags = cpu_to_le16(OWN_BIT);
 	}
 
@@ -512,6 +522,9 @@ static void amd8111e_init_hw_default( struct amd8111e_priv* lp)
 	unsigned int logic_filter[2] ={0,};
 	void * mmio = lp->mmio;
 
+
+        /* stop the chip */
+	writel(RUN, mmio + CMD0);
 
 	/* AUTOPOLL0 Register *//*TBD default value is 8100 in FPS */
 	writew( 0x8101, mmio + AUTOPOLL0);
@@ -710,7 +723,7 @@ static int amd8111e_rx(struct net_device *dev)
 	int rx_index = lp->rx_idx & RX_RING_DR_MOD_MASK;
 	int min_pkt_len, status;
 	int num_rx_pkt = 0;
-	int max_rx_pkt = NUM_RX_BUFFERS/2;
+	int max_rx_pkt = NUM_RX_BUFFERS;
 	short pkt_len;
 #if AMD8111E_VLAN_TAG_USED		
 	short vtag;
@@ -752,14 +765,14 @@ static int amd8111e_rx(struct net_device *dev)
 
 		if (pkt_len < min_pkt_len) {
 			lp->rx_ring[rx_index].rx_flags &= RESET_RX_FLAGS;
-			lp->stats.rx_errors++;
+			lp->drv_rx_errors++;
 			goto err_next_pkt;
 		}
 		if(!(new_skb = dev_alloc_skb(lp->rx_buff_len))){
 			/* if allocation fail, 
 				ignore that pkt and go to next one */
 			lp->rx_ring[rx_index].rx_flags &= RESET_RX_FLAGS;
-			lp->stats.rx_errors++;
+			lp->drv_rx_errors++;
 			goto err_next_pkt;
 		}
 		
@@ -896,12 +909,14 @@ static struct net_device_stats *amd8111e_get_stats(struct net_device * dev)
 	new_stats->tx_bytes = amd8111e_read_mib(mmio, xmt_octets);
 
 	/* stats.rx_errors */
+	/* hw errors + errors driver reported */
 	new_stats->rx_errors = amd8111e_read_mib(mmio, rcv_undersize_pkts)+
 				amd8111e_read_mib(mmio, rcv_fragments)+
 				amd8111e_read_mib(mmio, rcv_jabbers)+
 				amd8111e_read_mib(mmio, rcv_alignment_errors)+
 				amd8111e_read_mib(mmio, rcv_fcs_errors)+
-				amd8111e_read_mib(mmio, rcv_miss_pkts);
+				amd8111e_read_mib(mmio, rcv_miss_pkts)+
+				lp->drv_rx_errors;
 
 	/* stats.tx_errors */
 	new_stats->tx_errors = amd8111e_read_mib(mmio, xmt_underrun_pkts);
@@ -1171,7 +1186,7 @@ static int amd8111e_close(struct net_device * dev)
 
 	spin_unlock_irq(&lp->lock);
 	free_irq(dev->irq, dev);
-
+	
 	/* Update the statistics before closing */
 	amd8111e_get_stats(dev);
 	lp->opened = 0;
@@ -1545,6 +1560,23 @@ static int amd8111e_ioctl(struct net_device * dev , struct ifreq *ifr, int cmd)
 	}
 	return -EOPNOTSUPP;
 }
+static int amd8111e_set_mac_address(struct net_device *dev, void *p)
+{
+	struct amd8111e_priv *lp = dev->priv;
+	int i;
+	struct sockaddr *addr = p;
+
+	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
+	spin_lock_irq(&lp->lock);
+	/* Setting the MAC address to the device */
+	for(i = 0; i < ETH_ADDR_LEN; i++)
+		writeb( dev->dev_addr[i], lp->mmio + PADR + i ); 
+		
+	spin_unlock_irq(&lp->lock);
+
+	return 0;
+}
+
 /* 
 This function changes the mtu of the device. It restarts the device  to initialize the descriptor with new receive buffers.
 */  
@@ -1875,6 +1907,7 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 	dev->stop = amd8111e_close;
 	dev->get_stats = amd8111e_get_stats;
 	dev->set_multicast_list = amd8111e_set_multicast_list;
+	dev->set_mac_address = amd8111e_set_mac_address;
 	dev->do_ioctl = amd8111e_ioctl;
 	dev->change_mtu = amd8111e_change_mtu;
 	dev->irq =pdev->irq;

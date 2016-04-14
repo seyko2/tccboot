@@ -1867,6 +1867,7 @@ xlog_recover_do_inode_buffer(
 
 			nbits = xfs_contig_bits(data_map, map_size,
 							 bit);
+			ASSERT(nbits > 0);
 			reg_buf_offset = bit << XFS_BLI_SHIFT;
 			reg_buf_bytes = nbits << XFS_BLI_SHIFT;
 			item_index++;
@@ -1951,6 +1952,7 @@ xlog_recover_do_reg_buffer(
 		if (bit == -1)
 			break;
 		nbits = xfs_contig_bits(data_map, map_size, bit);
+		ASSERT(nbits > 0);
 		ASSERT(item->ri_buf[i].i_addr != 0);
 		ASSERT(item->ri_buf[i].i_len % XFS_BLI_CHUNK == 0);
 		ASSERT(XFS_BUF_COUNT(bp) >=
@@ -2045,12 +2047,11 @@ xfs_qm_dqcheck(
 		errs++;
 	}
 
-	if (! errs) {
+	if (! errs && !INT_ISZERO(ddq->d_id, ARCH_CONVERT)) {
 		if (INT_GET(ddq->d_blk_softlimit, ARCH_CONVERT) &&
 		    INT_GET(ddq->d_bcount, ARCH_CONVERT) >=
 				INT_GET(ddq->d_blk_softlimit, ARCH_CONVERT)) {
-			if (INT_ISZERO(ddq->d_btimer, ARCH_CONVERT) &&
-			    !INT_ISZERO(ddq->d_id, ARCH_CONVERT)) {
+			if (INT_ISZERO(ddq->d_btimer, ARCH_CONVERT)) {
 				if (flags & XFS_QMOPT_DOWARN)
 					cmn_err(CE_ALERT,
 					"%s : Dquot ID 0x%x (0x%p) "
@@ -2063,12 +2064,24 @@ xfs_qm_dqcheck(
 		if (INT_GET(ddq->d_ino_softlimit, ARCH_CONVERT) &&
 		    INT_GET(ddq->d_icount, ARCH_CONVERT) >=
 				INT_GET(ddq->d_ino_softlimit, ARCH_CONVERT)) {
-			if (INT_ISZERO(ddq->d_itimer, ARCH_CONVERT) &&
-			    !INT_ISZERO(ddq->d_id, ARCH_CONVERT)) {
+			if (INT_ISZERO(ddq->d_itimer, ARCH_CONVERT)) {
 				if (flags & XFS_QMOPT_DOWARN)
 					cmn_err(CE_ALERT,
 					"%s : Dquot ID 0x%x (0x%p) "
 					"INODE TIMER NOT STARTED",
+					str, (int)
+					INT_GET(ddq->d_id, ARCH_CONVERT), ddq);
+				errs++;
+			}
+		}
+		if (INT_GET(ddq->d_rtb_softlimit, ARCH_CONVERT) &&
+		    INT_GET(ddq->d_rtbcount, ARCH_CONVERT) >=
+				INT_GET(ddq->d_rtb_softlimit, ARCH_CONVERT)) {
+			if (INT_ISZERO(ddq->d_rtbtimer, ARCH_CONVERT)) {
+				if (flags & XFS_QMOPT_DOWARN)
+					cmn_err(CE_ALERT,
+					"%s : Dquot ID 0x%x (0x%p) "
+					"RTBLK TIMER NOT STARTED",
 					str, (int)
 					INT_GET(ddq->d_id, ARCH_CONVERT), ddq);
 				errs++;
@@ -2317,7 +2330,7 @@ xlog_recover_do_inode_trans(
 		 * invalidate the buffer when we write it out below.
 		 */
 		imap.im_blkno = 0;
-		xfs_imap(log->l_mp, 0, ino, &imap, 0);
+		xfs_imap(log->l_mp, NULL, ino, &imap, 0);
 	}
 
 	/*
@@ -3249,7 +3262,7 @@ xlog_recover_process_iunlinks(
 				xfs_buf_relse(agibp);
 
 				ino = XFS_AGINO_TO_INO(mp, agno, agino);
-				error = xfs_iget(mp, NULL, ino, 0, &ip, 0);
+				error = xfs_iget(mp, NULL, ino, 0, 0, &ip, 0);
 				ASSERT(error || (ip != NULL));
 
 				if (!error) {
@@ -3371,10 +3384,11 @@ xlog_pack_data_checksum(
 void
 xlog_pack_data(
 	xlog_t			*log,
-	xlog_in_core_t		*iclog)
+	xlog_in_core_t		*iclog,
+	int			roundoff)
 {
 	int			i, j, k;
-	int			size = iclog->ic_offset + iclog->ic_roundoff;
+	int			size = iclog->ic_offset + roundoff;
 	uint			cycle_lsn;
 	xfs_caddr_t		dp;
 	xlog_in_core_2_t	*xhdr;

@@ -604,7 +604,7 @@ static void rsvp_walk(struct tcf_proto *tp, struct tcf_walker *arg)
 					}
 					if (arg->fn(tp, (unsigned long)f, arg) < 0) {
 						arg->stop = 1;
-						break;
+						return;
 					}
 					arg->count++;
 				}
@@ -638,6 +638,7 @@ static int rsvp_dump(struct tcf_proto *tp, unsigned long fh,
 	pinfo.protocol = s->protocol;
 	pinfo.tunnelid = s->tunnelid;
 	pinfo.tunnelhdr = f->tunnelhdr;
+	pinfo.pad = 0;
 	RTA_PUT(skb, TCA_RSVP_PINFO, sizeof(pinfo), &pinfo);
 	if (f->res.classid)
 		RTA_PUT(skb, TCA_RSVP_CLASSID, 4, &f->res.classid);

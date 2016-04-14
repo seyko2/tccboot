@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2002 Silicon Graphics, Inc.  All Rights Reserved.
+ * Copyright (c) 2000-2004 Silicon Graphics, Inc.  All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -85,7 +85,6 @@ kmem_shaker_t	xfs_qm_shaker;
 
 STATIC void	xfs_qm_list_init(xfs_dqlist_t *, char *, int);
 STATIC void	xfs_qm_list_destroy(xfs_dqlist_t *);
-STATIC int	xfs_qm_quotacheck(xfs_mount_t *);
 
 STATIC int	xfs_qm_init_quotainos(xfs_mount_t *);
 STATIC int	xfs_qm_shake(int, unsigned int);
@@ -229,11 +228,8 @@ xfs_qm_hold_quotafs_ref(
 	 */
 	XFS_QM_LOCK(xfs_Gqm);
 
-	if (xfs_Gqm == NULL) {
-		if ((xfs_Gqm = xfs_Gqm_init()) == NULL) {
-			return (XFS_ERROR(EINVAL));
-		}
-	}
+	if (xfs_Gqm == NULL)
+		xfs_Gqm = xfs_Gqm_init();
 	/*
 	 * We can keep a list of all filesystems with quotas mounted for
 	 * debugging and statistical purposes, but ...
@@ -352,7 +348,8 @@ xfs_qm_unmount_quotadestroy(
  */
 int
 xfs_qm_mount_quotas(
-	xfs_mount_t	*mp)
+	xfs_mount_t	*mp,
+	int		mfsi_flags)
 {
 	unsigned long	s;
 	int		error = 0;
@@ -401,22 +398,16 @@ xfs_qm_mount_quotas(
 	/*
 	 * If any of the quotas are not consistent, do a quotacheck.
 	 */
-	if (XFS_QM_NEED_QUOTACHECK(mp)) {
+	if (XFS_QM_NEED_QUOTACHECK(mp) &&
+		!(mfsi_flags & XFS_MFSI_NO_QUOTACHECK)) {
 #ifdef DEBUG
 		cmn_err(CE_NOTE, "Doing a quotacheck. Please wait.");
 #endif
 		if ((error = xfs_qm_quotacheck(mp))) {
-			cmn_err(CE_WARN, "Quotacheck unsuccessful (Error %d): "
-				"Disabling quotas.",
-				error);
-			/*
-			 * We must turn off quotas.
+			/* Quotacheck has failed and quotas have
+			 * been disabled.
 			 */
-			ASSERT(mp->m_quotainfo != NULL);
-			ASSERT(xfs_Gqm != NULL);
-			xfs_qm_destroy_quotainfo(mp);
-			mp->m_qflags = 0;
-			goto write_changes;
+			return XFS_ERROR(error);
 		}
 #ifdef DEBUG
 		cmn_err(CE_NOTE, "Done quotacheck.");
@@ -1216,22 +1207,46 @@ xfs_qm_init_quotainfo(
 			     XFS_QMOPT_DQSUSER|XFS_QMOPT_DOWARN,
 			     &dqp);
 	if (! error) {
+		xfs_disk_dquot_t	*ddqp = &dqp->q_core;
+
 		/*
 		 * The warnings and timers set the grace period given to
 		 * a user or group before he or she can not perform any
 		 * more writing. If it is zero, a default is used.
 		 */
-		qinf->qi_btimelimit = INT_GET(dqp->q_core.d_btimer, ARCH_CONVERT) ?
-			INT_GET(dqp->q_core.d_btimer, ARCH_CONVERT) : XFS_QM_BTIMELIMIT;
-		qinf->qi_itimelimit = INT_GET(dqp->q_core.d_itimer, ARCH_CONVERT) ?
-			INT_GET(dqp->q_core.d_itimer, ARCH_CONVERT) : XFS_QM_ITIMELIMIT;
-		qinf->qi_rtbtimelimit = INT_GET(dqp->q_core.d_rtbtimer, ARCH_CONVERT) ?
-			INT_GET(dqp->q_core.d_rtbtimer, ARCH_CONVERT) : XFS_QM_RTBTIMELIMIT;
-		qinf->qi_bwarnlimit = INT_GET(dqp->q_core.d_bwarns, ARCH_CONVERT) ?
-			INT_GET(dqp->q_core.d_bwarns, ARCH_CONVERT) : XFS_QM_BWARNLIMIT;
-		qinf->qi_iwarnlimit = INT_GET(dqp->q_core.d_iwarns, ARCH_CONVERT) ?
-			INT_GET(dqp->q_core.d_iwarns, ARCH_CONVERT) : XFS_QM_IWARNLIMIT;
-
+		qinf->qi_btimelimit =
+				INT_GET(ddqp->d_btimer, ARCH_CONVERT) ?
+				INT_GET(ddqp->d_btimer, ARCH_CONVERT) :
+				XFS_QM_BTIMELIMIT;
+		qinf->qi_itimelimit =
+				INT_GET(ddqp->d_itimer, ARCH_CONVERT) ?
+				INT_GET(ddqp->d_itimer, ARCH_CONVERT) :
+				XFS_QM_ITIMELIMIT;
+		qinf->qi_rtbtimelimit =
+				INT_GET(ddqp->d_rtbtimer, ARCH_CONVERT) ?
+				INT_GET(ddqp->d_rtbtimer, ARCH_CONVERT) :
+				XFS_QM_RTBTIMELIMIT;
+		qinf->qi_bwarnlimit =
+				INT_GET(ddqp->d_bwarns, ARCH_CONVERT) ?
+				INT_GET(ddqp->d_bwarns, ARCH_CONVERT) :
+				XFS_QM_BWARNLIMIT;
+		qinf->qi_iwarnlimit =
+				INT_GET(ddqp->d_iwarns, ARCH_CONVERT) ?
+				INT_GET(ddqp->d_iwarns, ARCH_CONVERT) :
+				XFS_QM_IWARNLIMIT;
+		qinf->qi_bhardlimit =
+				INT_GET(ddqp->d_blk_hardlimit, ARCH_CONVERT);
+		qinf->qi_bsoftlimit =
+				INT_GET(ddqp->d_blk_softlimit, ARCH_CONVERT);
+		qinf->qi_ihardlimit =
+				INT_GET(ddqp->d_ino_hardlimit, ARCH_CONVERT);
+		qinf->qi_isoftlimit =
+				INT_GET(ddqp->d_ino_softlimit, ARCH_CONVERT);
+		qinf->qi_rtbhardlimit =
+				INT_GET(ddqp->d_rtb_hardlimit, ARCH_CONVERT);
+		qinf->qi_rtbsoftlimit =
+				INT_GET(ddqp->d_rtb_softlimit, ARCH_CONVERT);
+ 
 		/*
 		 * We sent the XFS_QMOPT_DQSUSER flag to dqget because
 		 * we don't want this dquot cached. We haven't done a
@@ -1691,10 +1706,12 @@ xfs_qm_quotacheck_dqadjust(
 	}
 
 	/*
-	 * Adjust the timers since we just changed usages
+	 * Set default limits, adjust timers (since we changed usages)
 	 */
-	if (! XFS_IS_SUSER_DQUOT(dqp))
+	if (! XFS_IS_SUSER_DQUOT(dqp)) {
+		xfs_qm_adjust_dqlimits(dqp->q_mount, &dqp->q_core);
 		xfs_qm_adjust_dqtimers(dqp->q_mount, &dqp->q_core);
+	}
 
 	dqp->dq_flags |= XFS_DQ_DIRTY;
 }
@@ -1734,9 +1751,8 @@ xfs_qm_get_rtblks(
 STATIC int
 xfs_qm_dqusage_adjust(
 	xfs_mount_t	*mp,		/* mount point for filesystem */
-	xfs_trans_t	*tp,		/* transaction pointer - NULL */
 	xfs_ino_t	ino,		/* inode number to get data for */
-	void		*buffer,	/* not used */
+	void		__user *buffer,	/* not used */
 	int		ubsize,		/* not used */
 	void		*private_data,	/* not used */
 	xfs_daddr_t	bno,		/* starting block of inode cluster */
@@ -1766,7 +1782,7 @@ xfs_qm_dqusage_adjust(
 	 * the case in all other instances. It's OK that we do this because
 	 * quotacheck is done only at mount time.
 	 */
-	if ((error = xfs_iget(mp, tp, ino, XFS_ILOCK_EXCL, &ip, bno))) {
+	if ((error = xfs_iget(mp, NULL, ino, 0, XFS_ILOCK_EXCL, &ip, bno))) {
 		*res = BULKSTAT_RV_NOTHING;
 		return (error);
 	}
@@ -1853,9 +1869,9 @@ xfs_qm_dqusage_adjust(
 
 /*
  * Walk thru all the filesystem inodes and construct a consistent view
- * of the disk quota world.
+ * of the disk quota world. If the quotacheck fails, disable quotas.
  */
-STATIC int
+int
 xfs_qm_quotacheck(
 	xfs_mount_t	*mp)
 {
@@ -1903,7 +1919,7 @@ xfs_qm_quotacheck(
 		 * Iterate thru all the inodes in the file system,
 		 * adjusting the corresponding dquot counters in core.
 		 */
-		if ((error = xfs_bulkstat(mp, NULL, &lastino, &count,
+		if ((error = xfs_bulkstat(mp, &lastino, &count,
 				     xfs_qm_dqusage_adjust, NULL,
 				     structsz, NULL,
 				     BULKSTAT_FG_IGET|BULKSTAT_FG_VFSLOCKED,
@@ -1951,7 +1967,20 @@ xfs_qm_quotacheck(
 	XQM_LIST_PRINT(&(XFS_QI_MPL_LIST(mp)), MPL_NEXT, "++++ Mp list +++");
 
  error_return:
-	cmn_err(CE_NOTE, "XFS quotacheck %s: Done.", mp->m_fsname);
+	if (error) {
+		cmn_err(CE_WARN, "XFS quotacheck %s: Unsuccessful (Error %d): "
+			"Disabling quotas.",
+			mp->m_fsname, error);
+		/*
+		 * We must turn off quotas.
+		 */
+		ASSERT(mp->m_quotainfo != NULL);
+		ASSERT(xfs_Gqm != NULL);
+		xfs_qm_destroy_quotainfo(mp);
+		xfs_mount_reset_sbqflags(mp);
+	} else {
+		cmn_err(CE_NOTE, "XFS quotacheck %s: Done.", mp->m_fsname);
+	}
 	return (error);
 }
 
@@ -1981,14 +2010,14 @@ xfs_qm_init_quotainos(
 		    mp->m_sb.sb_uquotino != NULLFSINO) {
 			ASSERT(mp->m_sb.sb_uquotino > 0);
 			if ((error = xfs_iget(mp, NULL, mp->m_sb.sb_uquotino,
-					     0, &uip, 0)))
+					     0, 0, &uip, 0)))
 				return XFS_ERROR(error);
 		}
 		if (XFS_IS_GQUOTA_ON(mp) &&
 		    mp->m_sb.sb_gquotino != NULLFSINO) {
 			ASSERT(mp->m_sb.sb_gquotino > 0);
 			if ((error = xfs_iget(mp, NULL, mp->m_sb.sb_gquotino,
-					     0, &gip, 0))) {
+					     0, 0, &gip, 0))) {
 				if (uip)
 					VN_RELE(XFS_ITOV(uip));
 				return XFS_ERROR(error);

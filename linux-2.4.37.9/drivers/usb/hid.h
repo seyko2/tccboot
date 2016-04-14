@@ -302,6 +302,8 @@ struct hid_control_fifo {
 #define HID_CLAIMED_INPUT	1
 #define HID_CLAIMED_HIDDEV	2
 
+#define HID_OUT_RUNNING		2
+
 struct hid_input {
 	struct list_head list;
 	struct hid_report *report;
@@ -322,12 +324,15 @@ struct hid_device {							/* device report descriptor */
 	struct usb_device *dev;						/* USB device */
 	int ifnum;							/* USB interface number */
 
+	unsigned long iofl;						/* I/O flags (CTRL_RUNNING, OUT_RUNNING) */
+
 	struct urb urb;							/* USB URB structure */
 	char buffer[HID_BUFFER_SIZE];					/* Rx buffer */
 
 	struct urb urbout;						/* Output URB */
 	struct hid_control_fifo out[HID_CONTROL_FIFO_SIZE];		/* Transmit buffer */
 	unsigned char outhead, outtail;					/* Tx buffer head & tail */
+	spinlock_t outlock;						/* Output fifo spinlock */
 
 	unsigned claimed;						/* Claimed by hidinput, hiddev? */	
 	unsigned quirks;						/* Various quirks the device can pull on us */

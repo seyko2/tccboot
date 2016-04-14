@@ -145,7 +145,7 @@ void __init vr41xx_siu_init(int interface, int module)
 	if (early_serial_setup(&s) != 0)
 		printk(KERN_ERR "SIU setup failed!\n");
 
-	vr41xx_clock_supply(SIU_CLOCK);
+	vr41xx_supply_clock(SIU_CLOCK);
 
 	vr41xx_serial_ports++;
 }
@@ -171,7 +171,7 @@ void __init vr41xx_dsiu_init(void)
 	if (early_serial_setup(&s) != 0)
 		printk(KERN_ERR "DSIU setup failed!\n");
 
-	vr41xx_clock_supply(DSIU_CLOCK);
+	vr41xx_supply_clock(DSIU_CLOCK);
 
 	writew(INTDSIU, MDSIUINTREG);
 

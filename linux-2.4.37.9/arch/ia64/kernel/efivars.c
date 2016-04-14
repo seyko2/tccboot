@@ -364,6 +364,7 @@ efi_systab_read(struct file *file, char *buffer, size_t count, loff_t *ppos)
 	int ret;
 	const int max_nr_entries = 7; 	/* num ptrs to tables we could expose */
 	const int max_line_len = 80;
+	loff_t pos = *ppos;
 
 	if (!efi.systab)
 		return 0;
@@ -388,13 +389,13 @@ efi_systab_read(struct file *file, char *buffer, size_t count, loff_t *ppos)
 	if (efi.boot_info)
 		length += sprintf(proc_buffer + length, "BOOTINFO=0x%lx\n", __pa(efi.boot_info));
 
-	if (*ppos >= length) {
+	if (pos != (unsigned) pos || pos >= length) {
 		ret = 0;
 		goto out;
 	}
 
-	data = proc_buffer + file->f_pos;
-	size = length - file->f_pos;
+	data = proc_buffer + pos;
+	size = length - pos;
 	if (size > count)
 		size = count;
 	if (copy_to_user(buffer, data, size)) {
@@ -402,7 +403,7 @@ efi_systab_read(struct file *file, char *buffer, size_t count, loff_t *ppos)
 		goto out;
 	}
 
-	*ppos += size;
+	*ppos = pos + size;
 	ret = size;
 
 out:

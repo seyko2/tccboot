@@ -297,7 +297,7 @@ static inline void __refile_inode(struct inode *inode)
 {
 	struct list_head *to;
 
-	if (inode->i_state & I_FREEING)
+	if (inode->i_state & (I_FREEING|I_CLEAR))
 		return;
 	if (list_empty(&inode->i_hash))
 		return;
@@ -634,7 +634,9 @@ void clear_inode(struct inode *inode)
 		cdput(inode->i_cdev);
 		inode->i_cdev = NULL;
 	}
+	spin_lock(&inode_lock);
 	inode->i_state = I_CLEAR;
+	spin_unlock(&inode_lock);
 }
 
 /*
@@ -852,8 +854,8 @@ void prune_icache(int goal)
 	 */
 	if (goal <= 0)
 		return;
-	if (inodes_stat.nr_unused * sizeof(struct inode) * 10 <
-				freeable_lowmem() * PAGE_SIZE)
+	if (inodes_stat.nr_unused <
+	    (freeable_lowmem() * PAGE_SIZE) / (sizeof(struct inode) * 10))
 		return;
 
 	wakeup_bdflush();

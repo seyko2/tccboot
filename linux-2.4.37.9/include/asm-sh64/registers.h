@@ -115,7 +115,7 @@
 #define SR_HARMLESS	0x00000000500080f0	/* Write ignores for most */
 #define SR_ENABLE_FPU	0xffffffffffff7fff	/* AND with this */
 
-#ifdef ST_DEBUG
+#if defined (CONFIG_SH64_SR_WATCH)
 #define SR_ENABLE_MMU	0x0000000084000000	/* OR with this */
 #else
 #define SR_ENABLE_MMU	0x0000000080000000	/* OR with this */

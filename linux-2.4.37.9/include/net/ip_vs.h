@@ -8,7 +8,7 @@
 
 #include <asm/types.h>          /* For __uXX types */
 
-#define IP_VS_VERSION_CODE            0x01000B
+#define IP_VS_VERSION_CODE            0x01000C
 #define NVERSION(version)                       \
 	(version >> 16) & 0xFF,                 \
 	(version >> 8) & 0xFF,                  \
@@ -82,6 +82,7 @@
 #define IP_VS_CONN_F_IN_SEQ           0x0400    /* must do input seq adjust */
 #define IP_VS_CONN_F_SEQ_MASK         0x0600    /* in/out sequence mask */
 #define IP_VS_CONN_F_NO_CPORT         0x0800    /* no client port set yet */
+#define IP_VS_CONN_F_TEMPLATE         0x1000    /* template, not connection */
 
 /* Move it to better place one day, for now keep it unique */
 #define NFC_IPVS_PROPERTY	0x10000
@@ -97,6 +98,7 @@ struct ip_vs_rule_user {
 	int             state;          /* sync daemon state */
 	char            mcast_ifn[IP_VS_IFNAME_MAXLEN];
 					/* multicast interface name */
+	int		syncid;
 
 	/* virtual service options */
 	u_int16_t	protocol;
@@ -213,8 +215,9 @@ struct ip_vs_timeout_user {
 
 /* The argument to IP_VS_SO_GET_DAEMON */
 struct ip_vs_daemon_user {
-	int	state;				/* sync daemon state */
-	char	mcast_ifn[IP_VS_IFNAME_MAXLEN];	/* multicast interface name */
+	int	state;					/* sync daemon state */
+	char	mcast_master_ifn[IP_VS_IFNAME_MAXLEN];	/* mcast master interface name */
+	char	mcast_backup_ifn[IP_VS_IFNAME_MAXLEN];	/* mcast backup interface name */
 };
 
 
@@ -317,6 +320,7 @@ enum {
 	NET_IPV4_VS_EXPIRE_NODEST_CONN=23,
 	NET_IPV4_VS_SYNC_THRESHOLD=24,
 	NET_IPV4_VS_NAT_ICMP_SEND=25,
+	NET_IPV4_VS_EXPIRE_QUIESCENT_TEMPLATE=26,
 	NET_IPV4_VS_LAST
 };
 
@@ -589,6 +593,8 @@ extern struct ip_vs_timeout_table vs_timeout_table_dos;
 
 extern struct ip_vs_conn *ip_vs_conn_in_get
 (int protocol, __u32 s_addr, __u16 s_port, __u32 d_addr, __u16 d_port);
+extern struct ip_vs_conn *ip_vs_ct_in_get
+(int protocol, __u32 s_addr, __u16 s_port, __u32 d_addr, __u16 d_port);
 extern struct ip_vs_conn *ip_vs_conn_out_get
 (int protocol, __u32 s_addr, __u16 s_port, __u32 d_addr, __u16 d_port);
 
@@ -700,6 +706,7 @@ extern void ip_vs_scheduler_put(struct ip_vs_scheduler *scheduler);
  */
 extern int sysctl_ip_vs_cache_bypass;
 extern int sysctl_ip_vs_expire_nodest_conn;
+extern int sysctl_ip_vs_expire_quiescent_template;
 extern int sysctl_ip_vs_sync_threshold;
 extern int sysctl_ip_vs_nat_icmp_send;
 extern struct ip_vs_stats ip_vs_stats;
@@ -724,9 +731,10 @@ extern void ip_vs_control_cleanup(void);
  *      (from ip_vs_sync.c)
  */
 extern volatile int ip_vs_sync_state;
-extern char ip_vs_mcast_ifn[IP_VS_IFNAME_MAXLEN];
-extern int start_sync_thread(int state, char *mcast_ifn);
-extern int stop_sync_thread(void);
+extern char ip_vs_mcast_master_ifn[IP_VS_IFNAME_MAXLEN];
+extern char ip_vs_mcast_backup_ifn[IP_VS_IFNAME_MAXLEN];
+extern int start_sync_thread(int state, char *mcast_ifn, __u8 syncid);
+extern int stop_sync_thread(int state);
 extern void ip_vs_sync_conn(struct ip_vs_conn *cp);
 
 

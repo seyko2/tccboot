@@ -190,7 +190,6 @@ static int bttv_bit_getsda(void *data)
 	return state;
 }
 
-#ifndef I2C_PEC
 static void bttv_inc_use(struct i2c_adapter *adap)
 {
 	MOD_INC_USE_COUNT;
@@ -200,7 +199,6 @@ static void bttv_dec_use(struct i2c_adapter *adap)
 {
 	MOD_DEC_USE_COUNT;
 }
-#endif
 
 static int attach_inform(struct i2c_client *client)
 {
@@ -243,12 +241,8 @@ static struct i2c_algo_bit_data bttv_i2c_algo_template = {
 };
 
 static struct i2c_adapter bttv_i2c_adap_template = {
-#ifdef I2C_PEC
-	.owner             = THIS_MODULE,
-#else
 	.inc_use           = bttv_inc_use,
 	.dec_use           = bttv_dec_use,
-#endif
 #ifdef I2C_ADAP_CLASS_TV_ANALOG
 	.class             = I2C_ADAP_CLASS_TV_ANALOG,
 #endif

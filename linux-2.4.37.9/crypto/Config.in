@@ -58,6 +58,7 @@ if [ "$CONFIG_CRYPTO" = "y" ]; then
   fi
   tristate       '  SHA256 digest algorithm' CONFIG_CRYPTO_SHA256
   tristate       '  SHA384 and SHA512 digest algorithms' CONFIG_CRYPTO_SHA512
+  tristate       '  Whirlpool digest algorithms' CONFIG_CRYPTO_WP512
   if [ "$CONFIG_INET_ESP" = "y" -o \
        "$CONFIG_INET_ESP" = "m" -o \
        "$CONFIG_INET6_ESP" = "y" -o \
@@ -72,6 +73,9 @@ if [ "$CONFIG_CRYPTO" = "y" ]; then
   tristate       '  AES cipher algorithms' CONFIG_CRYPTO_AES
   tristate       '  CAST5 (CAST-128) cipher algorithm' CONFIG_CRYPTO_CAST5
   tristate       '  CAST6 (CAST-256) cipher algorithm' CONFIG_CRYPTO_CAST6
+  tristate       '  TEA and XTEA cipher algorithms' CONFIG_CRYPTO_TEA
+  tristate       '  Khazad cipher algorithm' CONFIG_CRYPTO_KHAZAD
+  tristate       '  Anubis cipher algorithm' CONFIG_CRYPTO_ANUBIS
   tristate       '  ARC4 cipher algorithm' CONFIG_CRYPTO_ARC4
   if [ "$CONFIG_INET_IPCOMP" = "y" -o \
        "$CONFIG_INET_IPCOMP" = "m" -o \
@@ -81,6 +85,7 @@ if [ "$CONFIG_CRYPTO" = "y" ]; then
   else
     tristate       '  Deflate compression algorithm' CONFIG_CRYPTO_DEFLATE
   fi
+  tristate       '  Michael MIC keyed digest algorithm' CONFIG_CRYPTO_MICHAEL_MIC
   tristate       '  Testing module' CONFIG_CRYPTO_TEST
 fi
 

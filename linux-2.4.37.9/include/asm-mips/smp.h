@@ -106,7 +106,7 @@ void core_send_ipi(int cpu, unsigned int action);
  * Clear all undefined state in the cpu, set up sp and gp to the passed
  * values, and kick the cpu into smp_bootstrap();
  */
-void prom_boot_secondary(int cpu, unsigned long sp, unsigned long gp);
+int prom_boot_secondary(int cpu, unsigned long sp, unsigned long gp);
 
 /*
  *  After we've done initial boot, this function is called to allow the

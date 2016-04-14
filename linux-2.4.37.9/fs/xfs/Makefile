@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2000-2003 Silicon Graphics, Inc.  All Rights Reserved.
+# Copyright (c) 2000-2004 Silicon Graphics, Inc.  All Rights Reserved.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of version 2 of the GNU General Public License as
@@ -30,10 +30,10 @@
 # http://oss.sgi.com/projects/GenInfo/SGIGPLNoticeExplan/
 #
 
-EXTRA_CFLAGS +=  -I. -I linux -funsigned-char
+EXTRA_CFLAGS +=  -I. -I linux-2.4 -funsigned-char
 
 ifeq ($(CONFIG_XFS_DEBUG),y)
-	EXTRA_CFLAGS += -g -DSTATIC="" -DDEBUG -DXFSDEBUG
+	EXTRA_CFLAGS += -g -DSTATIC="" -DDEBUG
 	EXTRA_CFLAGS += -DPAGEBUF_LOCK_TRACKING
 endif
 ifeq ($(CONFIG_XFS_TRACE),y)
@@ -57,8 +57,6 @@ obj-m				:= $(O_TARGET)
 
 obj-$(CONFIG_XFS_RT)		+= xfs_rtalloc.o
 obj-$(CONFIG_XFS_POSIX_ACL)	+= xfs_acl.o
-obj-$(CONFIG_XFS_POSIX_CAP)	+= xfs_cap.o
-obj-$(CONFIG_XFS_POSIX_MAC)	+= xfs_mac.o
 
 obj-$(CONFIG_XFS_TRACE)		+= xfs_dir2_trace.o
 
@@ -113,10 +111,10 @@ obj-y				+= xfs_alloc.o \
 				   xfs_qmops.o
 
 # Objects not built in this directory
-obj-y				+= linux/linux_xfs.o \
+obj-y				+= linux-2.4/linux_xfs.o \
 				   support/support_xfs.o
 
-subdir-$(CONFIG_XFS_FS)		+= linux support
+subdir-$(CONFIG_XFS_FS)		+= linux-2.4 support
 
 ifeq ($(CONFIG_XFS_DMAPI),y)
   subdir-$(CONFIG_XFS_FS)	+= dmapi

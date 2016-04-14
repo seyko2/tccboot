@@ -185,12 +185,12 @@ static struct task_struct *find_target(int request, int pid, int *err)
 			goto out;
 		*err = ptrace_check_attach(child, request == PTRACE_KILL); 
 		if (*err < 0) 
-				goto out;
+			goto out;
 		return child; 
-	} 
 
  out:
-	free_task_struct(child);
+		free_task_struct(child);
+	} 
 	return NULL; 
 	
 } 

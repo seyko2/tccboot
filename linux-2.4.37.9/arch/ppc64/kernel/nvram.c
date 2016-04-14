@@ -78,11 +78,12 @@ static ssize_t dev_ppc64_read_nvram(struct file *file, char *buf,
 			  size_t count, loff_t *ppos)
 {
 	unsigned long len;
-	char *tmp_buffer;
+	char *tmp_buffer; 
+	loff_t pos = *ppos;
 
 	if (verify_area(VERIFY_WRITE, buf, count))
 		return -EFAULT;
-	if (*ppos >= rtas_nvram_size)
+	if ((unsigned)pos != pos || pos >= rtas_nvram_size)
 		return 0;
 	if (count > rtas_nvram_size)
 		count = rtas_nvram_size;
@@ -93,7 +94,7 @@ static ssize_t dev_ppc64_read_nvram(struct file *file, char *buf,
 		return 0;
 	}
 
-	len = read_nvram(tmp_buffer, count, ppos);
+	len = read_nvram(tmp_buffer, count, &pos);
 	if ((long)len <= 0) {
 		kfree(tmp_buffer);
 		return len;
@@ -105,6 +106,7 @@ static ssize_t dev_ppc64_read_nvram(struct file *file, char *buf,
 	}
 
 	kfree(tmp_buffer);
+	*ppos = pos;
 	return len;
 
 }
@@ -114,10 +116,11 @@ static ssize_t dev_ppc64_write_nvram(struct file *file, const char *buf,
 {
 	unsigned long len;
 	char * tmp_buffer;
+	loff_t pos = *ppos;
 
 	if (verify_area(VERIFY_READ, buf, count))
 		return -EFAULT;
-	if (*ppos >= rtas_nvram_size)
+	if (pos != (unsigned) pos || pos >= rtas_nvram_size)
 		return 0;
 	if (count > rtas_nvram_size)
 		count = rtas_nvram_size;
@@ -133,7 +136,8 @@ static ssize_t dev_ppc64_write_nvram(struct file *file, const char *buf,
 		return -EFAULT;
 	}
 
-	len = write_nvram(tmp_buffer, count, ppos);
+	len = write_nvram(tmp_buffer, count, &pos);
+	*ppos = pos;
 
 	kfree(tmp_buffer);
 	return len;

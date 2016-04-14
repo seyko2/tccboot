@@ -338,13 +338,13 @@ InstructionTLBMiss:
 3:
 	lwz	r21, 0(r20)	/* Get the level 1 entry */
 	rlwinm.	r20, r21,0,0,19	/* Extract page descriptor page address */
-	beq	2f		/* If zero, don't try to find a pte */
 
 	/* We have a pte table, so load the MI_TWC with the attributes
 	 * for this "segment."
 	 */
 	tophys(r21,r21)
 	ori	r21,r21,1		/* Set valid bit */
+	beq-	2f			/* If zero, don't try to find a pte */
 #ifdef CONFIG_8xx_CPU6
 	li	r3, 0x2b80
 	stw	r3, 12(r0)
@@ -369,7 +369,7 @@ InstructionTLBMiss:
 	 * set.  All other Linux PTE bits control the behavior
 	 * of the MMU.
 	 */
-	li	r21, 0x00f0
+2:	li	r21, 0x00f0
 	rlwimi	r20, r21, 0, 24, 28	/* Set 24-27, clear 28 */
 
 #ifdef CONFIG_8xx_CPU6
@@ -387,15 +387,6 @@ InstructionTLBMiss:
 	lwz	r3, 8(r0)
 #endif
 	rfi
-
-2:	mfspr	r20, M_TW	/* Restore registers */
-	lwz	r21, 0(r0)
-	mtcr	r21
-	lwz	r21, 4(r0)
-#ifdef CONFIG_8xx_CPU6
-	lwz	r3, 8(r0)
-#endif
-	b	InstructionAccess
 
 	. = 0x1200
 DataStoreTLBMiss:
@@ -422,12 +413,12 @@ DataStoreTLBMiss:
 3:
 	lwz	r21, 0(r20)	/* Get the level 1 entry */
 	rlwinm.	r20, r21,0,0,19	/* Extract page descriptor page address */
-	beq	2f		/* If zero, don't try to find a pte */
 
 	/* We have a pte table, so load fetch the pte from the table.
 	 */
 	tophys(r21, r21)
 	ori	r21, r21, 1	/* Set valid bit in physical L2 page */
+	beq-	2f		/* If zero, don't try to find a pte */
 #ifdef CONFIG_8xx_CPU6
 	li	r3, 0x3b80
 	stw	r3, 12(r0)
@@ -461,7 +452,7 @@ DataStoreTLBMiss:
 	 * set.  All other Linux PTE bits control the behavior
 	 * of the MMU.
 	 */
-	li	r21, 0x00f0
+2:	li	r21, 0x00f0
 	rlwimi	r20, r21, 0, 24, 28	/* Set 24-27, clear 28 */
 
 #ifdef CONFIG_8xx_CPU6
@@ -479,24 +470,6 @@ DataStoreTLBMiss:
 	lwz	r3, 8(r0)
 #endif
 	rfi
-
-2:
-	/* Copy 20 msb from MD_EPN to DAR since the dcxx instructions fail
-	 * to update DAR when they cause a DTLB miss.
-	 */
-	mfspr	r21, MD_EPN
-	mfspr	r20, DAR
-	rlwimi	r20, r21, 0, 0, 19
-	mtspr	DAR, r20
-
-	mfspr	r20, M_TW	/* Restore registers */
-	lwz	r21, 0(r0)
-	mtcr	r21
-	lwz	r21, 4(r0)
-#ifdef CONFIG_8xx_CPU6
-	lwz	r3, 8(r0)
-#endif
-	b	DataAccess
 
 /* This is an instruction TLB error on the MPC8xx.  This could be due
  * to many reasons, such as executing guarded memory or illegal instruction

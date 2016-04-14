@@ -660,9 +660,8 @@ static void fbcon_setup(int con, int init, int logo)
     
     if (logo) {
     	/* Need to make room for the logo */
-	int cnt;
-	int step;
-    
+	int cnt, step, erase_char;
+
     	logo_lines = (LOGO_H + fontheight(p) - 1) / fontheight(p);
     	q = (unsigned short *)(conp->vc_origin + conp->vc_size_row * old_rows);
     	step = logo_lines * old_cols;
@@ -692,8 +691,10 @@ static void fbcon_setup(int con, int init, int logo)
     		conp->vc_pos += logo_lines * conp->vc_size_row;
     	    }
     	}
-    	scr_memsetw((unsigned short *)conp->vc_origin,
-		    conp->vc_video_erase_char, 
+	erase_char = conp->vc_video_erase_char;
+	if (! conp->vc_can_do_color)
+	    erase_char &= ~0x400; /* disable underline */
+	scr_memsetw((unsigned short *)conp->vc_origin, erase_char,
 		    conp->vc_size_row * logo_lines);
     }
     
@@ -1877,7 +1878,10 @@ static inline int fbcon_set_font(int unit, struct console_font_op *op)
        font length must be multiple of 256, at least. And 256 is multiple
        of 4 */
     k = 0;
-    while (p > new_data) k += *--(u32 *)p;
+    while (p > new_data) {
+	    p = (u8 *)((u32 *)p - 1);
+	    k += *(u32 *) p;
+    }
     FNTSUM(new_data) = k;
     /* Check if the same font is on some other console already */
     for (i = 0; i < MAX_NR_CONSOLES; i++) {
@@ -2098,7 +2102,7 @@ static int fbcon_scrolldelta(struct vc_data *conp, int lines)
 
     offset = p->yscroll-scrollback_current;
     limit = p->vrows;
-    switch (p->scrollmode && __SCROLL_YMASK) {
+    switch (p->scrollmode & __SCROLL_YMASK) {
 	case __SCROLL_YWRAP:
 	    p->var.vmode |= FB_VMODE_YWRAP;
 	    break;

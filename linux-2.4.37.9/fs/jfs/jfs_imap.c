@@ -486,7 +486,6 @@ struct inode *diReadSpecial(struct super_block *sb, ino_t inum, int secondary)
 	/* read the page of fixed disk inode (AIT) in raw mode */
 	mp = read_metapage(ip, address << sbi->l2nbperpage, PSIZE, 1);
 	if (mp == NULL) {
-		ip->i_sb = NULL;
 		ip->i_nlink = 1;	/* Don't want iput() deleting it */
 		iput(ip);
 		return (NULL);
@@ -499,7 +498,6 @@ struct inode *diReadSpecial(struct super_block *sb, ino_t inum, int secondary)
 	/* copy on-disk inode to in-memory inode */
 	if ((copy_from_dinode(dp, ip)) != 0) {
 		/* handle bad return by returning NULL for ip */
-		ip->i_sb = NULL;
 		ip->i_nlink = 1;	/* Don't want iput() deleting it */
 		iput(ip);
 		/* release the page */
@@ -1286,6 +1284,7 @@ int diFree(struct inode *ip)
 	 * to be freed by the transaction;  
 	 */
 	tid = txBegin(ipimap->i_sb, COMMIT_FORCE);
+	down(&JFS_IP(ipimap)->commit_sem);
 
 	/* acquire tlock of the iag page of the freed ixad 
 	 * to force the page NOHOMEOK (even though no data is
@@ -1318,6 +1317,7 @@ int diFree(struct inode *ip)
 	rc = txCommit(tid, 1, &iplist[0], COMMIT_FORCE);
 
 	txEnd(tid);
+	up(&JFS_IP(ipimap)->commit_sem);
 
 	/* unlock the AG inode map information */
 	AG_UNLOCK(imap, agno);
@@ -2630,10 +2630,13 @@ diNewIAG(struct inomap * imap, int *iagnop, int agno, struct metapage ** mpp)
 		 */
 #endif				/*  _STILL_TO_PORT */
 		tid = txBegin(sb, COMMIT_FORCE);
+		down(&JFS_IP(ipimap)->commit_sem);
 
 		/* update the inode map addressing structure to point to it */
 		if ((rc =
 		     xtInsert(tid, ipimap, 0, blkno, xlen, &xaddr, 0))) {
+			txEnd(tid);
+			up(&JFS_IP(ipimap)->commit_sem);
 			/* Free the blocks allocated for the iag since it was
 			 * not successfully added to the inode map
 			 */
@@ -2658,6 +2661,7 @@ diNewIAG(struct inomap * imap, int *iagnop, int agno, struct metapage ** mpp)
 		rc = txCommit(tid, 1, &iplist[0], COMMIT_FORCE);
 
 		txEnd(tid);
+		up(&JFS_IP(ipimap)->commit_sem);
 
 		duplicateIXtree(sb, blkno, xlen, &xaddr);
 
@@ -2994,8 +2998,7 @@ int diExtendFS(struct inode *ipimap, struct inode *ipbmap)
 					goto nextiag;
 				}
 				hiagp = (struct iag *) hbp->data;
-				hiagp->inofreeback =
-				    le32_to_cpu(iagp->iagnum);
+				hiagp->inofreeback = iagp->iagnum;
 				iagp->inofreefwd = cpu_to_le32(head);
 				iagp->inofreeback = -1;
 				write_metapage(hbp);
@@ -3069,7 +3072,7 @@ static void duplicateIXtree(struct super_block *sb, s64 blkno,
 		if (readSuper(sb, &bh))
 			return;
 		j_sb = (struct jfs_superblock *)bh->b_data;
-		j_sb->s_flag |= JFS_BAD_SAIT;
+		j_sb->s_flag |= cpu_to_le32(JFS_BAD_SAIT);
 
 		mark_buffer_dirty(bh);
 		ll_rw_block(WRITE, 1, &bh);

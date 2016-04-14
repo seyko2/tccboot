@@ -44,24 +44,39 @@
 #include <asm/reboot.h>
 #include <asm/pgtable.h>
 #include <asm/au1000.h>
-#include <asm/db1x00.h>
+#include <asm/pb1550.h>
 
 extern struct rtc_ops no_rtc_ops;
 
-static BCSR * const bcsr = (BCSR *)0xB3000000;
+void board_reset (void)
+{
+    /* Hit BCSR.SYSTEM_CONTROL[SW_RST] */
+	au_writew(au_readw(0xAF00001C) & ~(1<<15), 0xAF00001C);
+}
 
 void __init board_setup(void)
 {
 	u32 pin_func;
 	rtc_ops = &no_rtc_ops;
 
-#ifdef CONFIG_AU1X00_USB_DEVICE
-	// 2nd USB port is USB device
-	pin_func = au_readl(SYS_PINFUNC) & (u32)(~0x8000);
+	/* Enable PSC1 SYNC for AC97.  Normaly done in audio driver,
+	 * but it is board specific code, so put it here.
+	 */
+	pin_func = au_readl(SYS_PINFUNC);
+	au_sync();
+	pin_func |= SYS_PF_MUST_BE_SET | SYS_PF_PSC1_S1;
 	au_writel(pin_func, SYS_PINFUNC);
-#endif
+
+	/* Do some more for PSC3 I2S audio.
+	*/
+	pin_func = au_readl(SYS_PINFUNC);
+	au_sync();
+	pin_func &= ~SYS_PF_PSC3_MASK;
+	pin_func |= SYS_PF_PSC3_I2S | SYS_PF_EX0;
+	au_writel(pin_func, SYS_PINFUNC);
 
 	au_writel(0, (u32)bcsr|0x10); /* turn off pcmcia power */
+	au_sync();
 
-    printk("AMD Alchemy Pb1550 Board\n");
+	printk("AMD Alchemy Pb1550 Board\n");
 }

@@ -381,6 +381,7 @@ void xfs_ifork_next_set(xfs_inode_t *ip, int w, int n);
 #define XFS_IRECLAIM    0x0008  /* we have started reclaiming this inode    */
 #define XFS_ISTALE	0x0010	/* inode has been staled */
 #define XFS_IRECLAIMABLE 0x0020 /* inode can be reclaimed */
+#define XFS_INEW	0x0040
 
 /*
  * Flags for inode locking.
@@ -459,12 +460,15 @@ xfs_inode_t *xfs_bhvtoi(struct bhv_desc *bhvp);
  * directory, group of new file is set to that of the parent, and
  * new subdirectory gets S_ISGID bit from parent.
  */
-#define XFS_INHERIT_GID(pip, vfsp)	((pip) != NULL && \
-	(((vfsp)->vfs_flag & VFS_GRPID) || ((pip)->i_d.di_mode & S_ISGID)))
+#define XFS_INHERIT_GID(pip, vfsp)	\
+	(((vfsp)->vfs_flag & VFS_GRPID) || ((pip)->i_d.di_mode & S_ISGID))
 
 /*
  * xfs_iget.c prototypes.
  */
+
+#define IGET_CREATE	1
+
 void		xfs_ihash_init(struct xfs_mount *);
 void		xfs_ihash_free(struct xfs_mount *);
 void		xfs_chash_init(struct xfs_mount *);
@@ -473,7 +477,7 @@ xfs_inode_t	*xfs_inode_incore(struct xfs_mount *, xfs_ino_t,
 				  struct xfs_trans *);
 void            xfs_inode_lock_init(xfs_inode_t *, struct vnode *);
 int		xfs_iget(struct xfs_mount *, struct xfs_trans *, xfs_ino_t,
-			 uint, xfs_inode_t **, xfs_daddr_t);
+			 uint, uint, xfs_inode_t **, xfs_daddr_t);
 void		xfs_iput(xfs_inode_t *, uint);
 void		xfs_iput_new(xfs_inode_t *, uint);
 void		xfs_ilock(xfs_inode_t *, uint);
@@ -503,11 +507,11 @@ int		xfs_iread_extents(struct xfs_trans *, xfs_inode_t *, int);
 int		xfs_ialloc(struct xfs_trans *, xfs_inode_t *, mode_t, nlink_t,
 			   xfs_dev_t, struct cred *, xfs_prid_t, int,
 			   struct xfs_buf **, boolean_t *, xfs_inode_t **);
-void		xfs_xlate_dinode_core(xfs_caddr_t, struct xfs_dinode_core *, int,
-			   xfs_arch_t);
+void		xfs_xlate_dinode_core(xfs_caddr_t, struct xfs_dinode_core *,
+					int, xfs_arch_t);
+uint		xfs_dic2xflags(struct xfs_dinode_core *, xfs_arch_t);
 int		xfs_ifree(struct xfs_trans *, xfs_inode_t *,
 			   struct xfs_bmap_free *);
-int		xfs_atruncate_start(xfs_inode_t *);
 void		xfs_itruncate_start(xfs_inode_t *, uint, xfs_fsize_t);
 int		xfs_itruncate_finish(struct xfs_trans **, xfs_inode_t *,
 				     xfs_fsize_t, int, int);

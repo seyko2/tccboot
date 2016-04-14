@@ -157,7 +157,7 @@ extern void * memset(void *,int,__kernel_size_t);
 extern __kernel_size_t strlen(const char *);
 extern int strcmp(const char *,const char *);
 extern char * strcpy(char *,const char *);
-extern char * bcopy(const char * src, char * dest, int count);
+extern void bcopy(const void * src, void * dest, size_t count);
 
 EXPORT_SYMBOL_NOVERS(memcpy);
 EXPORT_SYMBOL_NOVERS(__memcpy);

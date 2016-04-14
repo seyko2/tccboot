@@ -120,7 +120,7 @@ int sis_fb_free(struct inode *inode, struct file *filp, unsigned int cmd,
     return -1;
   }
 
-  sis_free(fb.free);
+  sis_free((u32)fb.free);
   if(!del_alloc_set(fb.context, VIDEO_TYPE, fb.free))
     retval = -1;
 

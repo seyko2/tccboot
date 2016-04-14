@@ -362,9 +362,8 @@ ctc_tty_tint(ctc_tty_info * info)
 
 		info->flags &= ~CTC_ASYNC_TX_LINESTAT;
 		if (tty) {
-			if (wake && (tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-			    tty->ldisc.write_wakeup)
-				(tty->ldisc.write_wakeup)(tty);
+			if (wake)
+				tty_wakeup(tty);
 			wake_up_interruptible(&tty->write_wait);
 		}
 	}
@@ -655,10 +654,7 @@ ctc_tty_flush_buffer(struct tty_struct *tty)
 	skb_queue_purge(&info->tx_queue);
 	info->lsr |= UART_LSR_TEMT;
 	restore_flags(flags);
-	wake_up_interruptible(&tty->write_wait);
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup) (tty);
+	tty_wakeup(tty);
 }
 
 static void
@@ -1168,8 +1164,7 @@ ctc_tty_close(struct tty_struct *tty, struct file *filp)
 	ctc_tty_shutdown(info);
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 	spin_lock_irqsave(&ctc_tty_lock, saveflags);
 	info->tty = 0;
 	spin_unlock_irqrestore(&ctc_tty_lock, saveflags);

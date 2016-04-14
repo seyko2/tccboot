@@ -305,6 +305,8 @@ struct fcc_enet_private {
 	ushort	skb_cur;
 	ushort	skb_dirty;
 
+	atomic_t n_pkts;        /* Number of packets in tx ring */
+
 	/* CPM dual port RAM relative addresses.
 	*/
 	cbd_t	*rx_bd_base;		/* Address of Rx and Tx buffers. */
@@ -396,13 +398,15 @@ fcc_enet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	bdp->cbd_datlen = skb->len;
 	bdp->cbd_bufaddr = __pa(skb->data);
 
+	spin_lock_irq(&cep->lock);
+
 	/* Save skb pointer. */
 	cep->tx_skbuff[cep->skb_cur] = skb;
 
 	cep->stats.tx_bytes += skb->len;
 	cep->skb_cur = (cep->skb_cur+1) & TX_RING_MOD_MASK;
 
-	spin_lock_irq(&cep->lock);
+	atomic_inc(&cep->n_pkts);
 
 	/* Send it on its way.  Tell CPM its ready, interrupt when done,
 	 * its the last BD of the frame, and to put the CRC on the end.
@@ -421,9 +425,12 @@ fcc_enet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	else
 		bdp++;
 
-	if (bdp->cbd_sc & BD_ENET_TX_READY) {
-		netif_stop_queue(dev);
+	/* If the tx_ring is full, stop the queue */
+	if (atomic_read(&cep->n_pkts) >= (TX_RING_SIZE-1)) {
+	  if (!netif_queue_stopped(dev)) {
+	  	netif_stop_queue(dev);
 		cep->tx_full = 1;
+	  }
 	}
 
 	cep->cur_tx = (cbd_t *)bdp;
@@ -541,6 +548,8 @@ fcc_enet_interrupt(int irq, void * dev_id, struct pt_regs * regs)
 		/* Free the sk buffer associated with this last transmit. */
 		dev_kfree_skb_irq(cep->tx_skbuff[cep->skb_dirty]);
 		cep->skb_dirty = (cep->skb_dirty + 1) & TX_RING_MOD_MASK;
+
+		atomic_dec(&cep->n_pkts);
 
 		/* Update pointer to next buffer descriptor to be transmitted. */
 		if (bdp->cbd_sc & BD_ENET_TX_WRAP)
@@ -1782,6 +1791,7 @@ init_fcc_param(fcc_info_t *fip, struct net_device *dev,
 	while (cp->cp_cpcr & CPM_CR_FLG);
 
 	cep->skb_cur = cep->skb_dirty = 0;
+	atomic_set(&cep->n_pkts, 0);
 }
 
 /* Let 'er rip.

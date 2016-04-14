@@ -296,7 +296,14 @@ static struct dentry * real_lookup(struct dentry * parent, struct qstr * name, i
 	 */
 	result = d_lookup(parent, name);
 	if (!result) {
-		struct dentry * dentry = d_alloc(parent, name);
+		struct dentry *dentry;
+
+		/* Don't create child dentry for a dead directory. */
+		result = ERR_PTR(-ENOENT);
+		if (IS_DEADDIR(dir))
+			goto out_unlock;
+
+		dentry = d_alloc(parent, name);
 		result = ERR_PTR(-ENOMEM);
 		if (dentry) {
 			lock_kernel();
@@ -307,6 +314,7 @@ static struct dentry * real_lookup(struct dentry * parent, struct qstr * name, i
 			else
 				result = dentry;
 		}
+	out_unlock:
 		up(&dir->i_sem);
 		return result;
 	}
@@ -326,7 +334,7 @@ static struct dentry * real_lookup(struct dentry * parent, struct qstr * name, i
 }
 
 /*
- * This limits recursive symlink follows to 8, while
+ * This limits recursive symlink follows to 5, while
  * limiting consecutive symlinks to 40.
  *
  * Without that kind of total limit, nasty chains of consecutive
@@ -447,7 +455,7 @@ static inline void follow_dotdot(struct nameidata *nd)
  *
  * We expect 'base' to be positive and a directory.
  */
-int link_path_walk(const char * name, struct nameidata *nd)
+int fastcall link_path_walk(const char * name, struct nameidata *nd)
 {
 	struct dentry *dentry;
 	struct inode *inode;
@@ -540,8 +548,10 @@ int link_path_walk(const char * name, struct nameidata *nd)
 			goto out_dput;
 
 		if (inode->i_op->follow_link) {
+			struct vfsmount *mnt = mntget(nd->mnt);
 			err = do_follow_link(dentry, nd);
 			dput(dentry);
+			mntput(mnt);
 			if (err)
 				goto return_err;
 			err = -ENOENT;
@@ -583,9 +593,9 @@ last_component:
 			if (err < 0)
 				break;
 		}
-		dentry = cached_lookup(nd->dentry, &this, 0);
+		dentry = cached_lookup(nd->dentry, &this, nd->flags);
 		if (!dentry) {
-			dentry = real_lookup(nd->dentry, &this, 0);
+			dentry = real_lookup(nd->dentry, &this, nd->flags);
 			err = PTR_ERR(dentry);
 			if (IS_ERR(dentry))
 				break;
@@ -595,8 +605,10 @@ last_component:
 		inode = dentry->d_inode;
 		if ((lookup_flags & LOOKUP_FOLLOW)
 		    && inode && inode->i_op && inode->i_op->follow_link) {
+			struct vfsmount *mnt = mntget(nd->mnt);
 			err = do_follow_link(dentry, nd);
 			dput(dentry);
+			mntput(mnt);
 			if (err)
 				goto return_err;
 			inode = nd->dentry->d_inode;
@@ -653,7 +665,7 @@ return_err:
 	return err;
 }
 
-int path_walk(const char * name, struct nameidata *nd)
+int fastcall path_walk(const char * name, struct nameidata *nd)
 {
 	current->total_link_count = 0;
 	return link_path_walk(name, nd);
@@ -741,7 +753,7 @@ walk_init_root(const char *name, struct nameidata *nd)
 }
 
 /* SMP-safe */
-int path_lookup(const char *path, unsigned flags, struct nameidata *nd)
+int fastcall path_lookup(const char *path, unsigned flags, struct nameidata *nd)
 {
 	int error = 0;
 	if (path_init(path, flags, nd))
@@ -751,7 +763,7 @@ int path_lookup(const char *path, unsigned flags, struct nameidata *nd)
 
 
 /* SMP-safe */
-int path_init(const char *name, unsigned int flags, struct nameidata *nd)
+int fastcall path_init(const char *name, unsigned int flags, struct nameidata *nd)
 {
 	nd->last_type = LAST_ROOT; /* if there are only slashes... */
 	nd->flags = flags;
@@ -794,7 +806,14 @@ struct dentry * lookup_hash(struct qstr *name, struct dentry * base)
 
 	dentry = cached_lookup(base, name, 0);
 	if (!dentry) {
-		struct dentry *new = d_alloc(base, name);
+		struct dentry *new;
+
+		/* Don't create child dentry for a dead directory. */
+		dentry = ERR_PTR(-ENOENT);
+		if (IS_DEADDIR(inode))
+			goto out;
+
+		new = d_alloc(base, name);
 		dentry = ERR_PTR(-ENOMEM);
 		if (!new)
 			goto out;
@@ -847,7 +866,7 @@ access:
  * that namei follows links, while lnamei does not.
  * SMP-safe
  */
-int __user_walk(const char *name, unsigned flags, struct nameidata *nd)
+int fastcall __user_walk(const char *name, unsigned flags, struct nameidata *nd)
 {
 	char *tmp;
 	int err;
@@ -1003,6 +1022,7 @@ int open_namei(const char * pathname, int flag, int mode, struct nameidata *nd)
 	int acc_mode, error = 0;
 	struct inode *inode;
 	struct dentry *dentry;
+	struct vfsmount *mnt;
 	struct dentry *dir;
 	int count = 0;
 
@@ -1185,8 +1205,10 @@ do_link:
 	 * are done. Procfs-like symlinks just set LAST_BIND.
 	 */
 	UPDATE_ATIME(dentry->d_inode);
+	mnt = mntget(nd->mnt);
 	error = dentry->d_inode->i_op->follow_link(dentry, nd);
 	dput(dentry);
+	mntput(mnt);
 	if (error)
 		return error;
 	if (nd->last_type == LAST_BIND) {
@@ -1471,27 +1493,34 @@ exit:
 int vfs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	int error;
+	struct inode *inode;
 
-	down(&dir->i_zombie);
 	error = may_delete(dir, dentry, 0);
-	if (!error) {
-		error = -EPERM;
-		if (dir->i_op && dir->i_op->unlink) {
-			DQUOT_INIT(dir);
-			if (d_mountpoint(dentry))
-				error = -EBUSY;
-			else {
-				lock_kernel();
-				error = dir->i_op->unlink(dir, dentry);
-				unlock_kernel();
-				if (!error)
-					d_delete(dentry);
-			}
+	if (error)
+		return error;
+
+	inode = dentry->d_inode;
+	atomic_inc(&inode->i_count);
+	double_down(&dir->i_zombie, &inode->i_zombie);
+
+	error = -EPERM;
+	if (dir->i_op && dir->i_op->unlink) {
+		DQUOT_INIT(dir);
+		if (d_mountpoint(dentry))
+			error = -EBUSY;
+		else {
+			lock_kernel();
+			error = dir->i_op->unlink(dir, dentry);
+			unlock_kernel();
 		}
 	}
-	up(&dir->i_zombie);
-	if (!error)
+	double_up(&dir->i_zombie, &inode->i_zombie);
+	iput(inode);
+
+	if (!error) {
+		d_delete(dentry);
 		inode_dir_notify(dir, DN_DELETE);
+	}
 	return error;
 }
 
@@ -1600,18 +1629,19 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 	struct inode *inode;
 	int error;
 
-	down(&dir->i_zombie);
 	error = -ENOENT;
 	inode = old_dentry->d_inode;
 	if (!inode)
-		goto exit_lock;
-
-	error = may_create(dir, new_dentry);
-	if (error)
-		goto exit_lock;
+		goto exit;
 
 	error = -EXDEV;
 	if (dir->i_dev != inode->i_dev)
+		goto exit;
+
+	double_down(&dir->i_zombie, &old_dentry->d_inode->i_zombie);
+
+	error = may_create(dir, new_dentry);
+	if (error)
 		goto exit_lock;
 
 	/*
@@ -1629,9 +1659,10 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 	unlock_kernel();
 
 exit_lock:
-	up(&dir->i_zombie);
+	double_up(&dir->i_zombie, &old_dentry->d_inode->i_zombie);
 	if (!error)
 		inode_dir_notify(dir, DN_CREATE);
+exit:
 	return error;
 }
 

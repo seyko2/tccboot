@@ -573,8 +573,19 @@ static _INLINE_ void receive_chars(struct async_struct *info,
 	do {
 		if (tty->flip.count >= TTY_FLIPBUF_SIZE) {
 			tty->flip.tqueue.routine((void *) tty);
-			if (tty->flip.count >= TTY_FLIPBUF_SIZE)
+			if (tty->flip.count >= TTY_FLIPBUF_SIZE) {
+				/* no room in flip buffer, discard rx FIFO contents to clear IRQ
+				 * *FIXME* Hardware with auto flow control
+				 * would benefit from leaving the data in the FIFO and
+				 * disabling the rx IRQ until space becomes available.
+				 */
+				do {
+					serial_inp(info, UART_RX);
+					icount->overrun++;
+					*status = serial_inp(info, UART_LSR);
+				} while ((*status & UART_LSR_DR) && (max_count-- > 0));
 				return;		// if TTY_DONT_FLIP is set
+			}
 		}
 		ch = serial_inp(info, UART_RX);
 		*tty->flip.char_buf_ptr = ch;
@@ -924,7 +935,7 @@ static void rs_interrupt_single(int irq, void *dev_id, struct pt_regs * regs)
 			transmit_chars(info, 0);
 #endif
 		if (pass_counter++ > RS_ISR_PASS_LIMIT) {
-#if SERIAL_DEBUG_INTR
+#ifdef SERIAL_DEBUG_INTR
 			printk("rs_single loop break.\n");
 #endif
 			break;
@@ -1057,17 +1068,15 @@ static void do_serial_bh(void)
 static void do_softint(void *private_)
 {
 	struct async_struct	*info = (struct async_struct *) private_;
-	struct tty_struct	*tty;
-	
+	struct tty_struct       *tty;
+
 	tty = info->tty;
 	if (!tty)
 		return;
 
 	if (test_and_clear_bit(RS_EVENT_WRITE_WAKEUP, &info->event)) {
-		if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-		    tty->ldisc.write_wakeup)
-			(tty->ldisc.write_wakeup)(tty);
-		wake_up_interruptible(&tty->write_wait);
+		tty_wakeup(tty);
+		
 #ifdef SERIAL_HAVE_POLL_WAIT
 		wake_up_interruptible(&tty->poll_wait);
 #endif
@@ -1818,13 +1827,18 @@ static void change_speed(struct async_struct *info,
 
 static void rs_put_char(struct tty_struct *tty, unsigned char ch)
 {
-	struct async_struct *info = (struct async_struct *)tty->driver_data;
+	struct async_struct *info;
 	unsigned long flags;
 
+	if (!tty)
+		return;
+	
+	info =  (struct async_struct *)tty->driver_data;
+	
 	if (serial_paranoia_check(info, tty->device, "rs_put_char"))
 		return;
 
-	if (!tty || !info->xmit.buf)
+	if (!info->xmit.buf)
 		return;
 
 	save_flags(flags); cli();
@@ -1864,13 +1878,18 @@ static int rs_write(struct tty_struct * tty, int from_user,
 		    const unsigned char *buf, int count)
 {
 	int	c, ret = 0;
-	struct async_struct *info = (struct async_struct *)tty->driver_data;
+	struct async_struct *info;
 	unsigned long flags;
 				
+	if (!tty)
+		return 0;
+
+	info = (struct async_struct *)tty->driver_data;
+	
 	if (serial_paranoia_check(info, tty->device, "rs_write"))
 		return 0;
 
-	if (!tty || !info->xmit.buf || !tmp_buf)
+	if (!info->xmit.buf || !tmp_buf)
 		return 0;
 
 	save_flags(flags);
@@ -1965,13 +1984,10 @@ static void rs_flush_buffer(struct tty_struct *tty)
 	save_flags(flags); cli();
 	info->xmit.head = info->xmit.tail = 0;
 	restore_flags(flags);
-	wake_up_interruptible(&tty->write_wait);
 #ifdef SERIAL_HAVE_POLL_WAIT
 	wake_up_interruptible(&tty->poll_wait);
 #endif
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup)(tty);
+	tty_wakeup(tty);
 }
 
 /*
@@ -2834,8 +2850,8 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	 * the line discipline to only process XON/XOFF characters.
 	 */
 	tty->closing = 1;
-	if (info->closing_wait != ASYNC_CLOSING_WAIT_NONE)
-		tty_wait_until_sent(tty, info->closing_wait);
+	if (state->closing_wait != ASYNC_CLOSING_WAIT_NONE)
+		tty_wait_until_sent(tty, state->closing_wait);
 	/*
 	 * At this point we stop accepting input.  To do this, we
 	 * disable the receive line status interrupts, and tell the
@@ -2856,15 +2872,14 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 	shutdown(info);
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 	tty->closing = 0;
 	info->event = 0;
 	info->tty = 0;
 	if (info->blocked_open) {
-		if (info->close_delay) {
+		if (state->close_delay) {
 			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(info->close_delay);
+			schedule_timeout(state->close_delay);
 		}
 		wake_up_interruptible(&info->open_wait);
 	}
@@ -4199,7 +4214,7 @@ pci_inteli960ni_fn(struct pci_dev *dev,
    
 #ifdef SERIAL_DEBUG_PCI
 	printk(KERN_DEBUG " Subsystem ID %lx (intel 960)\n",
-	       (unsigned long) board->subdevice);
+	       (unsigned long) dev->subsystem_device);
 #endif
 	/* is firmware started? */
 	pci_read_config_dword(dev, 0x44, (void*) &oldval); 

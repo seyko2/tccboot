@@ -252,14 +252,14 @@ struct usb_device_descriptor {
 
 /* Endpoint descriptor */
 struct usb_endpoint_descriptor {
-	__u8  bLength		__attribute__ ((packed));
-	__u8  bDescriptorType	__attribute__ ((packed));
-	__u8  bEndpointAddress	__attribute__ ((packed));
-	__u8  bmAttributes	__attribute__ ((packed));
-	__u16 wMaxPacketSize	__attribute__ ((packed));
-	__u8  bInterval		__attribute__ ((packed));
-	__u8  bRefresh		__attribute__ ((packed));
-	__u8  bSynchAddress	__attribute__ ((packed));
+	__u8  bLength;
+	__u8  bDescriptorType;
+	__u8  bEndpointAddress;
+	__u8  bmAttributes;
+	__u16 wMaxPacketSize;
+	__u8  bInterval;
+	__u8  bRefresh;
+	__u8  bSynchAddress;
 
    	unsigned char *extra;   /* Extra descriptors */
 	int extralen;
@@ -267,15 +267,15 @@ struct usb_endpoint_descriptor {
 
 /* Interface descriptor */
 struct usb_interface_descriptor {
-	__u8  bLength		__attribute__ ((packed));
-	__u8  bDescriptorType	__attribute__ ((packed));
-	__u8  bInterfaceNumber	__attribute__ ((packed));
-	__u8  bAlternateSetting	__attribute__ ((packed));
-	__u8  bNumEndpoints	__attribute__ ((packed));
-	__u8  bInterfaceClass	__attribute__ ((packed));
-	__u8  bInterfaceSubClass __attribute__ ((packed));
-	__u8  bInterfaceProtocol __attribute__ ((packed));
-	__u8  iInterface	__attribute__ ((packed));
+	__u8  bLength;
+	__u8  bDescriptorType;
+	__u8  bInterfaceNumber;
+	__u8  bAlternateSetting;
+	__u8  bNumEndpoints;
+	__u8  bInterfaceClass;
+	__u8  bInterfaceSubClass;
+	__u8  bInterfaceProtocol;
+	__u8  iInterface;
 
   	struct usb_endpoint_descriptor *endpoint;
 
@@ -296,14 +296,14 @@ struct usb_interface {
 
 /* Configuration descriptor information.. */
 struct usb_config_descriptor {
-	__u8  bLength		__attribute__ ((packed));
-	__u8  bDescriptorType	__attribute__ ((packed));
-	__u16 wTotalLength	__attribute__ ((packed));
-	__u8  bNumInterfaces	__attribute__ ((packed));
-	__u8  bConfigurationValue __attribute__ ((packed));
-	__u8  iConfiguration	__attribute__ ((packed));
-	__u8  bmAttributes	__attribute__ ((packed));
-	__u8  MaxPower		__attribute__ ((packed));
+	__u8  bLength;
+	__u8  bDescriptorType;
+	__u16 wTotalLength;
+	__u8  bNumInterfaces;
+	__u8  bConfigurationValue;
+	__u8  iConfiguration;
+	__u8  bmAttributes;
+	__u8  MaxPower;
 
 	struct usb_interface *interface;
 
@@ -829,6 +829,19 @@ struct usb_device {
 	atomic_t refcnt;		/* Reference count */
 	struct semaphore serialize;
 
+	/*
+	 * This is our custom open-coded lock, similar to r/w locks in concept.
+	 * It prevents drivers and /proc access from simultaneous access.
+	 * Type:
+	 *   0 - unlocked
+	 *   1 - locked for reads
+	 *   2 - locked for writes
+	 *   3 - locked for everything
+	 */
+	wait_queue_head_t excl_wait;
+	spinlock_t excl_lock;
+	unsigned excl_type;
+
 	unsigned int toggle[2];		/* one bit for each endpoint ([0] = IN, [1] = OUT) */
 	unsigned int halted[2];		/* endpoint halts; one bit per endpoint # & direction; */
 					/* [0] = IN, [1] = OUT */
@@ -902,6 +915,8 @@ extern void usb_destroy_configuration(struct usb_device *dev);
 
 int usb_get_current_frame_number (struct usb_device *usb_dev);
 
+int usb_excl_lock(struct usb_device *dev, unsigned int type, int interruptible);
+void usb_excl_unlock(struct usb_device *dev, unsigned int type);
 
 /**
  * usb_make_path - returns stable device path in the usb tree

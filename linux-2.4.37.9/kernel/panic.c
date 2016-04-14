@@ -59,7 +59,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 	
 	bust_spinlocks(1);
 	va_start(args, fmt);
-	vsprintf(buf, fmt, args);
+	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 	printk(KERN_EMERG "Kernel panic: %s\n",buf);
 	if (in_interrupt())
@@ -104,7 +104,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 #endif
 	sti();
 	for(;;) {
-#if defined(CONFIG_X86) && defined(CONFIG_VT) 
+#if defined(CONFIG_X86) && defined(CONFIG_VT) && !defined(CONFIG_DUMMY_KEYB) 
 		extern void panic_blink(void);
 		panic_blink(); 
 #endif

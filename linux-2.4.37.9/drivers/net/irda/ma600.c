@@ -48,7 +48,7 @@
 	#undef IRDA_DEBUG
 	#define IRDA_DEBUG(n, args...) (printk(KERN_DEBUG args))
 
-	#undef ASSERT(expr, func)
+	#undef ASSERT
 	#define ASSERT(expr, func) \
 	if(!(expr)) { \
 		printk( "Assertion failed! %s,%s,%s,line=%d\n",\

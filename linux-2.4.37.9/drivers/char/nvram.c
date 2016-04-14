@@ -252,8 +252,12 @@ static ssize_t
 nvram_read(struct file *file, char *buf, size_t count, loff_t *ppos)
 {
 	unsigned char contents[NVRAM_BYTES];
-	unsigned i = *ppos;
+	loff_t n = *ppos;
+	unsigned i = n;
 	unsigned char *tmp;
+
+	if (i != n || i >= NVRAM_BYTES)
+		return 0;
 
 	spin_lock_irq(&rtc_lock);
 
@@ -281,9 +285,13 @@ static ssize_t
 nvram_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
 	unsigned char contents[NVRAM_BYTES];
-	unsigned i = *ppos;
+	loff_t n = *ppos;
+	unsigned i = n;
 	unsigned char *tmp;
 	int len;
+
+	if (i != n || i >= NVRAM_BYTES)
+		return 0;
 
 	len = (NVRAM_BYTES - i) < count ? (NVRAM_BYTES - i) : count;
 	if (copy_from_user(contents, buf, len))

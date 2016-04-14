@@ -2,7 +2,7 @@
  *	Linux INET6 implementation 
  *
  *	Authors:
- *	Pedro Roque		<roque@di.fc.ul.pt>	
+ *	Pedro Roque		<pedro_m@yahoo.com>	
  *
  *	This program is free software; you can redistribute it and/or
  *      modify it under the terms of the GNU General Public License
@@ -171,13 +171,16 @@ extern int			fib6_walk_continue(struct fib6_walker_t *w);
 
 extern int			fib6_add(struct fib6_node *root,
 					 struct rt6_info *rt,
-					 struct nlmsghdr *nlh);
+					 struct nlmsghdr *nlh,
+					 struct netlink_skb_parms *req);
 
 extern int			fib6_del(struct rt6_info *rt,
-					 struct nlmsghdr *nlh);
+					 struct nlmsghdr *nlh,
+					 struct netlink_skb_parms *req);
 
 extern void			inet6_rt_notify(int event, struct rt6_info *rt,
-						struct nlmsghdr *nlh);
+						struct nlmsghdr *nlh,
+						struct netlink_skb_parms *req);
 
 extern void			fib6_run_gc(unsigned long dummy);
 

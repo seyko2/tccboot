@@ -140,7 +140,6 @@ int read_cis_mem(socket_info_t *s, int attr, u_int addr,
     } else {
 	u_int inc = 1;
 	if (attr) { mem->flags |= MAP_ATTRIB; inc++; addr *= 2; }
-	sys += (addr & (s->cap.map_size-1));
 	mem->card_start = addr & ~(s->cap.map_size-1);
 	while (len) {
 	    set_cis_map(s, mem);

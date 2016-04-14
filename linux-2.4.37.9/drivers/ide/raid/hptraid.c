@@ -18,7 +18,11 @@
    Based on work done by Søren Schmidt for FreeBSD
 
    Changelog:
-   15.06.2003 wweissmann@gmx.at
+   19.08.2003 v0.03 wweissmann@gmx.at
+   	* register the raid volume only if all disks are available
+	* print a warning that raid-(0+)1 failover is not supported
+
+   15.06.2003 v0.02 wweissmann@gmx.at
    	* correct values of raid-1 superbock
 	* re-add check for availability of all disks
 	* fix offset bug in raid-1 (introduced in raid 0+1 implementation)
@@ -814,10 +818,6 @@ static int hptraid_init_one(int device, u_int8_t type, const char * label)
 			break;
 	}
 
-	/* Initialize the gendisk structure */
-	
-	ataraid_register_disk(device,raid[device].sectors);
-
 	/* Verify that we have all disks */
 
 	count=count_disks(raid+device);
@@ -844,7 +844,17 @@ static int hptraid_init_one(int device, u_int8_t type, const char * label)
 					return -ENODEV;
 				}
 			}
+			printk(KERN_WARNING "ataraid%i: raid-0+1 disk failover is not implemented!\n",
+					device);
 		}
+		else if (type == HPT_T_RAID_1) {
+			printk(KERN_WARNING "ataraid%i: raid-1 disk failover is not implemented!\n",
+					device);
+		}	
+		/* Initialize the gendisk structure */
+	
+		ataraid_register_disk(device,raid[device].sectors);
+
 		return 0;
 	}
 	
@@ -856,7 +866,7 @@ static int hptraid_init(void)
  	int retval=-ENODEV;
 	int device,i,count=0;
   	
-	printk(KERN_INFO "Highpoint HPT370 Softwareraid driver for linux version 0.02\n");
+	printk(KERN_INFO "Highpoint HPT370 Softwareraid driver for linux version 0.03\n");
 
 	for(i=0; oplist[i].op; i++) {
 		do

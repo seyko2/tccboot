@@ -875,6 +875,41 @@ static int qla1280_read_nvram(struct scsi_qla_host *ha)
 }
 
 
+ /*
+    * qla2100_enable_intrs
+    * qla2100_disable_intrs
+    *
+    * Input:
+    *      ha = adapter block pointer.
+    *
+    * Returns:
+    *      None
+  */
+static inline void
+qla1280_enable_intrs(struct scsi_qla_host *ha)
+{
+	struct device_reg *reg;
+
+	reg = ha->iobase;
+	/* enable risc and host interrupts */
+	WRT_REG_WORD(&reg->ictrl, (ISP_EN_INT | ISP_EN_RISC));
+	RD_REG_WORD(&reg->ictrl);	/* PCI Posted Write flush */
+	ha->flags.ints_enabled = 1;
+}
+
+static inline void
+qla1280_disable_intrs(struct scsi_qla_host *ha)
+{
+	struct device_reg *reg;
+
+	reg = ha->iobase;
+	/* disable risc and host interrupts */
+	WRT_REG_WORD(&reg->ictrl, 0);
+	RD_REG_WORD(&reg->ictrl);	/* PCI Posted Write flush */
+	ha->flags.ints_enabled = 0;
+}
+
+
 /**************************************************************************
  * qla1280_do_device_init
  *    This routine will register the device with the SCSI subsystem,
@@ -2048,40 +2083,6 @@ qla1280_mem_free(struct scsi_qla_host *ha)
 /****************************************************************************/
 /*                QLogic ISP1280 Hardware Support Functions.                */
 /****************************************************************************/
-
- /*
-    * qla2100_enable_intrs
-    * qla2100_disable_intrs
-    *
-    * Input:
-    *      ha = adapter block pointer.
-    *
-    * Returns:
-    *      None
-  */
-static inline void
-qla1280_enable_intrs(struct scsi_qla_host *ha)
-{
-	struct device_reg *reg;
-
-	reg = ha->iobase;
-	/* enable risc and host interrupts */
-	WRT_REG_WORD(&reg->ictrl, (ISP_EN_INT | ISP_EN_RISC));
-	RD_REG_WORD(&reg->ictrl);	/* PCI Posted Write flush */
-	ha->flags.ints_enabled = 1;
-}
-
-static inline void
-qla1280_disable_intrs(struct scsi_qla_host *ha)
-{
-	struct device_reg *reg;
-
-	reg = ha->iobase;
-	/* disable risc and host interrupts */
-	WRT_REG_WORD(&reg->ictrl, 0);
-	RD_REG_WORD(&reg->ictrl);	/* PCI Posted Write flush */
-	ha->flags.ints_enabled = 0;
-}
 
 /*
  * qla1280_initialize_adapter

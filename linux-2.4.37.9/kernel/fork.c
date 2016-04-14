@@ -39,7 +39,7 @@ int last_pid;
 
 struct task_struct *pidhash[PIDHASH_SZ];
 
-void add_wait_queue(wait_queue_head_t *q, wait_queue_t * wait)
+void fastcall add_wait_queue(wait_queue_head_t *q, wait_queue_t * wait)
 {
 	unsigned long flags;
 
@@ -49,7 +49,7 @@ void add_wait_queue(wait_queue_head_t *q, wait_queue_t * wait)
 	wq_write_unlock_irqrestore(&q->lock, flags);
 }
 
-void add_wait_queue_exclusive(wait_queue_head_t *q, wait_queue_t * wait)
+void fastcall add_wait_queue_exclusive(wait_queue_head_t *q, wait_queue_t * wait)
 {
 	unsigned long flags;
 
@@ -59,7 +59,7 @@ void add_wait_queue_exclusive(wait_queue_head_t *q, wait_queue_t * wait)
 	wq_write_unlock_irqrestore(&q->lock, flags);
 }
 
-void remove_wait_queue(wait_queue_head_t *q, wait_queue_t * wait)
+void fastcall remove_wait_queue(wait_queue_head_t *q, wait_queue_t * wait)
 {
 	unsigned long flags;
 
@@ -264,7 +264,7 @@ struct mm_struct * mm_alloc(void)
  * is dropped: either by a lazy thread or by
  * mmput. Free the page directory and the mm.
  */
-inline void __mmdrop(struct mm_struct *mm)
+void fastcall __mmdrop(struct mm_struct *mm)
 {
 	BUG_ON(mm == &init_mm);
 	pgd_free(mm->pgd);
@@ -513,8 +513,17 @@ static int copy_files(unsigned long clone_flags, struct task_struct * tsk)
 
 	for (i = open_files; i != 0; i--) {
 		struct file *f = *old_fds++;
-		if (f)
+		if (f) {
 			get_file(f);
+		} else {
+			/*
+			 * The fd may be claimed in the fd bitmap but not yet
+			 * instantiated in the files array if a sibling thread
+			 * is partway through open().  So make sure that this
+			 * fd is available to the new process.
+			 */
+                        FD_CLR(open_files - i, newf->open_fds);
+		}
 		*new_fds++ = f;
 	}
 	read_unlock(&oldf->file_lock);
@@ -758,11 +767,6 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 		goto bad_fork_cleanup_namespace;
 	p->semundo = NULL;
 	
-	/* Our parent execution domain becomes current domain
-	   These must match for thread signalling to apply */
-	   
-	p->parent_exec_id = p->self_exec_id;
-
 	/* ok, now we should be set up.. */
 	p->swappable = 1;
 	p->exit_signal = clone_flags & CSIGNAL;
@@ -797,6 +801,7 @@ int do_fork(unsigned long clone_flags, unsigned long stack_start,
 	p->p_pptr = current->p_pptr;
 	if (!(clone_flags & CLONE_PARENT)) {
 		p->p_opptr = current;
+		p->parent_exec_id = p->self_exec_id;
 		if (!(p->ptrace & PT_PTRACED))
 			p->p_pptr = current;
 	}

@@ -2180,10 +2180,26 @@ static int dev_ifsioc(struct ifreq *ifr, unsigned int cmd)
 		case SIOCSIFNAME:
 			if (dev->flags&IFF_UP)
 				return -EBUSY;
-			if (__dev_get_by_name(ifr->ifr_newname))
-				return -EEXIST;
-			memcpy(dev->name, ifr->ifr_newname, IFNAMSIZ);
-			dev->name[IFNAMSIZ-1] = 0;
+			/* Check if name contains a wildcard */
+			if (strchr(ifr->ifr_newname, '%')) {
+				char format[IFNAMSIZ + 1];
+				int ret;
+				memcpy(format, ifr->ifr_newname, IFNAMSIZ);
+				format[IFNAMSIZ-1] = 0;
+				/* Find a free name based on format.
+				 * dev_alloc_name() replaces "%d" with at max
+				 * 2 digits, so no name overflow. - Jean II */
+				ret = dev_alloc_name(dev, format);
+				if (ret < 0)
+					return ret;
+				/* Copy the new name back to caller. */
+				strncpy(ifr->ifr_newname, dev->name, IFNAMSIZ);
+			} else {
+				if (__dev_get_by_name(ifr->ifr_newname))
+					return -EEXIST;
+				memcpy(dev->name, ifr->ifr_newname, IFNAMSIZ);
+				dev->name[IFNAMSIZ-1] = 0;
+			}
 			notifier_call_chain(&netdev_chain, NETDEV_CHANGENAME, dev);
 			return 0;
 
@@ -2316,6 +2332,7 @@ int dev_ioctl(unsigned int cmd, void *arg)
 		 *	- return a value
 		 */
 		 
+		case SIOCSIFNAME:
 		case SIOCGMIIPHY:
 		case SIOCGMIIREG:
 			if (!capable(CAP_NET_ADMIN))
@@ -2351,7 +2368,6 @@ int dev_ioctl(unsigned int cmd, void *arg)
 		case SIOCDELMULTI:
 		case SIOCSIFHWBROADCAST:
 		case SIOCSIFTXQLEN:
-		case SIOCSIFNAME:
 		case SIOCSMIIREG:
 		case SIOCBONDENSLAVE:
 		case SIOCBONDRELEASE:

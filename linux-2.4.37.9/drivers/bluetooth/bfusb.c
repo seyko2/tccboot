@@ -359,10 +359,10 @@ static void bfusb_rx_complete(struct urb *urb)
 
 	BT_DBG("bfusb %p urb %p skb %p len %d", bfusb, urb, skb, skb->len);
 
-	if (!test_bit(HCI_RUNNING, &bfusb->hdev.flags))
-		return;
-
 	read_lock(&bfusb->lock);
+
+	if (!test_bit(HCI_RUNNING, &bfusb->hdev.flags))
+		goto unlock;
 
 	if (urb->status || !count)
 		goto resubmit;
@@ -414,6 +414,7 @@ resubmit:
 					bfusb->hdev.name, urb, err);
 	}
 
+unlock:
 	read_unlock(&bfusb->lock);
 }
 
@@ -469,11 +470,10 @@ static int bfusb_close(struct hci_dev *hdev)
 		return 0;
 
 	write_lock_irqsave(&bfusb->lock, flags);
+	write_unlock_irqrestore(&bfusb->lock, flags);
 
 	bfusb_unlink_urbs(bfusb);
 	bfusb_flush(hdev);
-
-	write_unlock_irqrestore(&bfusb->lock, flags);
 
 	MOD_DEC_USE_COUNT;
 

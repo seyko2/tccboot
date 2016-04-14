@@ -46,9 +46,8 @@ MODULE_AUTHOR("Matt Domsch <Matt_Domsch@Dell.com>");
 MODULE_DESCRIPTION("proc interface to BIOS EDD information");
 MODULE_LICENSE("GPL");
 
-#define EDD_VERSION "0.10 2003-Dec-05"
+#define EDD_VERSION "0.11 2004-Jun-21"
 #define EDD_DEVICE_NAME_SIZE 16
-#define REPORT_URL "http://domsch.com/linux/edd30/results.html"
 
 #define left (count - (p - page) - 1)
 
@@ -312,10 +311,6 @@ edd_show_raw_data(char *page, char **start, off_t off, int count, int *eof, void
 	}
 
 out:
-	p += snprintf(p, left, "\nPlease check %s\n", REPORT_URL);
-	p += snprintf(p, left, "to see if this device has been reported.  If not,\n");
-	p += snprintf(p, left, "please send the information requested there.\n");
-
 	return proc_calc_metrics(page, start, off, count, eof, (p - page));
 }
 
@@ -405,7 +400,7 @@ edd_show_default_cylinders(char *page, char **start, off_t off, int count, int *
 		return proc_calc_metrics(page, start, off, count, eof, 0);
 	}
 
-	p += snprintf(p, left, "0x%x\n", info->params.num_default_cylinders);
+	p += snprintf(p, left, "%u\n", info->params.num_default_cylinders);
 	return proc_calc_metrics(page, start, off, count, eof, (p - page));
 }
 
@@ -418,7 +413,7 @@ edd_show_default_heads(char *page, char **start, off_t off, int count, int *eof,
 		return proc_calc_metrics(page, start, off, count, eof, 0);
 	}
 
-	p += snprintf(p, left, "0x%x\n", info->params.num_default_heads);
+	p += snprintf(p, left, "%u\n", info->params.num_default_heads);
 	return proc_calc_metrics(page, start, off, count, eof, (p - page));
 }
 
@@ -431,7 +426,7 @@ edd_show_default_sectors_per_track(char *page, char **start, off_t off, int coun
 		return proc_calc_metrics(page, start, off, count, eof, 0);
 	}
 
-	p += snprintf(p, left, "0x%x\n", info->params.sectors_per_track);
+	p += snprintf(p, left, "%u\n", info->params.sectors_per_track);
 	return proc_calc_metrics(page, start, off, count, eof, (p - page));
 }
 
@@ -444,7 +439,7 @@ edd_show_sectors(char *page, char **start, off_t off, int count, int *eof, void 
 		return proc_calc_metrics(page, start, off, count, eof, 0);
 	}
 
-	p += snprintf(p, left, "0x%llx\n", info->params.number_of_sectors);
+	p += snprintf(p, left, "%llu\n", info->params.number_of_sectors);
 	return proc_calc_metrics(page, start, off, count, eof, (p - page));
 }
 

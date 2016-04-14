@@ -3,7 +3,7 @@
  *	Linux INET6 implementation
  *
  *	Authors:
- *	Pedro Roque		<roque@di.fc.ul.pt>
+ *	Pedro Roque		<pedro_m@yahoo.com>
  *
  *	$Id: icmp.c,v 1.37 2001/09/18 22:29:10 davem Exp $
  *
@@ -595,6 +595,7 @@ int icmpv6_rcv(struct sk_buff *skb)
 		break;
 
 	case ICMPV6_MGM_REDUCTION:
+	case ICMPV6_MLD2_REPORT:
 		break;
 
 	default:

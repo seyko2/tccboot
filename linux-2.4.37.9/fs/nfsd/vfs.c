@@ -280,13 +280,17 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	}
 
 	/* Revoke setuid/setgid bit on chown/chgrp */
-	if ((iap->ia_valid & ATTR_UID) && (imode & S_ISUID)
-	 && iap->ia_uid != inode->i_uid) {
+	if ((iap->ia_valid & ATTR_UID)
+	    && (imode & S_ISUID)
+	    && !S_ISDIR(imode)
+	    && iap->ia_uid != inode->i_uid) {
 		iap->ia_valid |= ATTR_MODE;
 		iap->ia_mode = imode &= ~S_ISUID;
 	}
-	if ((iap->ia_valid & ATTR_GID) && (imode & S_ISGID)
-	 && iap->ia_gid != inode->i_gid) {
+	if ((iap->ia_valid & ATTR_GID)
+	    && (imode & (S_ISGID | S_IXGRP)) == (S_ISGID | S_IXGRP)
+	    && !S_ISDIR(imode)
+	    && iap->ia_gid != inode->i_gid) {
 		iap->ia_valid |= ATTR_MODE;
 		iap->ia_mode = imode &= ~S_ISGID;
 	}
@@ -297,6 +301,7 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	iap->ia_valid |= ATTR_CTIME;
 
 	if (iap->ia_valid & ATTR_SIZE) {
+		down_write(&inode->i_alloc_sem);
 		fh_lock(fhp);
 		size_change = 1;
 	}
@@ -307,6 +312,7 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	}
 	if (size_change) {
 		fh_unlock(fhp);
+		up_write(&inode->i_alloc_sem);
 		put_write_access(inode);
 	}
 	if (!err)
@@ -466,6 +472,8 @@ nfsd_open(struct svc_rqst *rqstp, struct svc_fh *fhp, int type,
 	atomic_set(&filp->f_count, 1);
 	filp->f_dentry = dentry;
 	filp->f_vfsmnt = fhp->fh_export->ex_mnt;
+	filp->f_maxcount = INT_MAX;
+
 	if (access & MAY_WRITE) {
 		filp->f_flags = O_WRONLY|O_LARGEFILE;
 		filp->f_mode  = FMODE_WRITE;
@@ -586,6 +594,22 @@ found:
 	return ra;
 }
 
+/* copied from fs/read_write.c */
+static inline loff_t llseek(struct file *file, loff_t offset, int origin)
+{
+	loff_t (*fn)(struct file *, loff_t, int);
+	loff_t retval;
+
+	fn = default_llseek;
+	if (file->f_op && file->f_op->llseek)
+		fn = file->f_op->llseek;
+	lock_kernel();
+	retval = fn(file, offset, origin);
+	unlock_kernel();
+	return retval;
+}
+
+
 /*
  * Read data from a file. count must contain the requested read count
  * on entry. On return, *count contains the number of bytes actually read.
@@ -621,7 +645,7 @@ nfsd_read(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
 		file.f_ralen = ra->p_ralen;
 		file.f_rawin = ra->p_rawin;
 	}
-	file.f_pos = offset;
+	llseek(&file, offset, 0);
 
 	oldfs = get_fs(); set_fs(KERNEL_DS);
 	err = file.f_op->read(&file, buf, *count, &file.f_pos);
@@ -706,7 +730,8 @@ nfsd_write(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
 	if (stable && !EX_WGATHER(exp))
 		file.f_flags |= O_SYNC;
 
-	file.f_pos = offset;		/* set write offset */
+
+	llseek(&file, offset, 0);
 
 	/* Write the data. */
 	oldfs = get_fs(); set_fs(KERNEL_DS);
@@ -1398,10 +1423,12 @@ nfsd_readdir(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
 	err = nfsd_open(rqstp, fhp, S_IFDIR, MAY_READ, &file);
 	if (err)
 		goto out;
-	if (offset > ~(u32) 0)
-		goto out_close;
 
-	file.f_pos = offset;
+	offset = llseek(&file, offset, 0);
+	if (offset < 0) {
+		err = nfserrno((int)offset);
+		goto out_close;
+	}
 
 	/* Set up the readdir context */
 	memset(&cd, 0, sizeof(cd));
@@ -1429,11 +1456,13 @@ nfsd_readdir(struct svc_rqst *rqstp, struct svc_fh *fhp, loff_t offset,
 	/* If we didn't fill the buffer completely, we're at EOF */
 	eof = !cd.eob;
 
+
+	offset = llseek(&file, 0LL, 1);
 	if (cd.offset) {
 		if (rqstp->rq_vers == 3)
-			(void)xdr_encode_hyper(cd.offset, file.f_pos);
+			(void)xdr_encode_hyper(cd.offset, offset);
 		else
-			*cd.offset = htonl(file.f_pos);
+			*cd.offset = htonl(offset);
 	}
 
 	p = cd.buffer;

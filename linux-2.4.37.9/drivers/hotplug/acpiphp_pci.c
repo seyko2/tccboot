@@ -29,11 +29,11 @@
  *
  */
 
-#include <linux/config.h>
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/pci.h>
 #include <linux/init.h>
+#include <linux/module.h>
+
+#include <linux/kernel.h>
+#include <linux/pci.h>
 #include "pci_hotplug.h"
 #include "acpiphp.h"
 
@@ -78,8 +78,8 @@ static int init_config_space (struct acpiphp_func *func)
 		if (bar & PCI_BASE_ADDRESS_SPACE_IO) {
 			/* This is IO */
 
-			len = bar & 0xFFFFFFFC;
-			len = ~len + 1;
+			len = bar & (PCI_BASE_ADDRESS_IO_MASK & 0xFFFF);
+			len = len & ~(len - 1);
 
 			dbg("len in IO %x, BAR %d\n", len, count);
 
@@ -340,8 +340,8 @@ static int detect_used_resource (struct acpiphp_bridge *bridge, struct pci_dev *
 		if (len & PCI_BASE_ADDRESS_SPACE_IO) {
 			/* This is IO */
 			base = bar & 0xFFFFFFFC;
-			len &= 0xFFFFFFFC;
-			len = ~len + 1;
+			len = len & (PCI_BASE_ADDRESS_IO_MASK & 0xFFFF);
+			len = len & ~(len - 1);
 
 			dbg("BAR[%d] %08x - %08x (IO)\n", count, (u32)base, (u32)base + len - 1);
 
@@ -465,8 +465,8 @@ int acpiphp_init_func_resource (struct acpiphp_func *func)
 		if (len & PCI_BASE_ADDRESS_SPACE_IO) {
 			/* This is IO */
 			base = bar & 0xFFFFFFFC;
-			len &= 0xFFFFFFFC;
-			len = ~len + 1;
+			len = len & (PCI_BASE_ADDRESS_IO_MASK & 0xFFFF);
+			len = len & ~(len - 1);
 
 			dbg("BAR[%d] %08x - %08x (IO)\n", count, (u32)base, (u32)base + len - 1);
 

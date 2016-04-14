@@ -132,7 +132,7 @@ static inline int get_max_sectors(kdev_t dev)
 	return max_sectors[MAJOR(dev)][MINOR(dev)];
 }
 
-inline request_queue_t *blk_get_queue(kdev_t dev)
+static inline request_queue_t *__blk_get_queue(kdev_t dev)
 {
 	struct blk_dev_struct *bdev = blk_dev + MAJOR(dev);
 
@@ -140,6 +140,11 @@ inline request_queue_t *blk_get_queue(kdev_t dev)
 		return bdev->queue(dev);
 	else
 		return &blk_dev[MAJOR(dev)].request_queue;
+}
+
+request_queue_t *blk_get_queue(kdev_t dev)
+{
+	return __blk_get_queue(dev);
 }
 
 static int __blk_cleanup_queue(struct request_list *list)
@@ -280,21 +285,6 @@ void blk_queue_make_request(request_queue_t * q, make_request_fn * mfn)
 void blk_queue_bounce_limit(request_queue_t *q, u64 dma_addr)
 {
 	unsigned long bounce_pfn = dma_addr >> PAGE_SHIFT;
-	unsigned long mb = dma_addr >> 20;
-	static request_queue_t *old_q;
-
-	/*
-	 * keep this for debugging for now...
-	 */
-	if (dma_addr != BLK_BOUNCE_HIGH && q != old_q) {
-		old_q = q;
-		printk("blk: queue %p, ", q);
-		if (dma_addr == BLK_BOUNCE_ANY)
-			printk("no I/O memory limit\n");
-		else
-			printk("I/O limit %luMb (mask 0x%Lx)\n", mb,
-			       (long long) dma_addr);
-	}
 
 	q->bounce_pfn = bounce_pfn;
 }
@@ -303,7 +293,7 @@ void blk_queue_bounce_limit(request_queue_t *q, u64 dma_addr)
 /*
  * can we merge the two segments, or do we need to start a new one?
  */
-inline int blk_seg_merge_ok(struct buffer_head *bh, struct buffer_head *nxt)
+static inline int __blk_seg_merge_ok(struct buffer_head *bh, struct buffer_head *nxt)
 {
 	/*
 	 * if bh and nxt are contigous and don't cross a 4g boundary, it's ok
@@ -312,6 +302,11 @@ inline int blk_seg_merge_ok(struct buffer_head *bh, struct buffer_head *nxt)
 		return 1;
 
 	return 0;
+}
+
+int blk_seg_merge_ok(struct buffer_head *bh, struct buffer_head *nxt)
+{
+	return __blk_seg_merge_ok(bh, nxt);
 }
 
 static inline int ll_new_segment(request_queue_t *q, struct request *req, int max_segments)
@@ -326,7 +321,7 @@ static inline int ll_new_segment(request_queue_t *q, struct request *req, int ma
 static int ll_back_merge_fn(request_queue_t *q, struct request *req, 
 			    struct buffer_head *bh, int max_segments)
 {
-	if (blk_seg_merge_ok(req->bhtail, bh))
+	if (__blk_seg_merge_ok(req->bhtail, bh))
 		return 1;
 
 	return ll_new_segment(q, req, max_segments);
@@ -335,7 +330,7 @@ static int ll_back_merge_fn(request_queue_t *q, struct request *req,
 static int ll_front_merge_fn(request_queue_t *q, struct request *req, 
 			     struct buffer_head *bh, int max_segments)
 {
-	if (blk_seg_merge_ok(bh, req->bh))
+	if (__blk_seg_merge_ok(bh, req->bh))
 		return 1;
 
 	return ll_new_segment(q, req, max_segments);
@@ -346,7 +341,7 @@ static int ll_merge_requests_fn(request_queue_t *q, struct request *req,
 {
 	int total_segments = req->nr_segments + next->nr_segments;
 
-	if (blk_seg_merge_ok(req->bhtail, next->bh))
+	if (__blk_seg_merge_ok(req->bhtail, next->bh))
 		total_segments--;
 
 	if (total_segments > max_segments)
@@ -580,6 +575,7 @@ static struct request *get_request(request_queue_t *q, int rw)
 		rq->rq_status = RQ_ACTIVE;
 		rq->cmd = rw;
 		rq->special = NULL;
+		rq->io_account = 0;
 		rq->q = q;
 	}
 
@@ -818,6 +814,7 @@ void req_new_io(struct request *req, int merge, int sectors)
 	struct hd_struct *hd1, *hd2;
 
 	locate_hd_struct(req, &hd1, &hd2);
+	req->io_account = 1;
 	if (hd1)
 		account_io_start(hd1, req, merge, sectors);
 	if (hd2)
@@ -828,6 +825,8 @@ void req_merged_io(struct request *req)
 {
 	struct hd_struct *hd1, *hd2;
 
+	if (unlikely(req->io_account == 0))
+		return;
 	locate_hd_struct(req, &hd1, &hd2);
 	if (hd1)
 		down_ios(hd1);
@@ -839,6 +838,8 @@ void req_finished_io(struct request *req)
 {
 	struct hd_struct *hd1, *hd2;
 
+	if (unlikely(req->io_account == 0))
+		return;
 	locate_hd_struct(req, &hd1, &hd2);
 	if (hd1)
 		account_io_end(hd1, req);
@@ -1255,7 +1256,7 @@ void generic_make_request (int rw, struct buffer_head * bh)
 	 * Stacking drivers are expected to know what they are doing.
 	 */
 	do {
-		q = blk_get_queue(bh->b_rdev);
+		q = __blk_get_queue(bh->b_rdev);
 		if (!q) {
 			printk(KERN_ERR
 			       "generic_make_request: Trying to access "

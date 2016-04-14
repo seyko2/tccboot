@@ -107,6 +107,13 @@ void outl(unsigned long value, unsigned long port);
 
 #ifdef __KERNEL__
 
+#ifdef CONFIG_SH_CAYMAN
+extern unsigned long smsc_superio_virt;
+#endif
+#ifdef CONFIG_PCI
+extern unsigned long pciio_virt;
+#endif
+
 #define IO_SPACE_LIMIT 0xffffffff
 
 /*

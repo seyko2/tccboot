@@ -80,7 +80,7 @@ static ssize_t usbdev_read(struct file *file, char * buf, size_t nbytes, loff_t 
 	struct dev_state *ps = (struct dev_state *)file->private_data;
 	ssize_t ret = 0;
 	unsigned len;
-	loff_t pos;
+	loff_t pos, last;
 	int i;
 
 	pos = *ppos;
@@ -102,37 +102,38 @@ static ssize_t usbdev_read(struct file *file, char * buf, size_t nbytes, loff_t 
 			goto err;
 		}
 
-		*ppos += len;
+		pos += len;
 		buf += len;
 		nbytes -= len;
 		ret += len;
 	}
 
-	pos = sizeof(struct usb_device_descriptor);
+	last = sizeof(struct usb_device_descriptor);
 	for (i = 0; nbytes && i < ps->dev->descriptor.bNumConfigurations; i++) {
 		struct usb_config_descriptor *config =
 			(struct usb_config_descriptor *)ps->dev->rawdescriptors[i];
 		unsigned int length = le16_to_cpu(config->wTotalLength);
 
-		if (*ppos < pos + length) {
-			len = length - (*ppos - pos);
+		if (pos < last + length) {
+			len = length - (pos - last);
 			if (len > nbytes)
 				len = nbytes;
 
 			if (copy_to_user(buf,
-			    ps->dev->rawdescriptors[i] + (*ppos - pos), len)) {
+			    ps->dev->rawdescriptors[i] + (pos - last), len)) {
 				ret = -EFAULT;
 				goto err;
 			}
 
-			*ppos += len;
+			pos += len;
 			buf += len;
 			nbytes -= len;
 			ret += len;
 		}
 
-		pos += length;
+		last += length;
 	}
+	*ppos = pos;
 
 err:
 	up_read(&ps->devsem);
@@ -622,7 +623,12 @@ static int proc_bulk(struct dev_state *ps, void *arg)
 			free_page((unsigned long)tbuf);
 			return -EINVAL;
 		}
+		if (usb_excl_lock(dev, 1, 1) != 0) {
+			free_page((unsigned long)tbuf);
+			return -ERESTARTSYS;
+		}
 		i = usb_bulk_msg(dev, pipe, tbuf, len1, &len2, tmo);
+		usb_excl_unlock(dev, 1);
 		if (!i && len2) {
 			if (copy_to_user(bulk.data, tbuf, len2)) {
 				free_page((unsigned long)tbuf);
@@ -636,7 +642,12 @@ static int proc_bulk(struct dev_state *ps, void *arg)
 				return -EFAULT;
 			}
 		}
+		if (usb_excl_lock(dev, 2, 1) != 0) {
+			free_page((unsigned long)tbuf);
+			return -ERESTARTSYS;
+		}
 		i = usb_bulk_msg(dev, pipe, tbuf, len1, &len2, tmo);
+		usb_excl_unlock(dev, 2);
 	}
 	free_page((unsigned long)tbuf);
 	if (i < 0) {
@@ -1131,6 +1142,8 @@ static int proc_ioctl (struct dev_state *ps, void *arg)
 			/* ifno might usefully be passed ... */
                        retval = driver->ioctl (ps->dev, ctrl.ioctl_code, buf);
 			/* size = min_t(int, size, retval)? */
+			if (retval == -ENOIOCTLCMD)
+				retval = -ENOTTY;
                }
 	}
 
@@ -1145,27 +1158,14 @@ static int proc_ioctl (struct dev_state *ps, void *arg)
 	return retval;
 }
 
-static int usbdev_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
+static int usbdev_ioctl_exclusive(struct dev_state *ps, struct inode *inode,
+				  unsigned int cmd, unsigned long arg)
 {
-	struct dev_state *ps = (struct dev_state *)file->private_data;
-	int ret = -ENOIOCTLCMD;
+	int ret;
 
-	if (!(file->f_mode & FMODE_WRITE))
-		return -EPERM;
-	down_read(&ps->devsem);
-	if (!ps->dev) {
-		up_read(&ps->devsem);
-		return -ENODEV;
-	}
 	switch (cmd) {
 	case USBDEVFS_CONTROL:
 		ret = proc_control(ps, (void *)arg);
-		if (ret >= 0)
-			inode->i_mtime = CURRENT_TIME;
-		break;
-
-	case USBDEVFS_BULK:
-		ret = proc_bulk(ps, (void *)arg);
 		if (ret >= 0)
 			inode->i_mtime = CURRENT_TIME;
 		break;
@@ -1186,14 +1186,6 @@ static int usbdev_ioctl(struct inode *inode, struct file *file, unsigned int cmd
 			inode->i_mtime = CURRENT_TIME;
 		break;
 
-	case USBDEVFS_GETDRIVER:
-		ret = proc_getdriver(ps, (void *)arg);
-		break;
-
-	case USBDEVFS_CONNECTINFO:
-		ret = proc_connectinfo(ps, (void *)arg);
-		break;
-
 	case USBDEVFS_SETINTERFACE:
 		ret = proc_setintf(ps, (void *)arg);
 		break;
@@ -1212,6 +1204,53 @@ static int usbdev_ioctl(struct inode *inode, struct file *file, unsigned int cmd
 		ret = proc_unlinkurb(ps, (void *)arg);
 		break;
 
+	case USBDEVFS_CLAIMINTERFACE:
+		ret = proc_claiminterface(ps, (void *)arg);
+		break;
+
+	case USBDEVFS_RELEASEINTERFACE:
+		ret = proc_releaseinterface(ps, (void *)arg);
+		break;
+
+	case USBDEVFS_IOCTL:
+		ret = proc_ioctl(ps, (void *) arg);
+		break;
+
+	default:
+		ret = -ENOTTY;
+	}
+	return ret;
+}
+
+static int usbdev_ioctl(struct inode *inode, struct file *file,
+			unsigned int cmd, unsigned long arg)
+{
+	struct dev_state *ps = file->private_data;
+	int ret;
+
+	if (!(file->f_mode & FMODE_WRITE))
+		return -EPERM;
+	down_read(&ps->devsem);
+	if (!ps->dev) {
+		up_read(&ps->devsem);
+		return -ENODEV;
+	}
+
+	/*
+	 * Some ioctls don't touch the device and can be called without
+	 * grabbing its exclusive_access mutex; they are handled in this
+	 * switch.  Other ioctls which need exclusive_access are handled in
+	 * usbdev_ioctl_exclusive().
+	 */
+	switch (cmd) {
+	case USBDEVFS_GETDRIVER:
+		ret = proc_getdriver(ps, (void *)arg);
+		break;
+
+	case USBDEVFS_CONNECTINFO:
+		ret = proc_connectinfo(ps, (void *)arg);
+		break;
+
 	case USBDEVFS_REAPURB:
 		ret = proc_reapurb(ps, (void *)arg);
 		break;
@@ -1224,17 +1263,32 @@ static int usbdev_ioctl(struct inode *inode, struct file *file, unsigned int cmd
 		ret = proc_disconnectsignal(ps, (void *)arg);
 		break;
 
+	case USBDEVFS_BULK:
+		ret = proc_bulk(ps, (void *)arg);
+		if (ret >= 0)
+			inode->i_mtime = CURRENT_TIME;
+		break;
+
+	case USBDEVFS_CONTROL:
+	case USBDEVFS_RESETEP:
+	case USBDEVFS_RESET:
+	case USBDEVFS_CLEAR_HALT:
+	case USBDEVFS_SETINTERFACE:
+	case USBDEVFS_SETCONFIGURATION:
+	case USBDEVFS_SUBMITURB:
+	case USBDEVFS_DISCARDURB:
 	case USBDEVFS_CLAIMINTERFACE:
-		ret = proc_claiminterface(ps, (void *)arg);
-		break;
-
 	case USBDEVFS_RELEASEINTERFACE:
-		ret = proc_releaseinterface(ps, (void *)arg);
+	case USBDEVFS_IOCTL:
+		ret = -ERESTARTSYS;
+		if (usb_excl_lock(ps->dev, 3, 1) == 0) {
+			ret = usbdev_ioctl_exclusive(ps, inode, cmd, arg);
+			usb_excl_unlock(ps->dev, 3);
+		}
 		break;
 
-	case USBDEVFS_IOCTL:
-		ret = proc_ioctl(ps, (void *) arg);
-		break;
+	default:
+		ret = -ENOTTY;
 	}
 	up_read(&ps->devsem);
 	if (ret >= 0)

@@ -418,7 +418,7 @@ printk("SC1200: save_state(%u)\n", state);
 			ss = kmalloc(sizeof(sc1200_saved_state_t), GFP_KERNEL);
 			if (ss == NULL)
 				return -ENOMEM;
-			(sc1200_saved_state_t *)hwif->config_data = ss;
+			hwif->config_data = (unsigned long)ss;
 		}
 		ss = (sc1200_saved_state_t *)hwif->config_data;
 		//

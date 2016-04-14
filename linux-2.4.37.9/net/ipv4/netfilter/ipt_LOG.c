@@ -67,8 +67,8 @@ static void dump_packet(const struct ipt_log_info *info,
 		printk("FRAG:%u ", ntohs(iph->frag_off) & IP_OFFSET);
 
 	if ((info->logflags & IPT_LOG_IPOPT)
-	    && iph->ihl * 4 != sizeof(struct iphdr)
-	    && iph->ihl * 4 >= datalen) {
+	    && iph->ihl * 4 > sizeof(struct iphdr)
+	    && iph->ihl * 4 <= len) {
 		unsigned int i;
 
 		/* Max length: 127 "OPT (" 15*4*2chars ") " */
@@ -126,7 +126,8 @@ static void dump_packet(const struct ipt_log_info *info,
 		printk("URGP=%u ", ntohs(tcph->urg_ptr));
 
 		if ((info->logflags & IPT_LOG_TCPOPT)
-		    && tcph->doff * 4 != sizeof(struct tcphdr)) {
+		    && tcph->doff * 4 > sizeof(struct tcphdr)
+		    && tcph->doff * 4 <= datalen) {
 			unsigned int i;
 
 			/* Max length: 127 "OPT (" 15*4*2chars ") " */

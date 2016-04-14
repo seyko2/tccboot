@@ -198,8 +198,7 @@ static u64 size_or_mask, size_and_mask;
 
 static void get_mtrr (unsigned int reg, u64 *base, u32 *size, mtrr_type * type)
 {
-	u32 count, tmp, mask_lo, mask_hi;
-	int i;
+	u32 mask_lo, mask_hi;
 	u32 base_lo, base_hi;
 
 	rdmsr (MSR_MTRRphysMask(reg), mask_lo, mask_hi);
@@ -213,21 +212,16 @@ static void get_mtrr (unsigned int reg, u64 *base, u32 *size, mtrr_type * type)
 
 	rdmsr (MSR_MTRRphysBase(reg), base_lo, base_hi);
 
-	count = 0;
-	tmp = mask_lo >> MTRR_BEG_BIT;
-	for (i = MTRR_BEG_BIT; i <= 31; i++, tmp = tmp >> 1)
-		count = (count << (~tmp & 1)) | (~tmp & 1);
-	
-	tmp = mask_hi;
-	for (i = 0; i <= MTRR_END_BIT; i++, tmp = tmp >> 1)
-		count = (count << (~tmp & 1)) | (~tmp & 1);
-	
-	*size = (count+1); 
-	*base = base_hi << (32 - PAGE_SHIFT) | base_lo >> PAGE_SHIFT;
-	*type = base_lo & 0xff;
+	/* Work out the shifted address mask */
+	mask_lo = size_or_mask | mask_hi << (32 - PAGE_SHIFT) | 
+		  mask_lo >> PAGE_SHIFT; 
+
+	/* This works correctly if size is a power of two, i.e. a
+	   continguous range. */
+	*size = -mask_lo;
+	*base = base_hi << (32 - PAGE_SHIFT) | base_lo >> PAGE_SHIFT; 
+	*type = base_lo & 0xff; 
 }
-
-
 
 /*
  * Set variable MTRR register on the local CPU.
@@ -242,8 +236,6 @@ static void set_mtrr_up (unsigned int reg, u64 base,
 		   u32 size, mtrr_type type, int do_safe)
 {
 	struct set_mtrr_context ctxt;
-	u64 base64;
-	u64 size64;
 
 	if (do_safe) { 
 		set_mtrr_prepare (&ctxt);
@@ -255,12 +247,10 @@ static void set_mtrr_up (unsigned int reg, u64 base,
 		   relevant mask register to disable a range. */
 		wrmsr (MSR_MTRRphysMask(reg), 0, 0);
 	} else {
-		base64 = (base << PAGE_SHIFT) & size_and_mask;
-		wrmsr (MSR_MTRRphysBase(reg), base64 | type, base64 >> 32);
-
-		size64 = ~(((u64)size << PAGE_SHIFT) - 1);
-		size64 = size64 & size_and_mask;
-		wrmsr (MSR_MTRRphysMask(reg), (u32) (size64 | 0x800), (u32) (size64 >> 32));
+		wrmsr (MSR_MTRRphysBase(reg), base << PAGE_SHIFT | type, 
+			(base & size_and_mask) >> (32 - PAGE_SHIFT));
+		wrmsr(MSR_MTRRphysMask(reg), -size << PAGE_SHIFT | 0x800,
+			(-size & size_and_mask) >> (32 - PAGE_SHIFT));
 	}
 	if (do_safe)
 		set_mtrr_done (&ctxt);
@@ -691,13 +681,13 @@ int mtrr_add_page (u64 base, u32 size, unsigned int type, char increment)
 		return -ENOSYS;
 	}
 
-	if (base & (size_or_mask>>PAGE_SHIFT)) {
+	if (base & size_or_mask) {
 		printk (KERN_WARNING "mtrr: base(%Lx) exceeds the MTRR width(%Lx)\n",
-				base, (size_or_mask>>PAGE_SHIFT));
+				base, size_or_mask);
 		return -EINVAL;
 	}
 
-	if (size & (size_or_mask>>PAGE_SHIFT)) {
+	if (size & size_or_mask) {
 		printk (KERN_WARNING "mtrr: size exceeds the MTRR width\n");
 		return -EINVAL;
 	}
@@ -961,16 +951,19 @@ static int mtrr_file_del (u64 base, u32 size,
 static ssize_t mtrr_read (struct file *file, char *buf, size_t len,
 		loff_t * ppos)
 {
-	if (*ppos >= ascii_buf_bytes)
+	loff_t n = *ppos;
+	unsigned pos = n;
+
+	if (pos != n || pos >= ascii_buf_bytes)
 		return 0;
 
-	if (*ppos + len > ascii_buf_bytes)
-		len = ascii_buf_bytes - *ppos;
+	if (len > ascii_buf_bytes - pos)
+		len = ascii_buf_bytes - pos;
 
-	if (copy_to_user (buf, ascii_buffer + *ppos, len))
+	if (copy_to_user (buf, ascii_buffer + pos, len))
 		return -EFAULT;
 
-	*ppos += len;
+	*ppos = pos + len;
 	return len;
 }
 
@@ -1278,16 +1271,22 @@ static void __init mtrr_setup (void)
 
 	if (test_bit (X86_FEATURE_MTRR, boot_cpu_data.x86_capability)) {
 		/* Query the width (in bits) of the physical
-		   addressable memory on the Hammer family. */
-		if ((cpuid_eax (0x80000000) >= 0x80000008)) {
+		   addressable memory. This is an AMD specific MSR,
+		   but we assume(hope?) Intel will implement it too
+		   when they extend the width of the Xeon address bus. */
+		if (cpuid_eax (0x80000000) >= 0x80000008) {
 			u32 phys_addr;
 			phys_addr = cpuid_eax (0x80000008) & 0xff;
-			size_or_mask = ~((1L << phys_addr) - 1);
+			size_or_mask = ~((1L << (phys_addr - PAGE_SHIFT)) - 1);
 			/*
 			 * top bits MBZ as its beyond the addressable range.
 			 * bottom bits MBZ as we don't care about lower 12 bits of addr.
 			 */
-			size_and_mask = (~size_or_mask) & 0x000ffffffffff000L;
+			size_and_mask = ~size_or_mask &  0xfff00000;
+		} else {
+			/* 36bit fallback */
+			size_or_mask = 0xff000000;
+			size_and_mask = 0x00f00000;
 		}
 	}
 }

@@ -193,10 +193,8 @@ static int tvmixer_open(struct inode *inode, struct file *file)
 
 	/* lock bttv in memory while the mixer is in use  */
 	file->private_data = mix;
-#ifndef I2C_PEC
 	if (client->adapter->inc_use)
 		client->adapter->inc_use(client->adapter);
-#endif
         return 0;
 }
 
@@ -210,17 +208,12 @@ static int tvmixer_release(struct inode *inode, struct file *file)
 		return -ENODEV;
 	}
 
-#ifndef I2C_PEC
 	if (client->adapter->dec_use)
 		client->adapter->dec_use(client->adapter);
-#endif
 	return 0;
 }
 
 static struct i2c_driver driver = {
-#ifdef I2C_PEC
-	.owner           = THIS_MODULE,
-#endif
 	.name            = "tv card mixer driver",
         .id              = I2C_DRIVERID_TVMIXER,
 #ifdef I2C_DF_DUMMY

@@ -170,8 +170,11 @@ EXPORT_SYMBOL(rtc_lock);
 
 #undef memcpy
 #undef memset
+#undef memcmp
 extern void * memset(void *,int,__kernel_size_t);
 extern void * memcpy(void *,const void *,__kernel_size_t);
+extern int    memcmp(const void * cs,const void * ct,size_t count);
+EXPORT_SYMBOL_NOVERS(memcmp);
 EXPORT_SYMBOL_NOVERS(memcpy);
 EXPORT_SYMBOL_NOVERS(memset);
 

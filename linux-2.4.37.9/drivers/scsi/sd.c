@@ -1220,7 +1220,7 @@ static int sd_init()
 			goto cleanup_gendisks_part;
 		memset(sd_gendisks[i].part, 0, (SCSI_DISKS_PER_MAJOR << 4) * sizeof(struct hd_struct));
 		sd_gendisks[i].sizes = sd_sizes + (i * SCSI_DISKS_PER_MAJOR << 4);
-		sd_gendisks[i].nr_real = 0;
+		sd_gendisks[i].nr_real = SCSI_DISKS_PER_MAJOR;
 		sd_gendisks[i].real_devices =
 		    (void *) (rscsi_disks + i * SCSI_DISKS_PER_MAJOR);
 	}
@@ -1333,7 +1333,6 @@ static int sd_attach(Scsi_Device * SDp)
 	rscsi_disks[i].device = SDp;
 	rscsi_disks[i].has_part_table = 0;
 	sd_template.nr_dev++;
-	SD_GENDISK(i).nr_real++;
         devnum = i % SCSI_DISKS_PER_MAJOR;
         SD_GENDISK(i).de_arr[devnum] = SDp->de;
         if (SDp->removable)
@@ -1447,7 +1446,6 @@ static void sd_detach(Scsi_Device * SDp)
 			SDp->attached--;
 			sd_template.dev_noticed--;
 			sd_template.nr_dev--;
-			SD_GENDISK(i).nr_real--;
 			return;
 		}
 	return;
@@ -1474,6 +1472,7 @@ static void __exit exit_sd(void)
 		kfree(sd_sizes);
 		kfree(sd_blocksizes);
 		kfree(sd_hardsizes);
+		kfree(sd_max_sectors);
 		for (i = 0; i < N_USED_SD_MAJORS; i++) {
 			kfree(sd_gendisks[i].de_arr);
 			kfree(sd_gendisks[i].flags);
@@ -1484,6 +1483,7 @@ static void __exit exit_sd(void)
 		del_gendisk(&sd_gendisks[i]);
 		blksize_size[SD_MAJOR(i)] = NULL;
 		hardsect_size[SD_MAJOR(i)] = NULL;
+		max_sectors[SD_MAJOR(i)] = NULL;
 		read_ahead[SD_MAJOR(i)] = 0;
 	}
 	sd_template.dev_max = 0;

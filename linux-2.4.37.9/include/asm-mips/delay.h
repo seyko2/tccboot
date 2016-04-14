@@ -12,6 +12,8 @@
 #include <linux/config.h>
 #include <linux/param.h>
 
+#include <asm/compiler.h>
+
 extern unsigned long loops_per_jiffy;
 
 static __inline__ void __delay(unsigned long loops)
@@ -45,8 +47,9 @@ static __inline__ void __udelay(unsigned long usecs, unsigned long lpj)
 	usecs *= (unsigned long) (((0x8000000000000000ULL / (500000 / HZ)) +
 	                           0x80000000ULL) >> 32);
 	__asm__("multu\t%2,%3"
-		:"=h" (usecs), "=l" (lo)
-		:"r" (usecs),"r" (lpj));
+		: "=h" (usecs), "=l" (lo)
+		: "r" (usecs), "r" (lpj)
+		: GCC_REG_ACCUM);
 	__delay(usecs);
 }
 
@@ -60,8 +63,9 @@ static __inline__ void __ndelay(unsigned long nsecs, unsigned long lpj)
 	nsecs *= (unsigned long) (((0x8000000000000000ULL / (500000000 / HZ)) +
 	                           0x80000000ULL) >> 32);
 	__asm__("multu\t%2,%3"
-		:"=h" (nsecs), "=l" (lo)
-		:"r" (nsecs),"r" (lpj));
+		: "=h" (nsecs), "=l" (lo)
+		: "r" (nsecs), "r" (lpj)
+		: GCC_REG_ACCUM);
 	__delay(nsecs);
 }
 

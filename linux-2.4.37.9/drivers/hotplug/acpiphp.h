@@ -36,63 +36,7 @@
 #include <linux/acpi.h>
 #include "pci_hotplug.h"
 
-#if ACPI_CA_VERSION < 0x20020201
-/* until we get a new version of the ACPI driver for both ia32 and ia64 ... */
-#define acpi_util_eval_error(h,p,s)
-
-static acpi_status
-acpi_evaluate_integer (
-	acpi_handle		handle,
-	acpi_string		pathname,
-	acpi_object_list	*arguments,
-	unsigned long		*data)
-{
-	acpi_status		status = AE_OK;
-	acpi_object		element;
-	acpi_buffer		buffer = {sizeof(acpi_object), &element};
-
-	if (!data)
-		return AE_BAD_PARAMETER;
-
-	status = acpi_evaluate_object(handle, pathname, arguments, &buffer);
-	if (ACPI_FAILURE(status)) {
-		acpi_util_eval_error(handle, pathname, status);
-		return status;
-	}
-
-	if (element.type != ACPI_TYPE_INTEGER) {
-		acpi_util_eval_error(handle, pathname, AE_BAD_DATA);
-		return AE_BAD_DATA;
-	}
-
-	*data = element.integer.value;
-
-	return AE_OK;
-}
-#else  /* ACPI_CA_VERSION < 0x20020201 */
 #include <acpi/acpi_bus.h>
-#endif
-
-/* compatibility stuff for ACPI CA */
-#ifndef ACPI_MEMORY_RANGE
-#define ACPI_MEMORY_RANGE MEMORY_RANGE
-#endif
-
-#ifndef ACPI_IO_RANGE
-#define ACPI_IO_RANGE IO_RANGE
-#endif
-
-#ifndef ACPI_BUS_NUMBER_RANGE
-#define ACPI_BUS_NUMBER_RANGE BUS_NUMBER_RANGE
-#endif
-
-#ifndef ACPI_PREFETCHABLE_MEMORY
-#define ACPI_PREFETCHABLE_MEMORY PREFETCHABLE_MEMORY
-#endif
-
-#ifndef ACPI_PRODUCER
-#define ACPI_PRODUCER PRODUCER
-#endif
 
 #define dbg(format, arg...)					\
 	do {							\
@@ -258,7 +202,7 @@ struct acpiphp_func {
 
 #define SLOT_POWEREDON		(0x00000001)
 #define SLOT_ENABLED		(0x00000002)
-#define SLOT_MULTIFUNCTION	(x000000004)
+#define SLOT_MULTIFUNCTION	(0x00000004)
 
 /* function flags */
 
@@ -268,8 +212,6 @@ struct acpiphp_func {
 #define FUNC_HAS_PS1		(0x00000020)
 #define FUNC_HAS_PS2		(0x00000040)
 #define FUNC_HAS_PS3		(0x00000080)
-
-#define FUNC_EXISTS		(0x10000000) /* to make sure we call _EJ0 only for existing funcs */
 
 /* function prototypes */
 
@@ -288,6 +230,7 @@ extern u8 acpiphp_get_power_status (struct acpiphp_slot *slot);
 extern u8 acpiphp_get_attention_status (struct acpiphp_slot *slot);
 extern u8 acpiphp_get_latch_status (struct acpiphp_slot *slot);
 extern u8 acpiphp_get_adapter_status (struct acpiphp_slot *slot);
+extern u32 acpiphp_get_address (struct acpiphp_slot *slot);
 
 /* acpiphp_pci.c */
 extern struct pci_dev *acpiphp_allocate_pcidev (struct pci_bus *pbus, int dev, int fn);

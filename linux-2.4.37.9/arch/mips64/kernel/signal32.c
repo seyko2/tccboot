@@ -67,6 +67,71 @@ typedef struct sigaltstack32 {
 	int ss_flags;
 } stack32_t;
 
+typedef union sigval32 {
+	int sival_int;
+	s32 sival_ptr;
+} sigval_t32;
+
+#define SI_PAD_SIZE32	((SI_MAX_SIZE/sizeof(int)) - 3)
+
+typedef struct siginfo32 {
+	int si_signo;
+	int si_code;
+	int si_errno;
+
+	union {
+		int _pad[SI_PAD_SIZE32];
+
+		/* kill() */
+		struct {
+			__kernel_pid_t32 _pid;	/* sender's pid */
+			__kernel_uid_t32 _uid;	/* sender's uid */
+		} _kill;
+
+		/* SIGCHLD */
+		struct {
+			__kernel_pid_t32 _pid;	/* which child */
+			__kernel_uid_t32 _uid;	/* sender's uid */
+			int _status;		/* exit code */
+			__kernel_clock_t32 _utime;
+			__kernel_clock_t32 _stime;
+		} _sigchld;
+
+		/* IRIX SIGCHLD */
+		struct {
+			__kernel_pid_t32 _pid;	/* which child */
+			__kernel_clock_t32 _utime;
+			int _status;		/* exit code */
+			__kernel_clock_t32 _stime;
+		} _irix_sigchld;
+
+		/* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
+		struct {
+			s32 _addr; /* faulting insn/memory ref. */
+		} _sigfault;
+
+		/* SIGPOLL, SIGXFSZ (To do ...)  */
+		struct {
+			int _band;	/* POLL_IN, POLL_OUT, POLL_MSG */
+			int _fd;
+		} _sigpoll;
+
+		/* POSIX.1b timers */
+		struct {
+			unsigned int _timer1;
+			unsigned int _timer2;
+		} _timer;
+
+		/* POSIX.1b signals */
+		struct {
+			__kernel_pid_t32 _pid;	/* sender's pid */
+			__kernel_uid_t32 _uid;	/* sender's uid */
+			sigval_t32 _sigval;
+		} _rt;
+
+	} _sifields;
+} siginfo_t32;
+
 struct ucontext32 {
 	u32                 uc_flags;
 	s32                 uc_link;
@@ -510,7 +575,7 @@ static inline void *get_sigframe(struct k_sigaction *ka, struct pt_regs *regs,
  	sp -= 32;
 
 	/* This is the X/Open sanctioned signal stack switching.  */
-	if ((ka->sa.sa_flags & SA_ONSTACK) && ! on_sig_stack(sp))
+	if ((ka->sa.sa_flags & SA_ONSTACK) && (sas_ss_flags (sp) == 0))
 		sp = current->sas_ss_sp + current->sas_ss_size;
 
 	return (void *)((sp - frame_size) & ALMASK);

@@ -384,12 +384,16 @@ sys32_rt_sigaction(int sig, struct sigaction32 *act,
 		return -EINVAL;
 
 	if (act) {
+		u32 handler, restorer;
+
 		if (verify_area(VERIFY_READ, act, sizeof(*act)) ||
-		    __get_user((long)new_ka.sa.sa_handler, &act->sa_handler) ||
+		    __get_user(handler, &act->sa_handler) ||
 		    __get_user(new_ka.sa.sa_flags, &act->sa_flags) ||
-		    __get_user((long)new_ka.sa.sa_restorer, &act->sa_restorer)||
+		    __get_user(restorer, &act->sa_restorer)||
 		    __copy_from_user(&set32, &act->sa_mask, sizeof(sigset32_t)))
 			return -EFAULT;
+		new_ka.sa.sa_handler = (void*)(u64)handler;
+		new_ka.sa.sa_restorer = (void*)(u64)restorer;
 
 		/* FIXME: here we rely on _IA32_NSIG_WORS to be >= than _NSIG_WORDS << 1 */
 		switch (_NSIG_WORDS) {
@@ -441,13 +445,16 @@ sys32_sigaction (int sig, struct old_sigaction32 *act, struct old_sigaction32 *o
 
         if (act) {
 		old_sigset32_t mask;
+		u32 handler, restorer;
 
 		if (verify_area(VERIFY_READ, act, sizeof(*act)) ||
-		    __get_user((long)new_ka.sa.sa_handler, &act->sa_handler) ||
+		    __get_user(handler, &act->sa_handler) ||
 		    __get_user(new_ka.sa.sa_flags, &act->sa_flags) ||
-		    __get_user((long)new_ka.sa.sa_restorer, &act->sa_restorer) ||
+		    __get_user(restorer, &act->sa_restorer) ||
 		    __get_user(mask, &act->sa_mask))
 			return -EFAULT;
+		new_ka.sa.sa_handler = (void*)(u64)handler;
+		new_ka.sa.sa_restorer = (void*)(u64)restorer;
 		siginitset(&new_ka.sa.sa_mask, mask);
         }
 
@@ -778,7 +785,7 @@ filldir32 (void *__buf, const char *name, int namlen, loff_t offset, ino_t ino,
 	put_user(reclen, &dirent->d_reclen);
 	copy_to_user(dirent->d_name, name, namlen);
 	put_user(0, dirent->d_name + namlen);
-	((char *) dirent) += reclen;
+	dirent = ((void *)dirent) + reclen;
 	buf->current_dir = dirent;
 	buf->count -= reclen;
 	return 0;
@@ -2193,7 +2200,7 @@ asmlinkage long sys32_ustat(dev_t dev, struct ustat32 *u32p)
 	return ret;
 } 
 
-static int nargs(u32 src, char **dst) 
+static int nargs(u32 src, char **dst, int max) 
 { 
 	int cnt;
 	u32 val; 
@@ -2203,13 +2210,13 @@ static int nargs(u32 src, char **dst)
 		int ret = get_user(val, (__u32 *)(u64)src); 
 		if (ret)
 			return ret;
+		if (cnt > max)
+			return -E2BIG; 
 		if (dst)
 			dst[cnt] = (char *)(u64)val; 
 		cnt++;
 		src += 4;
-		if (cnt >= (MAX_ARG_PAGES*PAGE_SIZE)/sizeof(void*))
-			return -E2BIG; 
-	} while(val); 
+		} while(val); 
 	if (dst)
 		dst[cnt-1] = 0; 
 	return cnt; 
@@ -2223,13 +2230,14 @@ asmlinkage long sys32_execve(char *name, u32 argv, u32 envp, struct pt_regs regs
 	int ret;
 	unsigned sz = 0; 
 	
+	/* Can actually allocate 2*MAX_ARG_PAGES */
 	if (argv) {
-	na = nargs(argv, NULL); 
+	na = nargs(argv, NULL, (MAX_ARG_PAGES * PAGE_SIZE)/sizeof(char*) - 1); 
 	if (na < 0) 
 		return -EFAULT; 
 	} 	
 	if (envp) { 
-	ne = nargs(envp, NULL); 
+	ne = nargs(envp, NULL, (MAX_ARG_PAGES * PAGE_SIZE)/sizeof(char*) - 1); 
 	if (ne < 0) 
 		return -EFAULT; 
 	}
@@ -2245,13 +2253,13 @@ asmlinkage long sys32_execve(char *name, u32 argv, u32 envp, struct pt_regs regs
 	} 
 	
 	if (argv) { 
-	ret = nargs(argv, buf);
+	ret = nargs(argv, buf, na);
 	if (ret < 0)
 		goto free;
 	}
 
 	if (envp) { 
-	ret = nargs(envp, buf + na); 
+	ret = nargs(envp, buf + na, ne); 
 	if (ret < 0)
 		goto free; 
 	}

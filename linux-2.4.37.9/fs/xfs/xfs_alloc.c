@@ -665,7 +665,7 @@ xfs_alloc_ag_vextent_exact(
 	 * Allocate/initialize a cursor for the by-number freespace btree.
 	 */
 	bno_cur = xfs_btree_init_cursor(args->mp, args->tp, args->agbp,
-		args->agno, XFS_BTNUM_BNO, 0, 0);
+		args->agno, XFS_BTNUM_BNO, NULL, 0);
 	/*
 	 * Lookup bno and minlen in the btree (minlen is irrelevant, really).
 	 * Look for the closest free block <= bno, it must contain bno
@@ -721,7 +721,7 @@ xfs_alloc_ag_vextent_exact(
 	 * Allocate/initialize a cursor for the by-size btree.
 	 */
 	cnt_cur = xfs_btree_init_cursor(args->mp, args->tp, args->agbp,
-		args->agno, XFS_BTNUM_CNT, 0, 0);
+		args->agno, XFS_BTNUM_CNT, NULL, 0);
 	ASSERT(args->agbno + args->len <=
 		INT_GET(XFS_BUF_TO_AGF(args->agbp)->agf_length,
 			ARCH_CONVERT));
@@ -788,7 +788,7 @@ xfs_alloc_ag_vextent_near(
 	 * Get a cursor for the by-size btree.
 	 */
 	cnt_cur = xfs_btree_init_cursor(args->mp, args->tp, args->agbp,
-		args->agno, XFS_BTNUM_CNT, 0, 0);
+		args->agno, XFS_BTNUM_CNT, NULL, 0);
 	ltlen = 0;
 	bno_cur_lt = bno_cur_gt = NULL;
 	/*
@@ -916,7 +916,7 @@ xfs_alloc_ag_vextent_near(
 		 * Set up a cursor for the by-bno tree.
 		 */
 		bno_cur_lt = xfs_btree_init_cursor(args->mp, args->tp,
-			args->agbp, args->agno, XFS_BTNUM_BNO, 0, 0);
+			args->agbp, args->agno, XFS_BTNUM_BNO, NULL, 0);
 		/*
 		 * Fix up the btree entries.
 		 */
@@ -944,7 +944,7 @@ xfs_alloc_ag_vextent_near(
 	 * Allocate and initialize the cursor for the leftward search.
 	 */
 	bno_cur_lt = xfs_btree_init_cursor(args->mp, args->tp, args->agbp,
-		args->agno, XFS_BTNUM_BNO, 0, 0);
+		args->agno, XFS_BTNUM_BNO, NULL, 0);
 	/*
 	 * Lookup <= bno to find the leftward search's starting point.
 	 */
@@ -956,7 +956,7 @@ xfs_alloc_ag_vextent_near(
 		 * search.
 		 */
 		bno_cur_gt = bno_cur_lt;
-		bno_cur_lt = 0;
+		bno_cur_lt = NULL;
 	}
 	/*
 	 * Found something.  Duplicate the cursor for the rightward search.
@@ -1301,7 +1301,7 @@ xfs_alloc_ag_vextent_size(
 	 * Allocate and initialize a cursor for the by-size btree.
 	 */
 	cnt_cur = xfs_btree_init_cursor(args->mp, args->tp, args->agbp,
-		args->agno, XFS_BTNUM_CNT, 0, 0);
+		args->agno, XFS_BTNUM_CNT, NULL, 0);
 	bno_cur = NULL;
 	/*
 	 * Look for an entry >= maxlen+alignment-1 blocks.
@@ -1406,7 +1406,7 @@ xfs_alloc_ag_vextent_size(
 	 * Allocate and initialize a cursor for the by-block tree.
 	 */
 	bno_cur = xfs_btree_init_cursor(args->mp, args->tp, args->agbp,
-		args->agno, XFS_BTNUM_BNO, 0, 0);
+		args->agno, XFS_BTNUM_BNO, NULL, 0);
 	if ((error = xfs_alloc_fixup_trees(cnt_cur, bno_cur, fbno, flen,
 			rbno, rlen, XFSA_FIXUP_CNT_OK)))
 		goto error0;
@@ -1553,7 +1553,7 @@ xfs_free_ag_extent(
 	/*
 	 * Allocate and initialize a cursor for the by-block btree.
 	 */
-	bno_cur = xfs_btree_init_cursor(mp, tp, agbp, agno, XFS_BTNUM_BNO, 0,
+	bno_cur = xfs_btree_init_cursor(mp, tp, agbp, agno, XFS_BTNUM_BNO, NULL,
 		0);
 	cnt_cur = NULL;
 	/*
@@ -1613,7 +1613,7 @@ xfs_free_ag_extent(
 	/*
 	 * Now allocate and initialize a cursor for the by-size tree.
 	 */
-	cnt_cur = xfs_btree_init_cursor(mp, tp, agbp, agno, XFS_BTNUM_CNT, 0,
+	cnt_cur = xfs_btree_init_cursor(mp, tp, agbp, agno, XFS_BTNUM_CNT, NULL,
 		0);
 	/*
 	 * Have both left and right contiguous neighbors.
@@ -2247,6 +2247,7 @@ xfs_alloc_vextent(
 	xfs_alloctype_t	type;	/* input allocation type */
 	int		bump_rotor = 0;
 	int		no_min = 0;
+	xfs_agnumber_t	rotorstep = xfs_rotorstep; /* inode32 agf stepper */
 
 	mp = args->mp;
 	type = args->otype = args->type;
@@ -2310,7 +2311,9 @@ xfs_alloc_vextent(
 		 */
 		if ((args->userdata  == XFS_ALLOC_INITIAL_USER_DATA) &&
 		    (mp->m_flags & XFS_MOUNT_32BITINODES)) {
-			args->fsbno = XFS_AGB_TO_FSB(mp, mp->m_agfrotor, 0);
+			args->fsbno = XFS_AGB_TO_FSB(mp,
+					((mp->m_agfrotor / rotorstep) %
+					mp->m_sb.sb_agcount), 0);
 			bump_rotor = 1;
 		}
 		args->agbno = XFS_FSB_TO_AGBNO(mp, args->fsbno);
@@ -2326,7 +2329,8 @@ xfs_alloc_vextent(
 			/*
 			 * Start with the last place we left off.
 			 */
-			args->agno = sagno = mp->m_agfrotor;
+			args->agno = sagno = (mp->m_agfrotor / rotorstep) %
+					mp->m_sb.sb_agcount;
 			args->type = XFS_ALLOCTYPE_THIS_AG;
 			flags = XFS_ALLOC_FLAG_TRYLOCK;
 		} else if (type == XFS_ALLOCTYPE_FIRST_AG) {
@@ -2400,8 +2404,14 @@ xfs_alloc_vextent(
 			}
 		}
 		up_read(&mp->m_peraglock);
-		if (bump_rotor || (type == XFS_ALLOCTYPE_ANY_AG))
-			mp->m_agfrotor = (args->agno + 1) % mp->m_sb.sb_agcount;
+		if (bump_rotor || (type == XFS_ALLOCTYPE_ANY_AG)) {
+			if (args->agno == sagno)
+				mp->m_agfrotor = (mp->m_agfrotor + 1) %
+					(mp->m_sb.sb_agcount * rotorstep);
+			else
+				mp->m_agfrotor = (args->agno * rotorstep + 1) %
+					(mp->m_sb.sb_agcount * rotorstep);
+		}
 		break;
 	default:
 		ASSERT(0);

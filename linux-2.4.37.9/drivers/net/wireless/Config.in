@@ -27,6 +27,15 @@ if [ "$CONFIG_PCMCIA" != "n" ]; then
    dep_tristate '  Atmel at76c502/at76c504 PCMCIA cards' CONFIG_PCMCIA_ATMEL $CONFIG_FW_LOADER
 fi
 
+# If PCI enabled, allow for prism54 driver. CONFIG_FW_LOADER required
+comment 'Prism54 PCI/PCMCIA GT/Duette Driver - 802.11(a/b/g)'
+dep_tristate 'Intersil Prism GT/Duette/Indigo PCI/PCMCIA' CONFIG_PRISM54 $CONFIG_EXPERIMENTAL $CONFIG_PCI $CONFIG_HOTPLUG
+if [ "$CONFIG_PRISM54" != "n" ]; then
+ if [ "$CONFIG_FW_LOADER" != "y" ]; then
+  define_tristate CONFIG_FW_LOADER $CONFIG_PRISM54
+ fi
+fi
+
 # yes, this works even when no drivers are selected
 if [ "$CONFIG_ISA" = "y" -o "$CONFIG_PCI" = "y" -o \
      "$CONFIG_ALL_PPC" = "y" -o "$CONFIG_PCMCIA" != "n" ]; then

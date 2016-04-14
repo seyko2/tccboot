@@ -9,7 +9,7 @@
 
 O_TARGET := core.o
 
-export-objs := netfilter.o profile.o
+export-objs := netfilter.o profile.o ethtool.o neighbour.o
 
 obj-y := sock.o skbuff.o iovec.o datagram.o scm.o
 

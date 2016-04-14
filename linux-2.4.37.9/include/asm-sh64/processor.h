@@ -101,7 +101,7 @@ extern struct sh_cpuinfo boot_cpu_data;
  */
 #define SR_FD    0x00008000
 
-#ifdef ST_DEBUG
+#if defined(CONFIG_SH64_SR_WATCH)
 #define SR_MMU   0x84000000
 #else
 #define SR_MMU   0x80000000

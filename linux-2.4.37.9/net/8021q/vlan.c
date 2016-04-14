@@ -635,7 +635,6 @@ static int vlan_device_event(struct notifier_block *unused, unsigned long event,
 			ret = unregister_vlan_dev(dev,
 						  VLAN_DEV_INFO(vlandev)->vlan_id);
 
-			dev_put(vlandev);
 			unregister_netdevice(vlandev);
 
 			/* Group was destroyed? */
@@ -757,6 +756,8 @@ int vlan_ioctl_handler(unsigned long arg)
 
 	case GET_VLAN_REALDEV_NAME_CMD:
 		err = vlan_dev_get_realdev_name(args.device1, args.u.device2);
+		if (err)
+			goto out;
 		if (copy_to_user((void*)arg, &args,
 				 sizeof(struct vlan_ioctl_args))) {
 			err = -EFAULT;
@@ -765,6 +766,8 @@ int vlan_ioctl_handler(unsigned long arg)
 
 	case GET_VLAN_VID_CMD:
 		err = vlan_dev_get_vid(args.device1, &vid);
+		if (err)
+			goto out;
 		args.u.VID = vid;
 		if (copy_to_user((void*)arg, &args,
 				 sizeof(struct vlan_ioctl_args))) {
@@ -778,7 +781,7 @@ int vlan_ioctl_handler(unsigned long arg)
 			__FUNCTION__, args.cmd);
 		return -EINVAL;
 	};
-
+out:
 	return err;
 }
 

@@ -159,7 +159,7 @@ static struct file *_izo_fset_open(char *fsetname, char *name, int flags, int mo
                 CDEBUG(D_INODE, "Error %d\n", error);
         }
 
-        PRESTO_FREE(path, strlen(path));
+        PRESTO_FREE(path, strlen(path)+1);
 
         EXIT;
         return f;
@@ -259,6 +259,7 @@ int presto_set_fsetroot(struct dentry *ioctl_dentry, char *fsetname,
                 error = -ENOMEM;
                 goto out_free;
         }
+		
         presto_d2d(dentry)->dd_fset = fset;
         list_add(&fset->fset_list, &cache->cache_fset_list);
 
@@ -343,6 +344,7 @@ static int izo_cleanup_fset(struct presto_file_set *fset)
         dput(fset->fset_dentry);
         mntput(fset->fset_mnt);
 
+		izo_rep_cache_clean(fset);
         PRESTO_FREE(fset->fset_name, strlen(fset->fset_name) + 1);
         PRESTO_FREE(fset->fset_reint_buf, 64 * 1024);
         PRESTO_FREE(fset, sizeof(*fset));

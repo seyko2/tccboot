@@ -605,7 +605,7 @@ ii2DelayTimer(unsigned int mseconds)
 
 	set_current_state( TASK_INTERRUPTIBLE );
 
-	pDelayTimer->expires  = jiffies + ( mseconds + 9 ) / 10;
+	pDelayTimer->expires  = jiffies + ((HZ * mseconds + 999) / 1000);
 	pDelayTimer->function = ii2DelayWakeup;
 	pDelayTimer->data     = 0;
 

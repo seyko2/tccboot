@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2002 Silicon Graphics, Inc.  All Rights Reserved.
+ * Copyright (c) 2000-2004 Silicon Graphics, Inc.  All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -54,8 +54,6 @@
 #include "xfs_bit.h"
 #include "xfs_error.h"
 
-
-#define	ROUNDUPNBWORD(x)	(((x) + (NBWORD - 1)) & ~(NBWORD - 1))
 
 kmem_zone_t	*xfs_buf_item_zone;
 
@@ -1053,9 +1051,9 @@ xfs_buf_iodone_callbacks(
 		    (time_after(jiffies, (lasttime + 5*HZ)))) {
 			lasttime = jiffies;
 			prdev("XFS write error in file system meta-data "
-			      "block 0x%Lx in %s",
+			      "block 0x%llx in %s",
 			      XFS_BUF_TARGET(bp),
-			      XFS_BUF_ADDR(bp), mp->m_fsname);
+			      (__uint64_t)XFS_BUF_ADDR(bp), mp->m_fsname);
 		}
 		lasttarg = XFS_BUF_TARGET(bp);
 

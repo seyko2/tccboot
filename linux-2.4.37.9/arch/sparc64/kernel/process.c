@@ -100,7 +100,7 @@ int cpu_idle(void)
 		 * other cpus see our increasing idleness for the buddy
 		 * redistribution algorithm.  -DaveM
 		 */
-		membar("#StoreStore | #StoreLoad");
+		membar_safe("#StoreStore | #StoreLoad");
 	}
 }
 
@@ -453,7 +453,7 @@ void flush_thread(void)
 					page = pmd_alloc_one(NULL, 0);
 				pgd_set(pgd0, page);
 			}
-			pgd_cache = pgd_val(*pgd0) << 11UL;
+			pgd_cache = ((unsigned long) pgd_val(*pgd0)) << 11UL;
 		}
 		__asm__ __volatile__("stxa %0, [%1] %2\n\t"
 				     "membar #Sync"
@@ -503,7 +503,7 @@ static unsigned long clone_stackframe(unsigned long csp, unsigned long psp)
 
 	distance = fp - psp;
 	rval = (csp - distance);
-	if (copy_in_user(rval, psp, distance))
+	if (copy_in_user((void *)rval, (void *)psp, distance))
 		rval = 0;
 	else if (current->thread.flags & SPARC_FLAG_32BIT) {
 		if (put_user(((u32)csp), &(((struct reg_window32 *)rval)->ins[6])))

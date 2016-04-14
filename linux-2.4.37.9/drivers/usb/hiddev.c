@@ -328,6 +328,7 @@ static ssize_t hiddev_read(struct file * file, char * buffer, size_t count,
 				}
 				
 				schedule();
+				set_current_state(TASK_INTERRUPTIBLE);
 			}
 
 			set_current_state(TASK_RUNNING);
@@ -433,7 +434,9 @@ static int hiddev_ioctl(struct inode *inode, struct file *file,
 		dinfo.product = dev->descriptor.idProduct;
 		dinfo.version = dev->descriptor.bcdDevice;
 		dinfo.num_applications = hid->maxapplication;
-		return copy_to_user((void *) arg, &dinfo, sizeof(dinfo));
+		if (copy_to_user((void *) arg, &dinfo, sizeof(dinfo)))
+			return -EFAULT;
+		return 0;
 
 	case HIDIOCGFLAG:
 		return put_user(list->flags, (int *) arg);
@@ -522,7 +525,9 @@ static int hiddev_ioctl(struct inode *inode, struct file *file,
 
 		rinfo.num_fields = report->maxfield;
 
-		return copy_to_user((void *) arg, &rinfo, sizeof(rinfo));
+		if (copy_to_user((void *) arg, &rinfo, sizeof(rinfo)))
+			return -EFAULT;
+		return 0;
 
 	case HIDIOCGFIELDINFO:
 		if (copy_from_user(&finfo, (void *) arg, sizeof(finfo)))
@@ -552,7 +557,9 @@ static int hiddev_ioctl(struct inode *inode, struct file *file,
 		finfo.unit_exponent = field->unit_exponent;
 		finfo.unit = field->unit;
 
-		return copy_to_user((void *) arg, &finfo, sizeof(finfo));
+		if (copy_to_user((void *) arg, &finfo, sizeof(finfo)))
+			return -EFAULT;
+		return 0;
 
 	case HIDIOCGUCODE:
 		if (copy_from_user(uref, (void *) arg, sizeof(*uref)))
@@ -572,7 +579,9 @@ static int hiddev_ioctl(struct inode *inode, struct file *file,
 
 		uref->usage_code = field->usage[uref->usage_index].hid;
 
-		return copy_to_user((void *) arg, uref, sizeof(*uref));
+		if (copy_to_user((void *) arg, uref, sizeof(*uref)))
+			return -EFAULT;
+		return 0;
 
 	case HIDIOCGUSAGE:
 	case HIDIOCSUSAGE:
@@ -656,7 +665,9 @@ static int hiddev_ioctl(struct inode *inode, struct file *file,
 		cinfo.usage = hid->collection[cinfo.index].usage;
 		cinfo.level = hid->collection[cinfo.index].level;
 
-		return copy_to_user((void *) arg, &cinfo, sizeof(cinfo));
+		if (copy_to_user((void *) arg, &cinfo, sizeof(cinfo)))
+			return -EFAULT;
+		return 0;
 
 	default:
 

@@ -6,7 +6,7 @@
 
 
 #define MEGARAID_VERSION	\
-	"v2.10.1 (Release Date: Wed Dec  3 15:34:42 EST 2003)\n"
+	"v2.10.10.1 (Release Date: Thu Jan 27 16:19:44 EDT 2005)\n"
 
 /*
  * Driver features - change the values to enable or disable features in the
@@ -43,12 +43,6 @@
  * the status of the logical drives, battery status, physical drives etc.
  */
 #define MEGA_HAVE_ENH_PROC	1
-
-#define MAX_DEV_TYPE	32
-
-#ifndef PCI_VENDOR_ID_LSI_LOGIC
-#define PCI_VENDOR_ID_LSI_LOGIC		0x1000
-#endif
 
 #ifndef PCI_VENDOR_ID_AMI
 #define PCI_VENDOR_ID_AMI		0x101E
@@ -87,6 +81,9 @@
 #define	HP_SUBSYS_VID			0x103C
 #define LSI_SUBSYS_VID			0x1000
 #define INTEL_SUBSYS_VID		0x8086
+#define FSC_SUBSYS_VID			0x1734
+#define ACER_SUBSYS_VID			0x1025
+#define NEC_SUBSYS_VID			0x1033
 
 #define HBA_SIGNATURE	      		0x3344
 #define HBA_SIGNATURE_471	  	0xCCCC
@@ -134,7 +131,6 @@
 	.info =				megaraid_info,		\
 	.command =			megaraid_command,	\
 	.queuecommand =			megaraid_queue,		\
-	.bios_param =			megaraid_biosparam,	\
 	.max_sectors =			MAX_SECTORS_PER_IO,	\
 	.can_queue =			MAX_COMMANDS,		\
 	.this_id =			DEFAULT_INITIATOR_ID,	\
@@ -662,6 +658,9 @@ typedef struct {
  */
 #define MEGAIOC_MAGIC  	'm'
 
+/* Mega IOCTL command */
+#define MEGAIOCCMD     	_IOWR(MEGAIOC_MAGIC, 0, struct uioctl_t)
+
 #define MEGAIOC_QNADAP		'm'	/* Query # of adapters */
 #define MEGAIOC_QDRVRVER	'e'	/* Query driver version */
 #define MEGAIOC_QADAPINFO   	'g'	/* Query adapter information */
@@ -709,15 +708,15 @@ typedef struct {
 	char		signature[8];	/* Must contain "MEGANIT" */
 	u32		opcode;		/* opcode for the command */
 	u32		adapno;		/* adapter number */
-	union {
-		u8	__raw_mbox[18];
-		caddr_t	__uaddr; /* xferaddr for non-mbox cmds */
-	}__ua;
+	mbox_t  	u_mbox;		/* user mailbox */
+	caddr_t		u_dataaddr;	/* xferaddr for DCMD and non-mbox
+					   commands */
+	mega_passthru	pthru;
 
-#define uioc_rmbox	__ua.__raw_mbox
-#define MBOX(uioc)	((megacmd_t *)&((uioc).__ua.__raw_mbox[0]))
-#define MBOX_P(uioc)	((megacmd_t *)&((uioc)->__ua.__raw_mbox[0]))
-#define uioc_uaddr	__ua.__uaddr
+#define RMBOX(uioc) 	((u8 *)&(uioc).u_mbox)
+#define MBOX(uioc)	((megacmd_t *)&(uioc).u_mbox)
+#define MBOX_P(uioc) 	((megacmd_t *)&(uioc)->u_mbox)
+
 
 	u32		xferlen;	/* xferlen for DCMD and non-mbox
 					   commands */
@@ -981,6 +980,15 @@ typedef struct {
 						 cmds */
 
 	int	has_cluster;	/* cluster support on this HBA */
+
+#define INT_MEMBLK_SZ		(28*1024)
+	mega_passthru		*int_pthru;		/*internal pthru*/
+	dma_addr_t		int_pthru_dma_hndl;
+	caddr_t			int_data;		/*internal data*/
+	dma_addr_t		int_data_dma_hndl;
+
+	int			hw_error;
+
 }adapter_t;
 
 
@@ -1088,6 +1096,7 @@ typedef enum { LOCK_INT, LOCK_EXT } lockscope_t;
 
 #define MBOX_ABORT_SLEEP	60
 #define MBOX_RESET_SLEEP	30
+#define MBOX_RESET_WAIT		180
 
 const char *megaraid_info (struct Scsi_Host *);
 
@@ -1115,7 +1124,6 @@ static int megaraid_release (struct Scsi_Host *);
 static int megaraid_command (Scsi_Cmnd *);
 static int megaraid_abort(Scsi_Cmnd *);
 static int megaraid_reset(Scsi_Cmnd *);
-static int megaraid_biosparam (Disk *, kdev_t, int *);
 
 static int mega_build_sglist (adapter_t *adapter, scb_t *scb,
 			      u32 *buffer, u32 *length);
@@ -1129,6 +1137,21 @@ static void mega_8_to_40ld (mraid_inquiry *inquiry,
 static int megaraid_reboot_notify (struct notifier_block *,
 				   unsigned long, void *);
 static int megadev_open (struct inode *, struct file *);
+
+#if defined( __x86_64__) || defined(IA32_EMULATION)
+#ifndef __ia64__
+#define LSI_CONFIG_COMPAT
+#endif
+#endif
+
+
+#ifdef LSI_CONFIG_COMPAT
+static int megadev_compat_ioctl(unsigned int, unsigned int, unsigned long,
+	struct file *);
+#endif
+
+static int megadev_ioctl_entry (struct inode *, struct file *, unsigned int,
+		unsigned long);
 static int megadev_ioctl (struct inode *, struct file *, unsigned int,
 		unsigned long);
 static int mega_m_to_n(void *, nitioctl_t *);
@@ -1172,7 +1195,6 @@ static mega_passthru* mega_prepare_passthru(adapter_t *, scb_t *,
 static mega_ext_passthru* mega_prepare_extpassthru(adapter_t *,
 		scb_t *, Scsi_Cmnd *, int, int);
 static void mega_enum_raid_scsi(adapter_t *);
-static int mega_partsize(Disk *, kdev_t, int *);
 static void mega_get_boot_drv(adapter_t *);
 static inline int mega_get_ldrv_num(adapter_t *, Scsi_Cmnd *, int);
 static int mega_support_random_del(adapter_t *);

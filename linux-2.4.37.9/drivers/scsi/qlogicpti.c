@@ -1533,4 +1533,4 @@ static Scsi_Host_Template driver_template = QLOGICPTI;
 
 #include "scsi_module.c"
 
-EXPORT_NO_SYMBOLS;
+MODULE_LICENSE("GPL");

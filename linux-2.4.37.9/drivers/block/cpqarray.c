@@ -960,6 +960,20 @@ static inline cmdlist_t *removeQ(cmdlist_t **Qptr, cmdlist_t *c)
 	return c;
 }
 
+static inline void complete_buffers(struct buffer_head *bh, int ok)
+{
+	struct buffer_head *xbh;
+	while(bh) {
+		xbh = bh->b_reqnext;
+		bh->b_reqnext = NULL;
+		
+		blk_finished_io(bh->b_size >> 9);
+		bh->b_end_io(bh, ok);
+
+		bh = xbh;
+	}
+}
+
 /*
  * Get a request and submit it to the controller.
  * This routine needs to grab all the requests it possibly can from the
@@ -1094,19 +1108,6 @@ static void start_io(ctlr_info_t *h)
 	}
 }
 
-static inline void complete_buffers(struct buffer_head *bh, int ok)
-{
-	struct buffer_head *xbh;
-	while(bh) {
-		xbh = bh->b_reqnext;
-		bh->b_reqnext = NULL;
-		
-		blk_finished_io(bh->b_size >> 9);
-		bh->b_end_io(bh, ok);
-
-		bh = xbh;
-	}
-}
 /*
  * Mark all buffers that cmd was responsible for
  */

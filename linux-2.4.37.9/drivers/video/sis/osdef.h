@@ -1,4 +1,5 @@
 /* $XFree86$ */
+/* $XdotOrg$ */
 /*
  * OS depending defines
  *
@@ -84,7 +85,6 @@
 
 #ifdef LINUX_KERNEL
 #include <linux/config.h>
-#include <linux/version.h>
 
 #ifdef CONFIG_FB_SIS_300
 #define SIS300
@@ -92,10 +92,6 @@
 
 #ifdef CONFIG_FB_SIS_315
 #define SIS315H
-#endif
-
-#if 1
-#define SISFBACCEL	/* Include 2D acceleration */
 #endif
 
 #define OutPortByte(p,v) outb((u8)(v),(SISIOADDRESS)(p))
@@ -108,7 +104,7 @@
 #endif
 
 /**********************************************************************/
-/*  XFree86                                                           */
+/*  XFree86, X.org                                                    */
 /**********************************************************************/
 
 #ifdef LINUX_XF86

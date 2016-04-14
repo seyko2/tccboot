@@ -705,6 +705,9 @@ int vc_allocate(unsigned int currcons)	/* return 0 on success */
 	return 0;
 }
 
+#define VC_RESIZE_MAXCOL (32767)
+#define VC_RESIZE_MAXROW (32767)
+
 /*
  * Change # of rows and columns (0 means unchanged/the size of fg_console)
  * [this is to be used together with some user program
@@ -716,6 +719,9 @@ int vc_resize(unsigned int lines, unsigned int cols,
 	unsigned int cc, ll, ss, sr, todo = 0;
 	unsigned int currcons = fg_console, i;
 	unsigned short *newscreens[MAX_NR_CONSOLES];
+
+	if (cols > VC_RESIZE_MAXCOL || lines > VC_RESIZE_MAXROW)
+		return -EINVAL;
 
 	cc = (cols ? cols : video_num_columns);
 	ll = (lines ? lines : video_num_lines);

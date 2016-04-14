@@ -16,15 +16,11 @@
 #include <asm/io.h>
 #include <asm/vr41xx/tb0229.h>
 
-#define tb0229_hard_reset()	writew(0, TB0219_RESET_REGS)
+#define tb0219_hard_reset()	writew(0, TB0219_RESET_REGS)
 
-void tanbac_tb0229_restart(char *command)
+void tanbac_tb0219_restart(char *command)
 {
-#ifdef CONFIG_TANBAC_TB0219
 	local_irq_disable();
-	tb0229_hard_reset();
+	tb0219_hard_reset();
 	while (1);
-#else
-	vr41xx_restart(command);
-#endif
 }

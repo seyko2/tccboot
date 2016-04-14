@@ -48,46 +48,12 @@
 #include <asm/au1000.h>
 
 au1xxx_irq_map_t au1xxx_irq_map[] = {
-	{ AU1000_UART0_INT, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_UART3_INT, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE+1, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE+2, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE+3, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE+4, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE+5, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE+6, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_DMA_INT_BASE+7, INTC_INT_HIGH_LEVEL, 0},
-
-	{ AU1000_IRDA_TX_INT, INTC_INT_HIGH_LEVEL, 0},
-	{ AU1000_IRDA_RX_INT, INTC_INT_HIGH_LEVEL, 0},
-
-	{ AU1000_MAC0_DMA_INT, INTC_INT_HIGH_LEVEL, 0},
-#if defined(CONFIG_MIPS_DB1000) || defined(CONFIG_MIPS_DB1500) || defined(CONFIG_MIPS_MIRAGE)
-	{ AU1000_MAC1_DMA_INT, INTC_INT_HIGH_LEVEL, 0},
-#endif
-#ifndef CONFIG_MIPS_MIRAGE
-	{ AU1500_GPIO_204, INTC_INT_HIGH_LEVEL, 0},
-#endif
-
-	{ AU1000_USB_HOST_INT, INTC_INT_LOW_LEVEL, 0 },
-
-#ifdef CONFIG_SOC_AU1500
-	{ AU1000_PCI_INTA, INTC_INT_LOW_LEVEL, 0 },
-	{ AU1000_PCI_INTB, INTC_INT_LOW_LEVEL, 0 },
-	{ AU1000_PCI_INTC, INTC_INT_LOW_LEVEL, 0 },
-	{ AU1000_PCI_INTD, INTC_INT_LOW_LEVEL, 0 },
-#endif
-
-#ifdef CONFIG_MIPS_DB1500
-	{ AU1500_GPIO_201, INTC_INT_LOW_LEVEL, 0 },
-	{ AU1500_GPIO_202, INTC_INT_LOW_LEVEL, 0 },
-	{ AU1500_GPIO_203, INTC_INT_LOW_LEVEL, 0 },
-	{ AU1500_GPIO_205, INTC_INT_LOW_LEVEL, 0 },
-	{ AU1500_GPIO_207, INTC_INT_LOW_LEVEL, 0 },
-#endif
 
 #ifndef CONFIG_MIPS_MIRAGE
+#ifdef CONFIG_MIPS_DB1550
+	{ AU1000_GPIO_3, INTC_INT_LOW_LEVEL, 0 }, // PCMCIA Card 0 IRQ#
+	{ AU1000_GPIO_5, INTC_INT_LOW_LEVEL, 0 }, // PCMCIA Card 1 IRQ#
+#else
 	{ AU1000_GPIO_0, INTC_INT_LOW_LEVEL, 0 }, // PCMCIA Card 0 Fully_Interted#
 	{ AU1000_GPIO_1, INTC_INT_LOW_LEVEL, 0 }, // PCMCIA Card 0 STSCHG#
 	{ AU1000_GPIO_2, INTC_INT_LOW_LEVEL, 0 }, // PCMCIA Card 0 IRQ#
@@ -96,23 +62,81 @@ au1xxx_irq_map_t au1xxx_irq_map[] = {
 	{ AU1000_GPIO_4, INTC_INT_LOW_LEVEL, 0 }, // PCMCIA Card 1 STSCHG#
 	{ AU1000_GPIO_5, INTC_INT_LOW_LEVEL, 0 }, // PCMCIA Card 1 IRQ#
 #endif
-	{ AU1000_ACSYNC_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_AC97C_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_TOY_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_TOY_MATCH0_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_TOY_MATCH1_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_USB_DEV_SUS_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_USB_DEV_REQ_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_RTC_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_RTC_MATCH0_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_RTC_MATCH1_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1000_RTC_MATCH2_INT, INTC_INT_RISE_EDGE, 0 },
-
-	/* Careful if you change match 2 request!
-	 * The interrupt handler is called directly
-	 * from the low level dispatch code.
-	 */
-	{ AU1000_TOY_MATCH2_INT, INTC_INT_RISE_EDGE, 1 },
+#else
+	{ AU1000_GPIO_7, INTC_INT_RISE_EDGE, 0 }, /* touchscreen pendown */
+#endif
 };
 
 int au1xxx_nr_irqs = sizeof(au1xxx_irq_map)/sizeof(au1xxx_irq_map_t);
+
+#ifdef CONFIG_PCI
+
+#ifdef CONFIG_SOC_AU1500
+#define INTA AU1000_PCI_INTA
+#define INTB AU1000_PCI_INTB
+#define INTC AU1000_PCI_INTC
+#define INTD AU1000_PCI_INTD
+#endif
+
+#ifdef CONFIG_SOC_AU1550
+#define INTA AU1550_PCI_INTA
+#define INTB AU1550_PCI_INTB
+#define INTC AU1550_PCI_INTC
+#define INTD AU1550_PCI_INTD
+#endif
+
+#define INTX 0xFF /* not valid */
+
+int __init
+au1xxx_pci_irqmap(struct pci_dev *dev, unsigned char idsel, unsigned char pin)
+{
+	/*
+	 *	PCI IDSEL/INTPIN->INTLINE
+	 *	A       B       C       D
+	 */
+#ifdef CONFIG_MIPS_DB1500
+	static char pci_irq_table[][4] =
+	{
+		{INTA, INTX, INTX, INTX},   /* IDSEL 12 - HPT371   */
+		{INTA, INTB, INTC, INTD},   /* IDSEL 13 - PCI slot */
+	};
+	const long min_idsel = 12, max_idsel = 13, irqs_per_slot = 4;
+#endif
+
+#ifdef CONFIG_MIPS_BOSPORUS
+	static char pci_irq_table[][4] =
+	{
+		{INTA, INTB, INTX, INTX},   /* IDSEL 11 - miniPCI  */
+		{INTA, INTX, INTX, INTX},   /* IDSEL 12 - SN1741   */
+		{INTA, INTB, INTC, INTD},   /* IDSEL 13 - PCI slot */
+	};
+	const long min_idsel = 11, max_idsel = 13, irqs_per_slot = 4;
+#endif
+
+#ifdef CONFIG_MIPS_MIRAGE
+	static char pci_irq_table[][4] =
+	{
+		{INTD, INTX, INTX, INTX},   /* IDSEL 11 - SMI VGX */
+		{INTX, INTX, INTC, INTX},   /* IDSEL 12 - PNX1300 */
+		{INTA, INTB, INTX, INTX},   /* IDSEL 13 - miniPCI */
+	};
+	const long min_idsel = 11, max_idsel = 13, irqs_per_slot = 4;
+#endif
+
+#ifdef CONFIG_MIPS_DB1550
+	static char pci_irq_table[][4] =
+	{
+		{INTC, INTX, INTX, INTX},   /* IDSEL 11 - on-board HPT371    */
+		{INTB, INTC, INTD, INTA},   /* IDSEL 12 - PCI slot 2 (left)  */
+		{INTA, INTB, INTC, INTD},   /* IDSEL 13 - PCI slot 1 (right) */
+	};
+	const long min_idsel = 11, max_idsel = 13, irqs_per_slot = 4;
+#endif
+#if defined(CONFIG_SOC_AU1550) || defined(CONFIG_SOC_AU1500)
+	return PCI_IRQ_TABLE_LOOKUP;
+#else
+	return 0;
+#endif
+};
+#endif
+

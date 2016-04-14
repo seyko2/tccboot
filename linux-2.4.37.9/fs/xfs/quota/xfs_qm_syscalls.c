@@ -404,7 +404,7 @@ xfs_qm_scall_trunc_qfiles(
 	}
 
 	if ((flags & XFS_DQ_USER) && mp->m_sb.sb_uquotino != NULLFSINO) {
-		error = xfs_iget(mp, NULL, mp->m_sb.sb_uquotino, 0, &qip, 0);
+		error = xfs_iget(mp, NULL, mp->m_sb.sb_uquotino, 0, 0, &qip, 0);
 		if (! error) {
 			(void) xfs_truncate_file(mp, qip);
 			VN_RELE(XFS_ITOV(qip));
@@ -412,7 +412,7 @@ xfs_qm_scall_trunc_qfiles(
 	}
 
 	if ((flags & XFS_DQ_GROUP) && mp->m_sb.sb_gquotino != NULLFSINO) {
-		error = xfs_iget(mp, NULL, mp->m_sb.sb_gquotino, 0, &qip, 0);
+		error = xfs_iget(mp, NULL, mp->m_sb.sb_gquotino, 0, 0, &qip, 0);
 		if (! error) {
 			(void) xfs_truncate_file(mp, qip);
 			VN_RELE(XFS_ITOV(qip));
@@ -555,11 +555,13 @@ xfs_qm_scall_getqstat(
 		gip = mp->m_quotainfo->qi_gquotaip;
 	}
 	if (!uip && mp->m_sb.sb_uquotino != NULLFSINO) {
-		if (xfs_iget(mp, NULL, mp->m_sb.sb_uquotino, 0, &uip, 0) == 0)
+		if (xfs_iget(mp, NULL, mp->m_sb.sb_uquotino,
+					0, 0, &uip, 0) == 0)
 			tempuqip = B_TRUE;
 	}
 	if (!gip && mp->m_sb.sb_gquotino != NULLFSINO) {
-		if (xfs_iget(mp, NULL, mp->m_sb.sb_gquotino, 0, &gip, 0) == 0)
+		if (xfs_iget(mp, NULL, mp->m_sb.sb_gquotino,
+					0, 0, &gip, 0) == 0)
 			tempgqip = B_TRUE;
 	}
 	if (uip) {
@@ -648,8 +650,11 @@ xfs_qm_scall_setqlim(
 	if (hard == 0 || hard >= soft) {
 		INT_SET(ddq->d_blk_hardlimit, ARCH_CONVERT, hard);
 		INT_SET(ddq->d_blk_softlimit, ARCH_CONVERT, soft);
-	}
-	else {
+		if (id == 0) {
+			mp->m_quotainfo->qi_bhardlimit = hard;
+			mp->m_quotainfo->qi_bsoftlimit = soft;
+		}
+	} else {
 		qdprintk("blkhard %Ld < blksoft %Ld\n", hard, soft);
 	}
 	hard = (newlim->d_fieldmask & FS_DQ_RTBHARD) ?
@@ -661,40 +666,49 @@ xfs_qm_scall_setqlim(
 	if (hard == 0 || hard >= soft) {
 		INT_SET(ddq->d_rtb_hardlimit, ARCH_CONVERT, hard);
 		INT_SET(ddq->d_rtb_softlimit, ARCH_CONVERT, soft);
-	}
-	else
+		if (id == 0) {
+			mp->m_quotainfo->qi_rtbhardlimit = hard;
+			mp->m_quotainfo->qi_rtbsoftlimit = soft;
+		}
+	} else {
 		qdprintk("rtbhard %Ld < rtbsoft %Ld\n", hard, soft);
+	}
 
 	hard = (newlim->d_fieldmask & FS_DQ_IHARD) ?
 		(xfs_qcnt_t) newlim->d_ino_hardlimit :
-		INT_GET(ddq->d_ino_hardlimit, ARCH_CONVERT);
+			INT_GET(ddq->d_ino_hardlimit, ARCH_CONVERT);
 	soft = (newlim->d_fieldmask & FS_DQ_ISOFT) ?
 		(xfs_qcnt_t) newlim->d_ino_softlimit :
-		INT_GET(ddq->d_ino_softlimit, ARCH_CONVERT);
+			INT_GET(ddq->d_ino_softlimit, ARCH_CONVERT);
 	if (hard == 0 || hard >= soft) {
 		INT_SET(ddq->d_ino_hardlimit, ARCH_CONVERT, hard);
 		INT_SET(ddq->d_ino_softlimit, ARCH_CONVERT, soft);
-	}
-	else
+		if (id == 0) {
+			mp->m_quotainfo->qi_ihardlimit = hard;
+			mp->m_quotainfo->qi_isoftlimit = soft;
+		}
+	} else {
 		qdprintk("ihard %Ld < isoft %Ld\n", hard, soft);
+	}
 
 	if (id == 0) {
 		/*
 		 * Timelimits for the super user set the relative time
 		 * the other users can be over quota for this file system.
-		 * If it is zero a default is used.
+		 * If it is zero a default is used.  Ditto for the default
+		 * soft and hard limit values (already done, above).
 		 */
 		if (newlim->d_fieldmask & FS_DQ_BTIMER) {
 			mp->m_quotainfo->qi_btimelimit = newlim->d_btimer;
-			INT_SET(dqp->q_core.d_btimer, ARCH_CONVERT, newlim->d_btimer);
+			INT_SET(ddq->d_btimer, ARCH_CONVERT, newlim->d_btimer);
 		}
 		if (newlim->d_fieldmask & FS_DQ_ITIMER) {
 			mp->m_quotainfo->qi_itimelimit = newlim->d_itimer;
-			INT_SET(dqp->q_core.d_itimer, ARCH_CONVERT, newlim->d_itimer);
+			INT_SET(ddq->d_itimer, ARCH_CONVERT, newlim->d_itimer);
 		}
 		if (newlim->d_fieldmask & FS_DQ_RTBTIMER) {
 			mp->m_quotainfo->qi_rtbtimelimit = newlim->d_rtbtimer;
-			INT_SET(dqp->q_core.d_rtbtimer, ARCH_CONVERT, newlim->d_rtbtimer);
+			INT_SET(ddq->d_rtbtimer, ARCH_CONVERT, newlim->d_rtbtimer);
 		}
 	} else /* if (XFS_IS_QUOTA_ENFORCED(mp)) */ {
 		/*
@@ -1114,7 +1128,7 @@ mutex_t	      qcheck_lock;
 	  cmn_err(CE_DEBUG, "%s (#%d)", title, (int) (l)->qh_nelems); \
 	  for (dqp = (xfs_dqtest_t *)(l)->qh_next; dqp != NULL; \
 	       dqp = (xfs_dqtest_t *)dqp->NXT) { \
-		cmn_err(CE_DEBUG, "  %d\. \"%d (%s)\"  bcnt = %d, icnt = %d", \
+		cmn_err(CE_DEBUG, "  %d. \"%d (%s)\"  bcnt = %d, icnt = %d", \
 			 ++i, dqp->d_id, DQFLAGTO_TYPESTR(dqp),	     \
 			 dqp->d_bcount, dqp->d_icount); } \
 }
@@ -1298,9 +1312,8 @@ xfs_qm_internalqcheck_dqadjust(
 STATIC int
 xfs_qm_internalqcheck_adjust(
 	xfs_mount_t	*mp,		/* mount point for filesystem */
-	xfs_trans_t	*tp,		/* transaction pointer */
 	xfs_ino_t	ino,		/* inode number to get data for */
-	void		*buffer,	/* not used */
+	void		__user *buffer,	/* not used */
 	int		ubsize,		/* not used */
 	void		*private_data,	/* not used */
 	xfs_daddr_t	bno,		/* starting block of inode cluster */
@@ -1327,7 +1340,7 @@ xfs_qm_internalqcheck_adjust(
 	ipreleased = B_FALSE;
  again:
 	lock_flags = XFS_ILOCK_SHARED;
-	if ((error = xfs_iget(mp, tp, ino, lock_flags, &ip, bno))) {
+	if ((error = xfs_iget(mp, NULL, ino, 0, lock_flags, &ip, bno))) {
 		*res = BULKSTAT_RV_NOTHING;
 		return (error);
 	}
@@ -1405,7 +1418,7 @@ xfs_qm_internalqcheck(
 		 * Iterate thru all the inodes in the file system,
 		 * adjusting the corresponding dquot counters
 		 */
-		if ((error = xfs_bulkstat(mp, NULL, &lastino, &count,
+		if ((error = xfs_bulkstat(mp, &lastino, &count,
 				 xfs_qm_internalqcheck_adjust, NULL,
 				 0, NULL, BULKSTAT_FG_IGET, &done))) {
 			break;

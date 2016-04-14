@@ -94,7 +94,7 @@ asmlinkage unsigned long sys_brk(unsigned long);
 static DECLARE_MUTEX(ia32_mmap_sem);
 
 static int
-nargs (unsigned int arg, char **ap)
+nargs (unsigned int arg, char **ap, int max)
 {
 	unsigned int addr;
 	int n, err;
@@ -107,10 +107,14 @@ nargs (unsigned int arg, char **ap)
 		err = get_user(addr, (unsigned int *)A(arg));
 		if (err)
 			return err;
+		if (n > max)
+			return -E2BIG;
 		if (ap)
 			*ap++ = (char *) A(addr);
 		arg += sizeof(unsigned int);
 		n++;
+		if (n >= (MAX_ARG_PAGES * PAGE_SIZE) / sizeof(char *))
+			return -E2BIG;
 	} while (addr);
 	return n - 1;
 }
@@ -126,10 +130,11 @@ sys32_execve (char *filename, unsigned int argv, unsigned int envp,
 	int na, ne, len;
 	long r;
 
-	na = nargs(argv, NULL);
+	/* Allocates upto 2x MAX_ARG_PAGES */
+	na = nargs(argv, NULL, (MAX_ARG_PAGES*PAGE_SIZE) / sizeof(char *) - 1);
 	if (na < 0)
 		return na;
-	ne = nargs(envp, NULL);
+	ne = nargs(envp, NULL, (MAX_ARG_PAGES*PAGE_SIZE) / sizeof(char *) - 1 );
 	if (ne < 0)
 		return ne;
 	len = (na + ne + 2) * sizeof(*av);
@@ -141,10 +146,10 @@ sys32_execve (char *filename, unsigned int argv, unsigned int envp,
 	av[na] = NULL;
 	ae[ne] = NULL;
 
-	r = nargs(argv, av);
+	r = nargs(argv, av, na);
 	if (r < 0)
 		goto out;
-	r = nargs(envp, ae);
+	r = nargs(envp, ae, ne);
 	if (r < 0)
 		goto out;
 
@@ -1367,6 +1372,11 @@ struct cmsghdr32 {
 #define __CMSG32_FIRSTHDR(ctl,len) \
 	((len) >= sizeof(struct cmsghdr32) ? (struct cmsghdr32 *)(ctl) : (struct cmsghdr32 *)NULL)
 #define CMSG32_FIRSTHDR(msg)	__CMSG32_FIRSTHDR((msg)->msg_control, (msg)->msg_controllen)
+#define CMSG32_OK(ucmlen, ucmsg, mhdr) \
+	((ucmlen) >= sizeof(struct cmsghdr32) && \
+	 (ucmlen) <= (unsigned long) \
+	 ((mhdr)->msg_controllen - \
+	  ((char *)(ucmsg) - (char *)(mhdr)->msg_control)))
 
 static inline struct cmsghdr32 *
 __cmsg32_nxthdr (void *ctl, __kernel_size_t size, struct cmsghdr32 *cmsg, int cmsg_len)
@@ -1427,14 +1437,12 @@ get_cmsghdr32 (struct msghdr *kmsg, unsigned char *stackbuf, struct sock *sk, si
 			return -EFAULT;
 
 		/* Catch bogons. */
-		if (CMSG32_ALIGN(ucmlen) < CMSG32_ALIGN(sizeof(struct cmsghdr32)))
-			return -EINVAL;
-		if ((unsigned long)(((char *)ucmsg - (char *)kmsg->msg_control) + ucmlen)
-		    > kmsg->msg_controllen)
+		if (!CMSG32_OK(ucmlen, ucmsg, kmsg))
 			return -EINVAL;
 
 		tmp = ((ucmlen - CMSG32_ALIGN(sizeof(*ucmsg))) +
 		       CMSG_ALIGN(sizeof(struct cmsghdr)));
+		tmp = CMSG_ALIGN(tmp);
 		kcmlen += tmp;
 		ucmsg = CMSG32_NXTHDR(kmsg, ucmsg, ucmlen);
 	}
@@ -1471,7 +1479,7 @@ get_cmsghdr32 (struct msghdr *kmsg, unsigned char *stackbuf, struct sock *sk, si
 			goto out_free_efault;
 
 		/* Advance. */
-		kcmsg = (struct cmsghdr *)((char *)kcmsg + CMSG_ALIGN(tmp));
+		kcmsg = (struct cmsghdr *)((char *)kcmsg + tmp);
 		ucmsg = CMSG32_NXTHDR(kmsg, ucmsg, ucmlen);
 	}
 
@@ -1645,7 +1653,8 @@ scm_detach_fds32 (struct msghdr *kmsg, struct scm_cookie *scm)
  *		IPV6_AUTHHDR	ipv6 auth exthdr	32-bit clean
  */
 static void
-cmsg32_recvmsg_fixup (struct msghdr *kmsg, unsigned long orig_cmsg_uptr)
+cmsg32_recvmsg_fixup (struct msghdr *kmsg, unsigned long orig_cmsg_uptr,
+		__kernel_size_t orig_cmsg_len)
 {
 	unsigned char *workbuf, *wp;
 	unsigned long bufsz, space_avail;
@@ -1679,6 +1688,9 @@ cmsg32_recvmsg_fixup (struct msghdr *kmsg, unsigned long orig_cmsg_uptr)
 			goto fail2;
 
 		clen64 = kcmsg32->cmsg_len;
+		if ((clen64 < CMSG_ALIGN(sizeof(*ucmsg))) ||
+				(clen64 > (orig_cmsg_len + wp - workbuf)))
+			break;
 		copy_from_user(CMSG32_DATA(kcmsg32), CMSG_DATA(ucmsg),
 			       clen64 - CMSG_ALIGN(sizeof(*ucmsg)));
 		clen32 = ((clen64 - CMSG_ALIGN(sizeof(*ucmsg))) +
@@ -1808,6 +1820,7 @@ sys32_recvmsg (int fd, struct msghdr32 *msg, unsigned int flags)
 	struct iovec *iov=iovstack;
 	struct msghdr msg_sys;
 	unsigned long cmsg_ptr;
+	__kernel_size_t cmsg_len;
 	int err, iov_size, total_len, len;
 	struct scm_cookie scm;
 
@@ -1852,6 +1865,7 @@ sys32_recvmsg (int fd, struct msghdr32 *msg, unsigned int flags)
 	total_len=err;
 
 	cmsg_ptr = (unsigned long)msg_sys.msg_control;
+	cmsg_len = msg_sys.msg_controllen;
 	msg_sys.msg_flags = 0;
 
 	if (sock->file->f_flags & O_NONBLOCK)
@@ -1878,7 +1892,8 @@ sys32_recvmsg (int fd, struct msghdr32 *msg, unsigned int flags)
 			 * fix it up before we tack on more stuff.
 			 */
 			if ((unsigned long) msg_sys.msg_control != cmsg_ptr)
-				cmsg32_recvmsg_fixup(&msg_sys, cmsg_ptr);
+				cmsg32_recvmsg_fixup(&msg_sys, cmsg_ptr,
+						cmsg_len);
 
 			/* Wheee... */
 			if (sock->passcred)
@@ -2949,7 +2964,7 @@ get_fpreg (int regno, struct _fpreg_ia32 *reg, struct pt_regs *ptp, struct switc
 	return;
 }
 
-static int
+int
 save_ia32_fpstate (struct task_struct *tsk, struct ia32_user_i387_struct *save)
 {
 	struct switch_stack *swp;
@@ -3011,7 +3026,7 @@ restore_ia32_fpstate (struct task_struct *tsk, struct ia32_user_i387_struct *sav
 	return 0;
 }
 
-static int
+int
 save_ia32_fpxstate (struct task_struct *tsk, struct ia32_user_fxsr_struct *save)
 {
 	struct switch_stack *swp;

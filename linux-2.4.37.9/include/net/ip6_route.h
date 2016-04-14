@@ -39,9 +39,11 @@ extern void			ip6_route_cleanup(void);
 extern int			ipv6_route_ioctl(unsigned int cmd, void *arg);
 
 extern int			ip6_route_add(struct in6_rtmsg *rtmsg,
-					      struct nlmsghdr *);
+					      struct nlmsghdr *,
+					      struct netlink_skb_parms *req);
 extern int			ip6_del_rt(struct rt6_info *,
-					   struct nlmsghdr *);
+					   struct nlmsghdr *,
+					   struct netlink_skb_parms *req);
 
 extern int			ip6_rt_addr_add(struct in6_addr *addr,
 						struct net_device *dev);

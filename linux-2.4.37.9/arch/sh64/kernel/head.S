@@ -37,18 +37,29 @@
 #define MMUDR_END	DTLB_LAST_VAR_UNRESTRICTED+TLB_STEP
 #define MMUDR_STEP	TLB_STEP
 
+/* Safety check : CONFIG_CACHED_MEMORY_OFFSET has to be a multiple of 512Mb */
+#if (CONFIG_CACHED_MEMORY_OFFSET & ((1UL<<29)-1))
+#error "CONFIG_CACHED_MEMORY_OFFSET must be a multiple of 512Mb"
+#endif
+
 /*
  * MMU defines: Fixed TLBs.
  */
-#define MMUIR_TEXT_H	0x0000000000000003 | (CONFIG_CACHED_MEMORY_OFFSET + CONFIG_MEMORY_START)
+/* Deal safely with the case where the base of RAM is not 512Mb aligned */
+
+#define ALIGN_512M_MASK (0xffffffffe0000000)
+#define ALIGNED_EFFECTIVE ((CONFIG_CACHED_MEMORY_OFFSET + CONFIG_MEMORY_START) & ALIGN_512M_MASK)
+#define ALIGNED_PHYSICAL (CONFIG_MEMORY_START & ALIGN_512M_MASK)
+
+#define MMUIR_TEXT_H	(0x0000000000000003 | ALIGNED_EFFECTIVE)
 			/* Enabled, Shared, ASID 0, Eff. Add. 0xA0000000 */
 
-#define MMUIR_TEXT_L	0x000000000000009a | (CONFIG_MEMORY_START)
+#define MMUIR_TEXT_L	(0x000000000000009a | ALIGNED_PHYSICAL)
 			/* 512 Mb, Cacheable, Write-back, execute, Not User, Ph. Add. */
 
-#define MMUDR_CACHED_H	0x0000000000000003 | (CONFIG_CACHED_MEMORY_OFFSET + CONFIG_MEMORY_START)
+#define MMUDR_CACHED_H	0x0000000000000003 | ALIGNED_EFFECTIVE
 			/* Enabled, Shared, ASID 0, Eff. Add. 0xA0000000 */
-#define MMUDR_CACHED_L	0x000000000000015a | (CONFIG_MEMORY_START)
+#define MMUDR_CACHED_L	0x000000000000015a | ALIGNED_PHYSICAL
 			/* 512 Mb, Cacheable, Write-back, read/write, Not User, Ph. Add. */
 
 #ifdef CONFIG_ICACHE_DISABLED
@@ -209,15 +220,19 @@ clear_DTLB:
 	/* Map one big (512Mb) page for ITLB */
 	movi	MMUIR_FIRST, r21
 	movi	MMUIR_TEXT_L, r22	/* PTEL first */
+	add.l	r22, r63, r22		/* Sign extend */
 	putcfg	r21, 1, r22		/* Set MMUIR[0].PTEL */
 	movi	MMUIR_TEXT_H, r22	/* PTEH last */
+	add.l	r22, r63, r22		/* Sign extend */
 	putcfg	r21, 0, r22		/* Set MMUIR[0].PTEH */
 	
 	/* Map one big CACHED (512Mb) page for DTLB */
 	movi	MMUDR_FIRST, r21
 	movi	MMUDR_CACHED_L, r22	/* PTEL first */
+	add.l	r22, r63, r22		/* Sign extend */
 	putcfg	r21, 1, r22		/* Set MMUDR[0].PTEL */
 	movi	MMUDR_CACHED_H, r22	/* PTEH last */
+	add.l	r22, r63, r22		/* Sign extend */
 	putcfg	r21, 0, r22		/* Set MMUDR[0].PTEH */
 	
 	/*

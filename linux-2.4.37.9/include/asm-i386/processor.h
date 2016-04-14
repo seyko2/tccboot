@@ -72,7 +72,6 @@ struct cpuinfo_x86 {
  */
 
 extern struct cpuinfo_x86 boot_cpu_data;
-extern struct tss_struct init_tss[NR_CPUS];
 
 #ifdef CONFIG_SMP
 extern struct cpuinfo_x86 cpu_data[];
@@ -235,8 +234,9 @@ static inline void clear_in_cr4 (unsigned long mask)
 #define getCx86(reg) ({ outb((reg), 0x22); inb(0x23); })
 
 #define setCx86(reg, data) do { \
+	unsigned char _tmp_data = (data); \
 	outb((reg), 0x22); \
-	outb((data), 0x23); \
+	outb(_tmp_data, 0x23); \
 } while (0)
 
 /*
@@ -356,6 +356,8 @@ struct tss_struct {
 	 */
 	unsigned long __cacheline_filler[5];
 };
+
+extern struct tss_struct init_tss[NR_CPUS];
 
 struct thread_struct {
 	unsigned long	esp0;
@@ -493,7 +495,7 @@ struct extended_sigtable {
 /* REP NOP (PAUSE) is a good thing to insert into busy-wait loops. */
 static inline void rep_nop(void)
 {
-	__asm__ __volatile__("rep;nop" ::: "memory");
+	__asm__ __volatile__("rep;nop": : :"memory");
 }
 
 #define cpu_relax()	rep_nop()

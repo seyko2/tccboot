@@ -458,6 +458,14 @@ E: m@mbsks.franken.de
 D: REINER SCT cyberJack pinpad/e-com USB chipcard reader driver
 S: Germany
 
+N: Adrian Bunk
+E: bunk@stusta.de
+P: 1024D/4F12B400  B29C E71E FE19 6755 5C8A  84D4 99FC EA98 4F12 B400
+D: misc kernel hacking and testing
+S: Grasmeierstrasse 11
+S: 80805 Muenchen
+S: Germany
+
 N: Ray Burr
 E: ryb@nightmare.com
 D: Original author of Amiga FFS filesystem
@@ -1232,8 +1240,8 @@ P: 1024D/77D4FC9B F5C5 1C20 1DFC DEC3 3107  54A4 2332 ADFC 77D4 FC9B
 D: National Language Support
 D: Linux Internationalization Project
 D: German Localization for Linux and GNU software
-S: Helenenstrasse 18
-S: 65183 Wiesbaden
+S: Kriemhildring 12a
+S: 65795 Hattersheim am Main
 S: Germany
 
 N: Christoph Hellwig
@@ -1439,8 +1447,9 @@ S: D 67659 Kaiserslautern
 S: Germany
 
 N: Mike Jagdis
-E: jaggy@purplet.demon.co.uk
-E: Mike.Jagdis@purplet.demon.co.uk
+E: mjagdis@eris-associates.co.uk
+E: jaggy@jaggycraft.co.uk
+E: Mike.Jagdis@eris-associates.co.uk
 D: iBCS personalities, socket and X interfaces, x.out loader, syscalls...
 D: Purple Distribution maintainer
 D: UK FidoNet support
@@ -1449,7 +1458,7 @@ D: Kernel and device driver hacking
 S: 280 Silverdale Road
 S: Earley
 S: Reading
-S: RG6 2NU
+S: RG6 7NU
 S: United Kingdom
 
 N: Jakub Jelinek
@@ -1485,18 +1494,16 @@ S: Chapel Hill, North Carolina 27514-4818
 S: USA
 
 N: Dave Jones
-E: davej@suse.de
-W: http://www.suse.de/~davej
+E: davej@redhat.com
+W: http://www.codemonkey.org.uk
 D: Moved PCI bridge tuning to userspace (Powertweak).
 D: Various x86 (& clones) setup code hacking.
 D: AFFS fixes for 2.3.x
 D: Various Janitorial hacks. (kernel-janitor.sourceforge.net)
-S: c/o SuSE Linux UK Ltd
-S: The Kinetic Centre
-S: Theobald Street
-S: Borehamwood
-S: Herts, WD6 4PJ
-S: United Kingdom
+S: Red Hat
+S: 10, Technology Park
+S: Westford, MA 01863
+S: USA
 
 N: Ani Joshi
 E: ajoshi@kernel.crashing.org
@@ -1809,10 +1816,10 @@ S: D53424 Remagen
 S: Germany
 
 N: Achim Leubner
-E: achim@vortex.de
-D: GDT SCSI Disk Array Controller driver
-S: ICP vortex Computersysteme GmbH
-S: Flein
+E: achim_leubner@adaptec.com
+D: GDT Disk Array Controller/Storage RAID controller driver
+S: ICP vortex GmbH
+S: Neckarsulm
 S: Germany
 
 N: Phil Lewis
@@ -2130,14 +2137,13 @@ S: 7546 JA  Enschede
 S: Netherlands
 
 N: David S. Miller
-E: davem@redhat.com
+E: davem@davemloft.net
 D: Sparc and blue box hacker
 D: Vger Linux mailing list co-maintainer
 D: Linux Emacs elf/qmagic support + other libc/gcc things
 D: Yee bore de yee bore! ;-)
-S: 750 N. Shoreline Blvd.
-S: Apt. #111
-S: Mountain View, California 94043
+S: 575 Harrison St. #103
+S: San Francisco, California 94105
 S: USA
 
 N: Rick Miller
@@ -2990,7 +2996,7 @@ S: Santa Clara, California 95051
 S: USA
 
 N: Marcelo W. Tosatti
-E: marcelo.tosatti@cyclades.com
+E: marcelo@kvack.org
 D: Miscellaneous kernel hacker (mostly VM/MM work)
 D: 2.4 maintainer
 S: Av Cristovao Colombo, 462. Floresta.

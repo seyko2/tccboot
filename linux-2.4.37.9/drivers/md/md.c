@@ -1271,148 +1271,164 @@ static int analyze_sbs(mddev_t * mddev)
 	memcpy (sb, freshest->sb, sizeof(*sb));
 
 	/*
-	 * at this point we have picked the 'best' superblock
-	 * from all available superblocks.
-	 * now we validate this superblock and kick out possibly
-	 * failed disks.
+	 * For multipathing, lots of things are different from "true"
+	 * RAIDs.
+	 * All rdev's could be read, so they are no longer faulty.
+	 * As there is just one sb, trying to find changed devices via the
+	 * this_disk pointer is useless too.
+	 *
+	 * lmb@suse.de, 2002-09-12
 	 */
-	ITERATE_RDEV(mddev,rdev,tmp) {
-		/*
-		 * Kick all non-fresh devices
-		 */
-		__u64 ev1, ev2;
-		ev1 = md_event(rdev->sb);
-		ev2 = md_event(sb);
-		++ev1;
-		if (ev1 < ev2) {
-			printk(KERN_WARNING "md: kicking non-fresh %s from array!\n",
-						partition_name(rdev->dev));
-			kick_rdev_from_array(rdev);
-			continue;
-		}
-	}
 
-	/*
-	 * Fix up changed device names ... but only if this disk has a
-	 * recent update time. Use faulty checksum ones too.
-	 */
-	if (mddev->sb->level != -4)
-	ITERATE_RDEV(mddev,rdev,tmp) {
-		__u64 ev1, ev2, ev3;
-		if (rdev->faulty || rdev->alias_device) {
-			MD_BUG();
-			goto abort;
-		}
-		ev1 = md_event(rdev->sb);
-		ev2 = md_event(sb);
-		ev3 = ev2;
-		--ev3;
-		if ((rdev->dev != rdev->old_dev) &&
-			((ev1 == ev2) || (ev1 == ev3))) {
+	if (sb->level == -4) {
+		int desc_nr = 0;
+
+		/* ... and initialize from the current rdevs instead */
+		ITERATE_RDEV(mddev,rdev,tmp) {
 			mdp_disk_t *desc;
 
-			printk(KERN_WARNING "md: device name has changed from %s to %s since last import!\n",
-			       partition_name(rdev->old_dev), partition_name(rdev->dev));
-			if (rdev->desc_nr == -1) {
-				MD_BUG();
-				goto abort;
-			}
+			rdev->desc_nr=desc_nr;
+
 			desc = &sb->disks[rdev->desc_nr];
-			if (rdev->old_dev != MKDEV(desc->major, desc->minor)) {
-				MD_BUG();
-				goto abort;
-			}
+
+			desc->number = desc_nr;
 			desc->major = MAJOR(rdev->dev);
 			desc->minor = MINOR(rdev->dev);
-			desc = &rdev->sb->this_disk;
-			desc->major = MAJOR(rdev->dev);
-			desc->minor = MINOR(rdev->dev);
-		}
-	}
+			desc->raid_disk = desc_nr;
 
-	/*
-	 * Remove unavailable and faulty devices ...
-	 *
-	 * note that if an array becomes completely unrunnable due to
-	 * missing devices, we do not write the superblock back, so the
-	 * administrator has a chance to fix things up. The removal thus
-	 * only happens if it's nonfatal to the contents of the array.
-	 */
-	for (i = 0; i < MD_SB_DISKS; i++) {
-		int found;
-		mdp_disk_t *desc;
-		kdev_t dev;
-
-		desc = sb->disks + i;
-		dev = MKDEV(desc->major, desc->minor);
-
-		/*
-		 * We kick faulty devices/descriptors immediately.
-		 *
-		 * Note: multipath devices are a special case.  Since we
-		 * were able to read the superblock on the path, we don't
-		 * care if it was previously marked as faulty, it's up now
-		 * so enable it.
-		 */
-		if (disk_faulty(desc) && mddev->sb->level != -4) {
-			found = 0;
-			ITERATE_RDEV(mddev,rdev,tmp) {
-				if (rdev->desc_nr != desc->number)
-					continue;
-				printk(KERN_WARNING "md%d: kicking faulty %s!\n",
-					mdidx(mddev),partition_name(rdev->dev));
-				kick_rdev_from_array(rdev);
-				found = 1;
-				break;
-			}
-			if (!found) {
-				if (dev == MKDEV(0,0))
-					continue;
-				printk(KERN_WARNING "md%d: removing former faulty %s!\n",
-					mdidx(mddev), partition_name(dev));
-			}
-			remove_descriptor(desc, sb);
-			continue;
-		} else if (disk_faulty(desc)) {
-			/*
-			 * multipath entry marked as faulty, unfaulty it
-			 */
-			rdev = find_rdev(mddev, dev);
-			if(rdev)
+			/* We could read from it, so it isn't faulty
+			 * any longer */
+			if (disk_faulty(desc))
 				mark_disk_spare(desc);
-			else
-				remove_descriptor(desc, sb);
+
+			memcpy(&rdev->sb->this_disk,desc,sizeof(*desc));
+
+			desc_nr++;
 		}
 
-		if (dev == MKDEV(0,0))
-			continue;
+		/* Kick out all old info about disks we used to have,
+		 * if any */
+		for (i = desc_nr; i < MD_SB_DISKS; i++)
+			memset(&(sb->disks[i]),0,sizeof(mdp_disk_t));
+	} else {
 		/*
-		 * Is this device present in the rdev ring?
+		 * at this point we have picked the 'best' superblock
+		 * from all available superblocks.
+		 * now we validate this superblock and kick out possibly
+		 * failed disks.
 		 */
-		found = 0;
 		ITERATE_RDEV(mddev,rdev,tmp) {
 			/*
-			 * Multi-path IO special-case: since we have no
-			 * this_disk descriptor at auto-detect time,
-			 * we cannot check rdev->number.
-			 * We can check the device though.
+			 * Kick all non-fresh devices
 			 */
-			if ((sb->level == -4) && (rdev->dev ==
-					MKDEV(desc->major,desc->minor))) {
-				found = 1;
-				break;
-			}
-			if (rdev->desc_nr == desc->number) {
-				found = 1;
-				break;
+			__u64 ev1, ev2;
+			ev1 = md_event(rdev->sb);
+			ev2 = md_event(sb);
+			++ev1;
+			if (ev1 < ev2) {
+				printk(KERN_WARNING "md: kicking non-fresh %s from array!\n",
+							partition_name(rdev->dev));
+				kick_rdev_from_array(rdev);
+				continue;
 			}
 		}
-		if (found)
-			continue;
 
-		printk(KERN_WARNING "md%d: former device %s is unavailable, removing from array!\n",
-		       mdidx(mddev), partition_name(dev));
-		remove_descriptor(desc, sb);
+		/*
+		 * Fix up changed device names ... but only if this disk has a
+		 * recent update time. Use faulty checksum ones too.
+		 */
+		ITERATE_RDEV(mddev,rdev,tmp) {
+			__u64 ev1, ev2, ev3;
+			if (rdev->faulty || rdev->alias_device) {
+				MD_BUG();
+				goto abort;
+			}
+			ev1 = md_event(rdev->sb);
+			ev2 = md_event(sb);
+			ev3 = ev2;
+			--ev3;
+			if ((rdev->dev != rdev->old_dev) &&
+				((ev1 == ev2) || (ev1 == ev3))) {
+				mdp_disk_t *desc;
+
+				printk(KERN_WARNING "md: device name has changed from %s to %s since last import!\n",
+				       partition_name(rdev->old_dev), partition_name(rdev->dev));
+				if (rdev->desc_nr == -1) {
+					MD_BUG();
+					goto abort;
+				}
+				desc = &sb->disks[rdev->desc_nr];
+				if (rdev->old_dev != MKDEV(desc->major, desc->minor)) {
+					MD_BUG();
+					goto abort;
+				}
+				desc->major = MAJOR(rdev->dev);
+				desc->minor = MINOR(rdev->dev);
+				desc = &rdev->sb->this_disk;
+				desc->major = MAJOR(rdev->dev);
+				desc->minor = MINOR(rdev->dev);
+			}
+		}
+
+		/*
+		 * Remove unavailable and faulty devices ...
+		 *
+		 * note that if an array becomes completely unrunnable due to
+		 * missing devices, we do not write the superblock back, so the
+		 * administrator has a chance to fix things up. The removal thus
+		 * only happens if it's nonfatal to the contents of the array.
+		 */
+		for (i = 0; i < MD_SB_DISKS; i++) {
+			int found;
+			mdp_disk_t *desc;
+			kdev_t dev;
+
+			desc = sb->disks + i;
+			dev = MKDEV(desc->major, desc->minor);
+
+			/*
+			 * We kick faulty devices/descriptors immediately.
+			 */
+			if (disk_faulty(desc)) {
+				found = 0;
+				ITERATE_RDEV(mddev,rdev,tmp) {
+					if (rdev->desc_nr != desc->number)
+						continue;
+					printk(KERN_WARNING "md%d: kicking faulty %s!\n",
+						mdidx(mddev),partition_name(rdev->dev));
+					kick_rdev_from_array(rdev);
+					found = 1;
+					break;
+				}
+				if (!found) {
+					if (dev == MKDEV(0,0))
+						continue;
+					printk(KERN_WARNING "md%d: removing former faulty %s!\n",
+						mdidx(mddev), partition_name(dev));
+				}
+				remove_descriptor(desc, sb);
+				continue;
+			}
+
+			if (dev == MKDEV(0,0))
+				continue;
+			/*
+			 * Is this device present in the rdev ring?
+			 */
+			found = 0;
+			ITERATE_RDEV(mddev,rdev,tmp) {
+				if (rdev->desc_nr == desc->number) {
+					found = 1;
+					break;
+				}
+			}
+			if (found)
+				continue;
+
+			printk(KERN_WARNING "md%d: former device %s is unavailable, removing from array!\n",
+			       mdidx(mddev), partition_name(dev));
+			remove_descriptor(desc, sb);
+		}
 	}
 
 	/*

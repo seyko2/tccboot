@@ -25,6 +25,9 @@
 EXPORT_SYMBOL(vr41xx_get_vtclock_frequency);
 EXPORT_SYMBOL(vr41xx_get_tclock_frequency);
 
+EXPORT_SYMBOL(vr41xx_supply_clock);
+EXPORT_SYMBOL(vr41xx_mask_clock);
+
 EXPORT_SYMBOL(vr41xx_set_intassign);
 
 EXPORT_SYMBOL(vr41xx_set_rtclong1_cycle);

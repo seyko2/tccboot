@@ -28,13 +28,11 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/init.h>
-#include <asm/uaccess.h>
-#include <linux/ioport.h>
 #include <linux/errno.h>
 #include <linux/sched.h>
-
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
+
 
 /* ----- global defines ----------------------------------------------- */
 #define DEB(x) if (i2c_debug>=1) x;
@@ -369,10 +367,6 @@ static int sendbytes(struct i2c_adapter *i2c_adap,const char *buf, int count)
 			return (retval<0)? retval : -EFAULT;
 			        /* got a better one ?? */
 		}
-#if 0
-		/* from asm/delay.h */
-		__delay(adap->mdelay * (loops_per_sec / 1000) );
-#endif
 	}
 	return wrcount;
 }
@@ -386,7 +380,6 @@ static inline int readbytes(struct i2c_adapter *i2c_adap,char *buf,int count)
 
 	while (count > 0) {
 		inval = i2c_inb(i2c_adap);
-/*printk("%#02x ",inval); if ( ! (count % 16) ) printk("\n"); */
 		if (inval>=0) {
 			*temp = inval;
 			rdcount++;
@@ -522,22 +515,19 @@ static int algo_control(struct i2c_adapter *adapter,
 
 static u32 bit_func(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_10BIT_ADDR | 
-	       I2C_FUNC_PROTOCOL_MANGLING;
+	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL |
+	       I2C_FUNC_10BIT_ADDR | I2C_FUNC_PROTOCOL_MANGLING;
 }
 
 
 /* -----exported algorithm data: -------------------------------------	*/
 
 static struct i2c_algorithm i2c_bit_algo = {
-	"Bit-shift algorithm",
-	I2C_ALGO_BIT,
-	bit_xfer,
-	NULL,
-	NULL,				/* slave_xmit		*/
-	NULL,				/* slave_recv		*/
-	algo_control,			/* ioctl		*/
-	bit_func,			/* functionality	*/
+	.name		= "Bit-shift algorithm",
+	.id		= I2C_ALGO_BIT,
+	.master_xfer	= bit_xfer,
+	.algo_control	= algo_control,
+	.functionality	= bit_func,
 };
 
 /* 
@@ -585,9 +575,8 @@ int i2c_bit_add_bus(struct i2c_adapter *adap)
 #ifdef MODULE
 	MOD_INC_USE_COUNT;
 #endif
-	i2c_add_adapter(adap);
 
-	return 0;
+	return i2c_add_adapter(adap);
 }
 
 
@@ -611,8 +600,6 @@ int __init i2c_algo_bit_init (void)
 	printk(KERN_INFO "i2c-algo-bit.o: i2c bit algorithm module\n");
 	return 0;
 }
-
-
 
 EXPORT_SYMBOL(i2c_bit_add_bus);
 EXPORT_SYMBOL(i2c_bit_del_bus);

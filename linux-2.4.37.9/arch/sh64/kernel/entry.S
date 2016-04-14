@@ -1607,12 +1607,6 @@ poke_real_address_q:
 	shlli	r36, 31, r36
 	andc	r1, r36, r1	/* turn sr.mmu off in real mode section */
 
-	/* Bodge : force sr.watch high on return.  Can't understand why else this
-	   isn't happening. */
-	movi	1, r38
-	shlli	r38, 26, r38
-	or	r38, r0, r0
-
 	putcon	r1, ssr
 	_loada	.poke0-CONFIG_CACHED_MEMORY_OFFSET, r36 /* real mode target address */
 	_loada	1f, r37		/* virtual mode return addr */

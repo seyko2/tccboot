@@ -54,9 +54,7 @@
 #endif
 
 static void fixup_resource(int r_num, struct pci_dev *dev) ;
-#if defined( CONFIG_SOC_AU1500 ) || defined( CONFIG_SOC_AU1550 )
 static unsigned long virt_io_addr;
-#endif
 
 void __init pcibios_fixup_resources(struct pci_dev *dev)
 {
@@ -66,8 +64,6 @@ void __init pcibios_fixup_resources(struct pci_dev *dev)
 void __init pcibios_fixup(void)
 {
 #if defined( CONFIG_SOC_AU1500 ) || defined( CONFIG_SOC_AU1550 )
-	int i;
-	struct pci_dev *dev;
 	
 	virt_io_addr = (unsigned long)ioremap(Au1500_PCI_IO_START, 
 			Au1500_PCI_IO_END - Au1500_PCI_IO_START + 1);
@@ -106,9 +102,10 @@ void __init pcibios_fixup(void)
 void __init pcibios_fixup_irqs(void)
 {
 #if defined( CONFIG_SOC_AU1500 ) || defined( CONFIG_SOC_AU1550 )
-	unsigned int slot, func;
+	unsigned int slot;
 	unsigned char pin;
 	struct pci_dev *dev;
+	extern int au1xxx_pci_irqmap(struct pci_dev *dev, unsigned char idsel, unsigned char pin);
 
 	pci_for_each_dev(dev) {
 		if (dev->bus->number != 0)
@@ -116,26 +113,9 @@ void __init pcibios_fixup_irqs(void)
 
 		dev->irq = 0xff;
 		slot = PCI_SLOT(dev->devfn);
-#if defined( CONFIG_SOC_AU1500 )
-		switch (slot) {
-			case 12:
-			case 13:
-			default:
-				dev->irq = AU1000_PCI_INTA;
-				break;
-		}
-#elif defined( CONFIG_SOC_AU1550 )
-		switch (slot) {
-			default:
-			case 12:
-				dev->irq = AU1000_PCI_INTA;
-				break;
-			case 13:
-				dev->irq = AU1000_PCI_INTB;
-				break;
-		}
-#endif
-
+		pci_read_config_byte(dev, PCI_INTERRUPT_PIN, &pin);
+		dev->irq = au1xxx_pci_irqmap(dev, slot, pin);
+		//printk("Bus %d Dev %d Pin %d Irq %d\n", dev->bus->number, slot, pin, dev->irq);
 		pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq);
 		DBG("slot %d irq %d\n", slot, dev->irq);
 	}

@@ -143,11 +143,8 @@ int ip_cmsg_send(struct msghdr *msg, struct ipcm_cookie *ipc)
 	struct cmsghdr *cmsg;
 
 	for (cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-		if (cmsg->cmsg_len < sizeof(struct cmsghdr) ||
-		    (unsigned long)(((char*)cmsg - (char*)msg->msg_control)
-				    + cmsg->cmsg_len) > msg->msg_controllen) {
+		if (!CMSG_OK(msg, cmsg))
 			return -EINVAL;
-		}
 		if (cmsg->cmsg_level != SOL_IP)
 			continue;
 		switch (cmsg->cmsg_type) {
@@ -750,6 +747,7 @@ int ip_setsockopt(struct sock *sk, int level, int optname, char *optval, int opt
 				err = ip_mc_join_group(sk, &mreq);
 				if (err)
 					break;
+				greqs.gsr_interface = mreq.imr_ifindex;
 				omode = MCAST_INCLUDE;
 				add = 1;
 			} else /* MCAST_LEAVE_SOURCE_GROUP */ {
@@ -791,7 +789,7 @@ int ip_setsockopt(struct sock *sk, int level, int optname, char *optval, int opt
 				goto mc_msf_out;
 			}
 			if (GROUP_FILTER_SIZE(gsf->gf_numsrc) > optlen) {
-				err = EINVAL;
+				err = -EINVAL;
 				goto mc_msf_out;
 			}
 			msize = IP_MSFILTER_SIZE(gsf->gf_numsrc);

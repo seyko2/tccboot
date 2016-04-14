@@ -248,12 +248,9 @@ char *		en;
     rio_dprintk (RIO_DEBUG_INTR, "Waking up.... ldisc:%d (%d/%d)....",
 		 (int)(PortP->gs.tty->flags & (1 << TTY_DO_WRITE_WAKEUP)),
 		 PortP->gs.wakeup_chars, PortP->gs.xmit_cnt); 
-    if ((PortP->gs.tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	PortP->gs.tty->ldisc.write_wakeup)
-      (PortP->gs.tty->ldisc.write_wakeup)(PortP->gs.tty);
+    tty_wakeup(PortP->gs.tty);
     rio_dprintk (RIO_DEBUG_INTR, "(%d/%d)\n",
 		PortP->gs.wakeup_chars, PortP->gs.xmit_cnt); 
-    wake_up_interruptible(&PortP->gs.tty->write_wait);
   }
 
 }

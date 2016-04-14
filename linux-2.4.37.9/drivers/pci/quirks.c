@@ -368,9 +368,6 @@ static void __init quirk_via_ioapic(struct pci_dev *dev)
  * non-x86 architectures (yes Via exists on PPC among other places),
  * we must mask the PCI_INTERRUPT_LINE value versus 0xf to get
  * interrupts delivered properly.
- *
- * TODO: When we have device-specific interrupt routers,
- * quirk_via_irqpic will go away from quirks.
  */
 
 /*
@@ -392,22 +389,6 @@ static void __init quirk_via_acpi(struct pci_dev *d)
 	if (irq && (irq != 2))
 		d->irq = irq;
 }
-
-static void __init quirk_via_irqpic(struct pci_dev *dev)
-{
-	u8 irq, new_irq = dev->irq & 0xf;
-
-	pci_read_config_byte(dev, PCI_INTERRUPT_LINE, &irq);
-
-	if (new_irq != irq) {
-		printk(KERN_INFO "PCI: Via IRQ fixup for %s, from %d to %d\n",
-		       dev->slot_name, irq, new_irq);
-
-		udelay(15);
-		pci_write_config_byte(dev, PCI_INTERRUPT_LINE, new_irq);
-	}
-}
-
 
 /*
  * PIIX3 USB: We have to disable USB interrupts that are
@@ -639,12 +620,14 @@ static void __init quirk_disable_pxb(struct pci_dev *pdev)
  *	VIA northbridges care about PCI_INTERRUPT_LINE
  */
  
-int interrupt_line_quirk;
+int via_interrupt_line_quirk;
 
 static void __init quirk_via_bridge(struct pci_dev *pdev)
 {
-	if(pdev->devfn == 0)
-		interrupt_line_quirk = 1;
+	if(pdev->devfn == 0) {
+		printk(KERN_INFO "PCI: Via IRQ fixup\n");
+		via_interrupt_line_quirk = 1;
+	}
 }
 	
 /* 
@@ -773,9 +756,6 @@ static struct pci_fixup pci_fixups[] __initdata = {
 #endif
 	{ PCI_FIXUP_HEADER,	PCI_VENDOR_ID_VIA,	PCI_DEVICE_ID_VIA_82C586_3,	quirk_via_acpi },
 	{ PCI_FIXUP_HEADER,	PCI_VENDOR_ID_VIA,	PCI_DEVICE_ID_VIA_82C686_4,	quirk_via_acpi },
-	{ PCI_FIXUP_FINAL,	PCI_VENDOR_ID_VIA,	PCI_DEVICE_ID_VIA_82C586_2,	quirk_via_irqpic },
-	{ PCI_FIXUP_FINAL,	PCI_VENDOR_ID_VIA,	PCI_DEVICE_ID_VIA_82C686_5,	quirk_via_irqpic },
-	{ PCI_FIXUP_FINAL,	PCI_VENDOR_ID_VIA,	PCI_DEVICE_ID_VIA_82C686_6,	quirk_via_irqpic },
 
 	{ PCI_FIXUP_FINAL, 	PCI_VENDOR_ID_AMD,	PCI_DEVICE_ID_AMD_VIPER_7410,	quirk_amd_ioapic },
 	{ PCI_FIXUP_FINAL,	PCI_VENDOR_ID_AMD,	PCI_DEVICE_ID_AMD_FE_GATE_700C, quirk_amd_ordering },

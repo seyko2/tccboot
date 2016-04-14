@@ -166,17 +166,9 @@ __u32 sctp_update_copy_cksum(__u8 *, __u8 *, __u16 count, __u32 cksum);
 int sctp_rcv(struct sk_buff *skb);
 void sctp_v4_err(struct sk_buff *skb, u32 info);
 void sctp_hash_established(struct sctp_association *);
-void __sctp_hash_established(struct sctp_association *);
 void sctp_unhash_established(struct sctp_association *);
-void __sctp_unhash_established(struct sctp_association *);
 void sctp_hash_endpoint(struct sctp_endpoint *);
-void __sctp_hash_endpoint(struct sctp_endpoint *);
 void sctp_unhash_endpoint(struct sctp_endpoint *);
-void __sctp_unhash_endpoint(struct sctp_endpoint *);
-struct sctp_association *__sctp_lookup_association(
-	const union sctp_addr *,
-	const union sctp_addr *,
-	struct sctp_transport **);
 struct sock *sctp_err_lookup(int family, struct sk_buff *,
 			     struct sctphdr *, struct sctp_endpoint **,
 			     struct sctp_association **,
@@ -185,6 +177,10 @@ void sctp_err_finish(struct sock *, struct sctp_endpoint *,
 			    struct sctp_association *);
 void sctp_icmp_frag_needed(struct sock *, struct sctp_association *,
 			   struct sctp_transport *t, __u32 pmtu);
+void sctp_icmp_proto_unreachable(struct sock *sk,
+				 struct sctp_endpoint *ep,
+				 struct sctp_association *asoc,
+				 struct sctp_transport *t);
 
 /*
  *  Section:  Macros, externs, and inlines
@@ -332,8 +328,6 @@ static inline int sctp_sysctl_jiffies_ms(ctl_table *table, int *name, int nlen,
 
 int sctp_v6_init(void);
 void sctp_v6_exit(void);
-void sctp_v6_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
-			int type, int code, int offset, __u32 info);
 
 #else /* #ifdef defined(CONFIG_IPV6) */
 
@@ -416,19 +410,6 @@ static inline int sctp_list_single_entry(struct list_head *head)
 	return ((head->next != head) && (head->next == head->prev));
 }
 
-/* Calculate the size (in bytes) occupied by the data of an iovec.  */
-static inline size_t get_user_iov_size(struct iovec *iov, int iovlen)
-{
-	size_t retval = 0;
-
-	for (; iovlen > 0; --iovlen) {
-		retval += iov->iov_len;
-		iov++;
-	}
-
-	return retval;
-}
-
 /* Generate a random jitter in the range of -50% ~ +50% of input RTO. */
 static inline __s32 sctp_jitter(__u32 rto)
 {
@@ -454,11 +435,14 @@ static inline __s32 sctp_jitter(__u32 rto)
 static inline int sctp_frag_point(const struct sctp_opt *sp, int pmtu)
 {
 	int frag = pmtu;
-	frag -= SCTP_IP_OVERHEAD + sizeof(struct sctp_data_chunk);
-	frag -= sizeof(struct sctp_sack_chunk);
+
+	frag -= sp->pf->af->net_header_len;
+	frag -= sizeof(struct sctphdr) + sizeof(struct sctp_data_chunk);
 
 	if (sp->user_frag)
 		frag = min_t(int, frag, sp->user_frag);
+
+	frag = min_t(int, frag, SCTP_MAX_CHUNK_LEN);
 
 	return frag;
 }
@@ -469,12 +453,13 @@ static inline int sctp_frag_point(const struct sctp_opt *sp, int pmtu)
  * there is room for a param header too.
  */
 #define sctp_walk_params(pos, chunk, member)\
-_sctp_walk_params((pos), (chunk), WORD_ROUND(ntohs((chunk)->chunk_hdr.length)), member)
+_sctp_walk_params((pos), (chunk), ntohs((chunk)->chunk_hdr.length), member)
 
 #define _sctp_walk_params(pos, chunk, end, member)\
 for (pos.v = chunk->member;\
      pos.v <= (void *)chunk + end - sizeof(sctp_paramhdr_t) &&\
-     pos.v <= (void *)chunk + end - WORD_ROUND(ntohs(pos.p->length)); \
+     pos.v <= (void *)chunk + end - ntohs(pos.p->length) &&\
+     ntohs(pos.p->length) >= sizeof(sctp_paramhdr_t);\
      pos.v += WORD_ROUND(ntohs(pos.p->length)))
 
 #define sctp_walk_errors(err, chunk_hdr)\
@@ -484,10 +469,17 @@ _sctp_walk_errors((err), (chunk_hdr), ntohs((chunk_hdr)->length))
 for (err = (sctp_errhdr_t *)((void *)chunk_hdr + \
 	    sizeof(sctp_chunkhdr_t));\
      (void *)err <= (void *)chunk_hdr + end - sizeof(sctp_errhdr_t) &&\
-     (void *)err <= (void *)chunk_hdr + end - \
-		    WORD_ROUND(ntohs(err->length));\
-     err = (sctp_errhdr_t *)((void *)err + \
-	    WORD_ROUND(ntohs(err->length))))
+     (void *)err <= (void *)chunk_hdr + end - ntohs(err->length) &&\
+     ntohs(err->length) >= sizeof(sctp_errhdr_t); \
+     err = (sctp_errhdr_t *)((void *)err + WORD_ROUND(ntohs(err->length))))
+
+#define sctp_walk_fwdtsn(pos, chunk)\
+_sctp_walk_fwdtsn((pos), (chunk), ntohs((chunk)->chunk_hdr->length) - sizeof(struct sctp_fwdtsn_chunk))
+
+#define _sctp_walk_fwdtsn(pos, chunk, end)\
+for (pos = chunk->subh.fwdtsn_hdr->skip;\
+     (void *)pos <= (void *)chunk->subh.fwdtsn_hdr->skip + end - sizeof(struct sctp_fwdtsn_skip);\
+     pos++)
 
 /* Round an int up to the next multiple of 4.  */
 #define WORD_ROUND(s) (((s)+3)&~3)
@@ -611,7 +603,7 @@ int static inline __sctp_state(const struct sctp_association *asoc,
 #define sctp_sstate(sk, state) __sctp_sstate((sk), (SCTP_SS_##state))
 int static inline __sctp_sstate(const struct sock *sk, sctp_sock_state_t state)
 {
-	return sk->sk_state == state;
+	return sk->state == state;
 }
 
 /* Map v4-mapped v6 address back to v4 address */

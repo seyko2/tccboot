@@ -620,14 +620,16 @@ static __u8 *fetch_item(__u8 *start, __u8 *end, struct hid_item *item)
 
 				case 2:
 					if ((end - start) >= 2) {
-						item->data.u16 = le16_to_cpu( get_unaligned(((__u16*)start)++));
+						item->data.u16 = le16_to_cpu(get_unaligned((__u16*)start));
+						start = (__u8 *)((__u16 *)start + 1);
 						return start;
 					}
 
 				case 3:
 					item->size++;
 					if ((end - start) >= 4) {
-						item->data.u32 = le32_to_cpu( get_unaligned(((__u32*)start)++));
+						item->data.u32 = le32_to_cpu(get_unaligned((__u32*)start));
+						start = (__u8 *)((__u32 *)start + 1);
 						return start;
 					}
 			}
@@ -1062,18 +1064,31 @@ static int hid_submit_out(struct hid_device *hid)
 static void hid_ctrl(struct urb *urb)
 {
 	struct hid_device *hid = urb->context;
+	unsigned long flags;
 
 	if (urb->status)
 		warn("ctrl urb status %d received", urb->status);
 
+	spin_lock_irqsave(&hid->outlock, flags);
+
 	hid->outtail = (hid->outtail + 1) & (HID_CONTROL_FIFO_SIZE - 1);
 
-	if (hid->outhead != hid->outtail)
-		hid_submit_out(hid);
+	if (hid->outhead != hid->outtail) {
+		if (hid_submit_out(hid)) {
+			clear_bit(HID_OUT_RUNNING, &hid->iofl);
+		}
+		spin_unlock_irqrestore(&hid->outlock, flags);
+		return;
+	}
+
+	clear_bit(HID_OUT_RUNNING, &hid->iofl);
+	spin_unlock_irqrestore(&hid->outlock, flags);
 }
 
 void hid_write_report(struct hid_device *hid, struct hid_report *report)
 {
+	unsigned long flags;
+
 	if (hid->report_enum[report->type].numbered) {
 		hid->out[hid->outhead].buffer[0] = report->id;
 		hid_output_report(report, hid->out[hid->outhead].buffer + 1);
@@ -1085,13 +1100,18 @@ void hid_write_report(struct hid_device *hid, struct hid_report *report)
 
 	hid->out[hid->outhead].dr.wValue = cpu_to_le16(((report->type + 1) << 8) | report->id);
 
+	spin_lock_irqsave(&hid->outlock, flags);
+
 	hid->outhead = (hid->outhead + 1) & (HID_CONTROL_FIFO_SIZE - 1);
 
 	if (hid->outhead == hid->outtail)
 		hid->outtail = (hid->outtail + 1) & (HID_CONTROL_FIFO_SIZE - 1);
 
-	if (hid->urbout.status != -EINPROGRESS)
-		hid_submit_out(hid);
+	if (!test_and_set_bit(HID_OUT_RUNNING, &hid->iofl))
+		if (hid_submit_out(hid))
+			clear_bit(HID_OUT_RUNNING, &hid->iofl);
+
+	spin_unlock_irqrestore(&hid->outlock, flags);
 }
 
 int hid_open(struct hid_device *hid)
@@ -1309,7 +1329,7 @@ static struct hid_device *usb_hid_configure(struct usb_device *dev, int ifnum)
 	for (n = 0; n < interface->bNumEndpoints; n++) {
 
 		struct usb_endpoint_descriptor *endpoint = &interface->endpoint[n];
-		int pipe, maxp;
+		int pipe, maxp, interval;
 
 		if ((endpoint->bmAttributes & 3) != 3)		/* Not an interrupt endpoint */
 			continue;
@@ -1319,8 +1339,11 @@ static struct hid_device *usb_hid_configure(struct usb_device *dev, int ifnum)
 
 		pipe = usb_rcvintpipe(dev, endpoint->bEndpointAddress);
 		maxp = usb_maxpacket(dev, pipe, usb_pipeout(pipe));
+		interval = endpoint->bInterval;
+		if (dev->speed == USB_SPEED_HIGH)
+			interval = 1 << (interval - 1);
 
-		FILL_INT_URB(&hid->urb, dev, pipe, hid->buffer, maxp > 32 ? 32 : maxp, hid_irq, hid, endpoint->bInterval);
+		FILL_INT_URB(&hid->urb, dev, pipe, hid->buffer, maxp > 32 ? 32 : maxp, hid_irq, hid, interval);
 
 		break;
 	}
@@ -1330,6 +1353,8 @@ static struct hid_device *usb_hid_configure(struct usb_device *dev, int ifnum)
 		hid_free_device(hid);
 		return NULL;
 	}
+
+	spin_lock_init(&hid->outlock);
 
 	hid->version = hdesc->bcdHID;
 	hid->country = hdesc->bCountryCode;
@@ -1457,8 +1482,8 @@ static int __init hid_init(void)
 
 static void __exit hid_exit(void)
 {
-	hiddev_exit();
 	usb_deregister(&hid_driver);
+	hiddev_exit();
 }
 
 module_init(hid_init);

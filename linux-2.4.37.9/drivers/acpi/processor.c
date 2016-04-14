@@ -2011,6 +2011,7 @@ acpi_processor_add_fs (
 		if (!acpi_device_dir(device))
 			return_VALUE(-ENODEV);
 	}
+	acpi_device_dir(device)->owner = THIS_MODULE;
 
 	/* 'info' [R] */
 	entry = create_proc_entry(ACPI_PROCESSOR_FILE_INFO,
@@ -2022,6 +2023,7 @@ acpi_processor_add_fs (
 	else {
 		entry->read_proc = acpi_processor_read_info;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'power' [R] */
@@ -2034,6 +2036,7 @@ acpi_processor_add_fs (
 	else {
 		entry->read_proc = acpi_processor_read_power;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'performance' [R/W] */
@@ -2047,6 +2050,7 @@ acpi_processor_add_fs (
 		entry->read_proc = acpi_processor_read_performance;
 		entry->write_proc = acpi_processor_write_performance;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'throttling' [R/W] */
@@ -2060,6 +2064,7 @@ acpi_processor_add_fs (
 		entry->read_proc = acpi_processor_read_throttling;
 		entry->write_proc = acpi_processor_write_throttling;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	/* 'limit' [R/W] */
@@ -2073,6 +2078,7 @@ acpi_processor_add_fs (
 		entry->read_proc = acpi_processor_read_limit;
 		entry->write_proc = acpi_processor_write_limit;
 		entry->data = acpi_driver_data(device);
+		entry->owner = THIS_MODULE;
 	}
 
 	return_VALUE(0);
@@ -2349,6 +2355,7 @@ acpi_processor_init (void)
 	acpi_processor_dir = proc_mkdir(ACPI_PROCESSOR_CLASS, acpi_root_dir);
 	if (!acpi_processor_dir)
 		return_VALUE(-ENODEV);
+	acpi_processor_dir->owner = THIS_MODULE;
 
 	result = acpi_bus_register_driver(&acpi_processor_driver);
 	if (result < 0) {

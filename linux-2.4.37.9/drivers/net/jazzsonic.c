@@ -14,6 +14,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/fcntl.h>
@@ -51,8 +52,8 @@
 
 #define SONIC_WRITE(reg,val)						\
 do {									\
-	*((volatile unsigned int *)base_addr+reg) = val;		\
-}
+	*((volatile unsigned int *)base_addr+(reg)) = (val);		\
+} while (0)
 
 
 /* use 0 for production, 1 for verification, >2 for debug */
@@ -84,7 +85,7 @@ static unsigned short known_revisions[] =
 /* Index to functions, as function prototypes. */
 
 extern int sonic_probe(struct net_device *dev);
-static int sonic_probe1(struct net_device *dev, unsigned int base_addr,
+static int sonic_probe1(struct net_device *dev, unsigned long base_addr,
                         unsigned int irq);
 
 
@@ -94,7 +95,7 @@ static int sonic_probe1(struct net_device *dev, unsigned int base_addr,
  */
 int __init sonic_probe(struct net_device *dev)
 {
-	unsigned int base_addr = dev ? dev->base_addr : 0;
+	unsigned long base_addr = dev ? dev->base_addr : 0;
 	int i;
 
 	/*
@@ -117,7 +118,7 @@ int __init sonic_probe(struct net_device *dev)
 	return -ENODEV;
 }
 
-static int __init sonic_probe1(struct net_device *dev, unsigned int base_addr,
+static int __init sonic_probe1(struct net_device *dev, unsigned long base_addr,
                                unsigned int irq)
 {
 	static unsigned version_printed;

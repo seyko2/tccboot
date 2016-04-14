@@ -327,7 +327,7 @@ extern int (*console_blank_hook)(int);
  * Save a segment register away
  */
 #define savesegment(seg, where) \
-		__asm__ __volatile__("movl %%" #seg ",%0" : "=m" (where))
+		__asm__ __volatile__("mov %%" #seg ",%0" : "=m" (where))
 
 /*
  * Maximum number of events stored
@@ -553,7 +553,7 @@ static inline void apm_restore_cpus(unsigned long mask)
 
 #ifdef APM_ZERO_SEGS
 #	define APM_DECL_SEGS \
-		unsigned int saved_fs; unsigned int saved_gs;
+		unsigned short saved_fs; unsigned short saved_gs;
 #	define APM_DO_SAVE_SEGS \
 		savesegment(fs, saved_fs); savesegment(gs, saved_gs)
 #	define APM_DO_ZERO_SEGS \

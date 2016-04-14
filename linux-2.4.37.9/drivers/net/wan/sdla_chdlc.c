@@ -3868,11 +3868,7 @@ static void tty_poll_task (void* data)
 	if ((tty=card->tty)==NULL)
 		return;
 	
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup){
-		(tty->ldisc.write_wakeup)(tty);
-	}
-	wake_up_interruptible(&tty->write_wait);
+	tty_wakeup(tty);
 #if defined(SERIAL_HAVE_POLL_WAIT) || \
          (defined LINUX_2_1 && LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,15))
 	wake_up_interruptible(&tty->poll_wait);
@@ -4098,6 +4094,7 @@ static void wanpipe_tty_receive(sdla_t *card, unsigned addr, unsigned int len)
 	char fp=0;
 	struct tty_struct *tty;
 	int i;
+	struct tty_ldisc *ld;
 	
 	if (!card->tty_open){
 		dbg_printk(KERN_INFO "%s: TTY not open during receive\n",
@@ -4185,8 +4182,11 @@ static void wanpipe_tty_receive(sdla_t *card, unsigned addr, unsigned int len)
 			len -= offset;
 		}
 		sdla_peek(&card->hw, addr, card->tty_rx+offset, len);
-		if (tty->ldisc.receive_buf){
-			tty->ldisc.receive_buf(tty,card->tty_rx,&fp,olen);
+		ld = tty_ldisc_ref(tty);
+		if (ld) {
+			if (ld->receive_buf)
+				ld->receive_buf(tty,card->tty_rx,&fp,olen);
+			tty_ldisc_deref(ld);
 		}else{
 			if (net_ratelimit()){
 				printk(KERN_INFO 
@@ -4493,14 +4493,11 @@ static void wanpipe_tty_flush_buffer(struct tty_struct *tty)
 	if (!tty)
 		return;
 	
-	wake_up_interruptible(&tty->write_wait);
 #if defined(SERIAL_HAVE_POLL_WAIT) || \
          (defined LINUX_2_1 && LINUX_VERSION_CODE >= KERNEL_VERSION(2,2,15))
 	wake_up_interruptible(&tty->poll_wait);
 #endif
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup)(tty);
+	tty_wakeup(tty);
 
 	return;
 }

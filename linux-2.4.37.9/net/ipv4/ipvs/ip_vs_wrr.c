@@ -140,6 +140,8 @@ static int ip_vs_wrr_update_svc(struct ip_vs_service *svc)
 	mark->cl = &svc->destinations;
 	mark->mw = ip_vs_wrr_max_weight(svc);
 	mark->di = ip_vs_wrr_gcd_weight(svc);
+	if (mark->cw > mark->mw)
+		mark->cw = 0;
 	return 0;
 }
 
@@ -175,7 +177,7 @@ ip_vs_wrr_schedule(struct ip_vs_service *svc, struct iphdr *iph)
 			if (mark->cw <= 0) {
 				mark->cw = mark->mw;
 				/*
-				 * Still zero, which means no availabe servers.
+				 * Still zero, which means no available servers.
 				 */
 				if (mark->cw == 0) {
 					mark->cl = &svc->destinations;

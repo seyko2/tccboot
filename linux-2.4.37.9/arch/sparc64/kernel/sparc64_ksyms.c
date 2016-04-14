@@ -63,7 +63,6 @@ extern unsigned prom_cpu_nodes[64];
 extern void die_if_kernel(char *str, struct pt_regs *regs);
 void _sigpause_common (unsigned int set, struct pt_regs *);
 extern void *__bzero(void *, size_t);
-extern void *__bzero_noasi(void *, size_t);
 extern void *__memscan_zero(void *, size_t);
 extern void *__memscan_generic(void *, int, size_t);
 extern int __memcmp(const void *, const void *, __kernel_size_t);
@@ -89,6 +88,7 @@ extern long sparc32_open(const char * filename, int flags, int mode);
 extern int register_ioctl32_conversion(unsigned int cmd, int (*handler)(unsigned int, unsigned int, unsigned long, struct file *));
 extern int unregister_ioctl32_conversion(unsigned int cmd);
 extern int io_remap_page_range(unsigned long from, unsigned long offset, unsigned long size, pgprot_t prot, int space);
+extern void (*prom_palette)(int);
                 
 extern int __ashrdi3(int, int);
 
@@ -172,18 +172,21 @@ EXPORT_SYMBOL(__down_interruptible);
 EXPORT_SYMBOL(__up);
 
 /* Atomic counter implementation. */
-EXPORT_SYMBOL(__atomic_add);
-EXPORT_SYMBOL(__atomic_sub);
+EXPORT_SYMBOL(atomic_add);
+EXPORT_SYMBOL(atomic_add_ret);
+EXPORT_SYMBOL(atomic_sub);
+EXPORT_SYMBOL(atomic_sub_ret);
 #ifdef CONFIG_SMP
 EXPORT_SYMBOL(atomic_dec_and_lock);
 #endif
 
 /* Atomic bit operations. */
-EXPORT_SYMBOL(___test_and_set_bit);
-EXPORT_SYMBOL(___test_and_clear_bit);
-EXPORT_SYMBOL(___test_and_change_bit);
-EXPORT_SYMBOL(___test_and_set_le_bit);
-EXPORT_SYMBOL(___test_and_clear_le_bit);
+EXPORT_SYMBOL(test_and_set_bit);
+EXPORT_SYMBOL(test_and_clear_bit);
+EXPORT_SYMBOL(test_and_change_bit);
+EXPORT_SYMBOL(set_bit);
+EXPORT_SYMBOL(clear_bit);
+EXPORT_SYMBOL(change_bit);
 
 EXPORT_SYMBOL(ivector_table);
 EXPORT_SYMBOL(enable_irq);
@@ -323,8 +326,6 @@ EXPORT_SYMBOL(sparc32_open);
 #endif
 
 /* Special internal versions of library functions. */
-EXPORT_SYMBOL(__memcpy);
-EXPORT_SYMBOL(__memset);
 EXPORT_SYMBOL(_clear_page);
 EXPORT_SYMBOL(clear_user_page);
 EXPORT_SYMBOL(copy_user_page);
@@ -333,14 +334,17 @@ EXPORT_SYMBOL(__memscan_zero);
 EXPORT_SYMBOL(__memscan_generic);
 EXPORT_SYMBOL(__memcmp);
 EXPORT_SYMBOL(__strncmp);
-EXPORT_SYMBOL(__memmove);
+EXPORT_SYMBOL(__memset);
 
 EXPORT_SYMBOL(csum_partial_copy_sparc64);
 
 /* Moving data to/from userspace. */
-EXPORT_SYMBOL(__copy_to_user);
-EXPORT_SYMBOL(__copy_from_user);
-EXPORT_SYMBOL(__strncpy_from_user);
+EXPORT_SYMBOL(___copy_to_user);
+EXPORT_SYMBOL(___copy_from_user);
+EXPORT_SYMBOL(___copy_in_user);
+EXPORT_SYMBOL(copy_to_user_fixup);
+EXPORT_SYMBOL(copy_from_user_fixup);
+EXPORT_SYMBOL(copy_in_user_fixup);
 EXPORT_SYMBOL(__bzero_noasi);
 
 /* Various address conversion macros use this. */
@@ -355,6 +359,7 @@ EXPORT_SYMBOL_NOVERS(__ret_efault);
 /* No version information on these, as gcc produces such symbols. */
 EXPORT_SYMBOL_NOVERS(memcmp);
 EXPORT_SYMBOL_NOVERS(memcpy);
+EXPORT_SYMBOL_NOVERS(memchr);
 EXPORT_SYMBOL_NOVERS(memset);
 EXPORT_SYMBOL_NOVERS(memmove);
 
@@ -371,3 +376,5 @@ EXPORT_SYMBOL(do_BUG);
 #endif
 
 EXPORT_SYMBOL(tick_ops);
+
+EXPORT_SYMBOL(prom_palette);

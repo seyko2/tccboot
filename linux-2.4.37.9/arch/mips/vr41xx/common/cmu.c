@@ -40,6 +40,7 @@
  *  - Added support for NEC VR4133.
  */
 #include <linux/init.h>
+#include <linux/spinlock.h>
 #include <linux/types.h>
 
 #include <asm/cpu.h>
@@ -66,16 +67,19 @@
  #define MSKMAC0	0x0002
  #define MSKMAC1	0x0004
 
-static u32 vr41xx_cmu_base;
-static u16 cmuclkmsk, cmuclkmsk2;
+static uint32_t cmu_base;
+static uint16_t cmuclkmsk, cmuclkmsk2;
+static spinlock_t cmu_lock;
 
-#define read_cmuclkmsk()	readw(vr41xx_cmu_base)
+#define read_cmuclkmsk()	readw(cmu_base)
 #define read_cmuclkmsk2()	readw(CMUCLKMSK2)
-#define write_cmuclkmsk()	writew(cmuclkmsk, vr41xx_cmu_base)
+#define write_cmuclkmsk()	writew(cmuclkmsk, cmu_base)
 #define write_cmuclkmsk2()	writew(cmuclkmsk2, CMUCLKMSK2)
 
-void vr41xx_clock_supply(unsigned int clock)
+void vr41xx_supply_clock(unsigned int clock)
 {
+	spin_lock_irq(&cmu_lock);
+
 	switch (clock) {
 	case PIU_CLOCK:
 		cmuclkmsk |= MSKPIU;
@@ -129,10 +133,14 @@ void vr41xx_clock_supply(unsigned int clock)
 		write_cmuclkmsk2();
 	else
 		write_cmuclkmsk();
+
+	spin_unlock_irq(&cmu_lock);
 }
 
-void vr41xx_clock_mask(unsigned int clock)
+void vr41xx_mask_clock(unsigned int clock)
 {
+	spin_lock_irq(&cmu_lock);
+
 	switch (clock) {
 	case PIU_CLOCK:
 		cmuclkmsk &= ~MSKPIU;
@@ -198,6 +206,8 @@ void vr41xx_clock_mask(unsigned int clock)
 		write_cmuclkmsk2();
 	else
 		write_cmuclkmsk();
+
+	spin_unlock_irq(&cmu_lock);
 }
 
 void __init vr41xx_cmu_init(void)
@@ -205,14 +215,14 @@ void __init vr41xx_cmu_init(void)
 	switch (current_cpu_data.cputype) {
         case CPU_VR4111:
         case CPU_VR4121:
-                vr41xx_cmu_base = CMUCLKMSK_TYPE1;
+                cmu_base = CMUCLKMSK_TYPE1;
                 break;
         case CPU_VR4122:
         case CPU_VR4131:
-                vr41xx_cmu_base = CMUCLKMSK_TYPE2;
+                cmu_base = CMUCLKMSK_TYPE2;
                 break;
         case CPU_VR4133:
-                vr41xx_cmu_base = CMUCLKMSK_TYPE2;
+                cmu_base = CMUCLKMSK_TYPE2;
 		cmuclkmsk2 = read_cmuclkmsk2();
                 break;
 	default:
@@ -221,4 +231,6 @@ void __init vr41xx_cmu_init(void)
         }
 
 	cmuclkmsk = read_cmuclkmsk();
+
+	spin_lock_init(&cmu_lock);
 }

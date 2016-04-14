@@ -69,8 +69,9 @@ running once the system is up.
 	53c7xx=		[HW,SCSI] Amiga SCSI controllers.
 
 	acpi=		[HW,ACPI] Advanced Configuration and Power Interface 
-		force	Force ACPI on, even if blacklisted platform
-		off	Disable ACPI
+		force	Enable ACPI if default was off
+		off	Disable ACPI if default was on
+		noirq	Do not use ACPI for IRQ routing (see pci=noacpi)
 		ht	Limit ACPI to boot-time LAPIC enumeration for HT,
 			disabling the run-time AML interpreter.
 		strict	Be less tolerant of platforms that are not
@@ -429,6 +430,10 @@ running once the system is up.
 			initial RAM disk.
 
 	nointroute	[IA-64]
+
+	nokeyb		[HW] Skip console keyboard initialization for systems 
+			without a console keyboard, removable keyboard, or 
+			bladecenters with a USB console keyboard switch, etc.
  
 	nolapic		[IA-32,APIC] Do not enable or use the local APIC.
 
@@ -555,6 +560,9 @@ running once the system is up.
 	ro		[KNL] Mount root device read-only on boot.
 
 	root=		[KNL] root filesystem.
+
+	rootdelay=	[KNL] Delay (in seconds) to pause before attempting to
+			mount the root filesystem
 
 	rootflags=	[KNL] set root filesystem mount option string
 

@@ -198,6 +198,9 @@ static int set_bit_in_list_bitmap(struct super_block *p_s_sb, int block,
 static void cleanup_bitmap_list(struct super_block *p_s_sb,
                                 struct reiserfs_list_bitmap *jb) {
   int i;
+  if (jb->bitmaps == NULL)
+	return ;
+
   for (i = 0 ; i < SB_BMAP_NR(p_s_sb) ; i++) {
     if (jb->bitmaps[i]) {
       free_bitmap_node(p_s_sb, jb->bitmaps[i]) ;
@@ -2064,8 +2067,11 @@ int journal_init(struct super_block *p_s_sb, const char * j_dev_name,
     INIT_LIST_HEAD(&SB_JOURNAL(p_s_sb)->j_bitmap_nodes) ;
     INIT_LIST_HEAD (&SB_JOURNAL(p_s_sb)->j_prealloc_list);
 
-    reiserfs_allocate_list_bitmaps(p_s_sb, SB_JOURNAL(p_s_sb)->j_list_bitmap, 
-				   SB_BMAP_NR(p_s_sb)) ;
+    if (reiserfs_allocate_list_bitmaps(p_s_sb,
+				       SB_JOURNAL(p_s_sb)->j_list_bitmap, 
+				       SB_BMAP_NR(p_s_sb)))
+	goto free_and_return ;
+
     allocate_bitmap_nodes(p_s_sb) ;
 
     /* reserved for journal area support */

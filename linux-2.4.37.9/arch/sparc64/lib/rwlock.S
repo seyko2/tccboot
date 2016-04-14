@@ -24,12 +24,13 @@ __read_lock: /* %o0 = lock_ptr */
 99:	retl
 	 nop
 __read_unlock: /* %o0 = lock_ptr */
+	membar		#StoreLoad | #LoadLoad
 	lduw		[%o0], %g5
 	sub		%g5, 1, %g7
 	cas		[%o0], %g5, %g7
 	cmp		%g5, %g7
 	be,pt		%xcc, 99b
-	 membar		#StoreLoad | #StoreStore
+	 nop
 	ba,a,pt		%xcc, __read_unlock
 
 __read_wait_for_writer:

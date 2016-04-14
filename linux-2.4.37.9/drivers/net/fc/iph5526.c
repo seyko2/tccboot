@@ -689,8 +689,8 @@ int index, no_of_entries = 0;
 			prev_IMQ_index = current_IMQ_index;
 		}
 	} /*end of for loop*/		
-	return;
 	LEAVE("tachyon_interrupt");
+       return;
 }
 
 
@@ -2933,7 +2933,7 @@ static void iph5526_timeout(struct net_device *dev)
 {
 	struct fc_info *fi = (struct fc_info*)dev->priv;
 	printk(KERN_WARNING "%s: timed out on send.\n", dev->name);
-	fi->fc_stats.rx_dropped++;
+	fi->fc_stats.tx_dropped++;
 	dev->trans_start = jiffies;
 	netif_wake_queue(dev);
 }
@@ -2976,7 +2976,7 @@ static int iph5526_send_packet(struct sk_buff *skb, struct net_device *dev)
 		fi->fc_stats.tx_packets++;
 	}
 	else
-		fi->fc_stats.rx_dropped++;
+		fi->fc_stats.tx_dropped++;
 	dev->trans_start = jiffies;
 	/* We free up the IP buffers in the OCI_interrupt handler.
 	 * status == 0 implies that the frame was not transmitted. So the
@@ -3374,8 +3374,8 @@ u_int s_id;
 		q = q->next;
 	}
 	DPRINTK1("Port Name does not match. Txing LOGO.");
-	return 0;
 	LEAVE("validate_login");
+       return 0;
 }
 
 static void add_to_address_cache(struct fc_info *fi, u_int *base_ptr)
@@ -3758,8 +3758,10 @@ struct pci_dev *pdev = NULL;
 		sprintf(fi->name, "fc%d", count);
 
 		host = scsi_register(tmpt, sizeof(struct iph5526_hostdata));
-		if(host==NULL)
+		if(host==NULL) {
+			kfree(fc[count]);
 			return no_of_hosts;
+		}
 			
 		hostdata = (struct iph5526_hostdata *)host->hostdata;
 		memset(hostdata, 0 , sizeof(struct iph5526_hostdata));

@@ -25,6 +25,7 @@
 #include <linux/mm.h>
 #include <linux/sysctl.h>
 #include <linux/smp.h>
+#include <linux/seq_file.h>
 
 #include <asm/bitops.h>
 #include <asm/errno.h>
@@ -887,6 +888,8 @@ pfm_smpl_buffer_alloc(pfm_context_t *ctx, unsigned long *which_pmds, unsigned lo
 		DBprintk(("Cannot allocate vma\n"));
 		goto error_kmem;
 	}
+	memset(vma, 0, sizeof(*vma));
+
 	/*
 	 * partially initialize the vma for the sampling buffer
 	 *
@@ -3166,62 +3169,111 @@ pfm_interrupt_handler(int irq, void *arg, struct pt_regs *regs)
 	}
 }
 
-/* for debug only */
-static int
-pfm_proc_info(char *page)
+#define PFM_PROC_SHOW_HEADER	((void *)NR_CPUS+1)
+  
+static void *
+pfm_proc_start(struct seq_file *m, loff_t *pos)
 {
-	char *p = page;
-	int i;
-
-	p += sprintf(p, "fastctxsw              : %s\n", pfm_sysctl.fastctxsw > 0 ? "Yes": "No");
-	p += sprintf(p, "ovfl_mask              : 0x%lx\n", pmu_conf.ovfl_val);
-
-	for(i=0; i < NR_CPUS; i++) {
-		if (cpu_online(i) == 0) continue;
-		p += sprintf(p, "CPU%-2d overflow intrs   : %lu\n", i, pfm_stats[i].pfm_ovfl_intr_count);
-		p += sprintf(p, "CPU%-2d spurious intrs   : %lu\n", i, pfm_stats[i].pfm_spurious_ovfl_intr_count);
-		p += sprintf(p, "CPU%-2d recorded samples : %lu\n", i, pfm_stats[i].pfm_recorded_samples_count);
-		p += sprintf(p, "CPU%-2d smpl buffer full : %lu\n", i, pfm_stats[i].pfm_full_smpl_buffer_count);
-		p += sprintf(p, "CPU%-2d syst_wide        : %d\n", i, cpu_data(i)->pfm_syst_info & PFM_CPUINFO_SYST_WIDE ? 1 : 0);
-		p += sprintf(p, "CPU%-2d dcr_pp           : %d\n", i, cpu_data(i)->pfm_syst_info & PFM_CPUINFO_DCR_PP ? 1 : 0);
-		p += sprintf(p, "CPU%-2d exclude idle     : %d\n", i, cpu_data(i)->pfm_syst_info & PFM_CPUINFO_EXCL_IDLE ? 1 : 0);
-		p += sprintf(p, "CPU%-2d owner            : %d\n", i, pmu_owners[i].owner ? pmu_owners[i].owner->pid: -1);
-		p += sprintf(p, "CPU%-2d activations      : %lu\n", i, pmu_owners[i].activation_number);
+	if (*pos == 0) {
+		return PFM_PROC_SHOW_HEADER;
 	}
 
-	LOCK_PFS();
-
-	p += sprintf(p, "proc_sessions          : %u\n"
-			"sys_sessions           : %u\n"
-			"sys_use_dbregs         : %u\n"
-			"ptrace_use_dbregs      : %u\n", 
-			pfm_sessions.pfs_task_sessions, 
-			pfm_sessions.pfs_sys_sessions,
-			pfm_sessions.pfs_sys_use_dbregs,
-			pfm_sessions.pfs_ptrace_use_dbregs);
-
-	UNLOCK_PFS();
-
-	return p - page;
+	while (*pos <= NR_CPUS) {
+		if (cpu_online(*pos - 1)) {
+			return (void *)*pos;
+		}
+		++*pos;
+	}
+	return NULL;
 }
-
-/* /proc interface, for debug only */
-static int
-perfmon_read_entry(char *page, char **start, off_t off, int count, int *eof, void *data)
+ 
+static void *
+pfm_proc_next(struct seq_file *m, void *v, loff_t *pos)
 {
-	int len = pfm_proc_info(page);
-
-	if (len <= off+count) *eof = 1;
-
-	*start = page + off;
-	len   -= off;
-
-	if (len>count) len = count;
-	if (len<0) len = 0;
-
-	return len;
+	++*pos;
+	return pfm_proc_start(m, pos);
+}
+ 
+static void
+pfm_proc_stop(struct seq_file *m, void *v)
+{
 }
 
+static void
+pfm_proc_show_header(struct seq_file *m)
+{
+ 	seq_printf(m,
+		"perfmon version           : %u.%u\n"
+		"fastctxsw                 : %s\n"
+		"ovfl_mask                 : 0x%lx\n",
+		PFM_VERSION_MAJ, PFM_VERSION_MIN,
+		pfm_sysctl.fastctxsw > 0 ? "Yes": "No",
+		pmu_conf.ovfl_val);
+  
+  	LOCK_PFS();
+  
+ 	seq_printf(m,
+ 		"proc_sessions             : %u\n"
+ 		"sys_sessions              : %u\n"
+ 		"sys_use_dbregs            : %u\n"
+ 		"ptrace_use_dbregs         : %u\n",
+ 		pfm_sessions.pfs_task_sessions, 
+ 		pfm_sessions.pfs_sys_sessions,
+ 		pfm_sessions.pfs_sys_use_dbregs,
+ 		pfm_sessions.pfs_ptrace_use_dbregs);
+  
+  	UNLOCK_PFS();
+}
+  
+static int
+pfm_proc_show(struct seq_file *m, void *v)
+{
+	int cpu;
+
+	if (v == PFM_PROC_SHOW_HEADER) {
+		pfm_proc_show_header(m);
+		return 0;
+	}
+
+	/* show info for CPU (v - 1) */
+
+	cpu = (long)v - 1;
+	seq_printf(m,
+		"CPU%-2d overflow intrs      : %lu\n"
+		"CPU%-2d spurious intrs      : %lu\n"
+		"CPU%-2d recorded samples    : %lu\n"
+		"CPU%-2d smpl buffer full    : %lu\n"
+		"CPU%-2d syst_wide           : %d\n"
+		"CPU%-2d dcr_pp              : %d\n"
+		"CPU%-2d exclude idle        : %d\n"
+		"CPU%-2d owner               : %d\n"
+		"CPU%-2d activations         : %lu\n",
+		cpu, pfm_stats[cpu].pfm_ovfl_intr_count,
+		cpu, pfm_stats[cpu].pfm_spurious_ovfl_intr_count,
+		cpu, pfm_stats[cpu].pfm_recorded_samples_count,
+		cpu, pfm_stats[cpu].pfm_full_smpl_buffer_count,
+		cpu, cpu_data(cpu)->pfm_syst_info & PFM_CPUINFO_SYST_WIDE ? 1 : 0,
+		cpu, cpu_data(cpu)->pfm_syst_info & PFM_CPUINFO_DCR_PP ? 1 : 0,
+		cpu, cpu_data(cpu)->pfm_syst_info & PFM_CPUINFO_EXCL_IDLE ? 1 : 0,
+		cpu, pmu_owners[cpu].owner ? pmu_owners[cpu].owner->pid: -1,
+		cpu, pmu_owners[cpu].activation_number);
+
+	return 0;
+}
+ 
+struct seq_operations pfm_seq_ops = {
+	.start =	pfm_proc_start,
+ 	.next =		pfm_proc_next,
+ 	.stop =		pfm_proc_stop,
+ 	.show =		pfm_proc_show
+};
+ 
+static int
+pfm_proc_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &pfm_seq_ops);
+}
+ 
 /*
  * we come here as soon as local_cpu_data->pfm_syst_wide is set. this happens
  * during pfm_enable() hence before pfm_start(). We cannot assume monitoring
@@ -4448,6 +4500,13 @@ pfm_remove_alternate_syswide_subsystem(pfm_intr_handler_desc_t *hdl)
 	return 0;
 }
 
+static struct file_operations pfm_proc_fops = {
+	.open		= pfm_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
 /*
  * perfmon initialization routine, called from the initcall() table
  */
@@ -4498,11 +4557,15 @@ pfm_init(void)
 	/*
 	 * for now here for debug purposes
 	 */
-	perfmon_dir = create_proc_read_entry ("perfmon", 0, 0, perfmon_read_entry, NULL);
+ 	perfmon_dir = create_proc_entry("perfmon", S_IRUGO, NULL);
 	if (perfmon_dir == NULL) {
 		printk(KERN_ERR "perfmon: cannot create /proc entry, perfmon disabled\n");
 		return -1;
 	}
+  	/*
+ 	 * install customized file operations for /proc/perfmon entry
+ 	 */
+ 	perfmon_dir->proc_fops = &pfm_proc_fops;
 
 	/*
 	 * create /proc/sys/kernel/perfmon

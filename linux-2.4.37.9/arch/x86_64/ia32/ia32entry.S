@@ -52,6 +52,7 @@ ENTRY(ia32_cstar_target)
 ENTRY(ia32_syscall)
 	swapgs	
 	sti
+	movl %eax,%eax	
 	pushq %rax
 	cld
 	SAVE_ARGS
@@ -71,8 +72,8 @@ ia32_tracesys:
 	movq %rsp,%rdi        /* &pt_regs -> arg1 */
 	call syscall_trace
 	LOAD_ARGS ARGOFFSET  /* reload args from stack in case ptrace changed it */
-	addq $ARGOFFSET,%rsp	
-	cmpl $(IA32_NR_syscalls),%eax
+	RESTORE_REST
+	cmpq $(IA32_NR_syscalls),%rax
 	jae  1f
 	IA32_ARG_FIXUP
 	call *ia32_sys_call_table(,%rax,8)
@@ -81,7 +82,7 @@ ia32_tracesys_end:
 1:	SAVE_REST
 	movq %rsp,%rdi		/* &pt_regs -> arg1 */ 
 	call syscall_trace
-	addq $ARGOFFSET,%rsp
+	RESTORE_REST
 	jmp int_ret_from_sys_call
 		
 ia32_badsys:
@@ -112,8 +113,17 @@ quiet_ni_syscall:
 	PTREGSCALL stub32_fork, sys32_fork
 	PTREGSCALL stub32_clone, sys32_clone
 	PTREGSCALL stub32_vfork, sys32_vfork
-	PTREGSCALL stub32_iopl, sys_iopl
 	PTREGSCALL stub32_rt_sigsuspend, sys_rt_sigsuspend
+
+	.macro PTREGSCALL3 label, func, arg
+	.globl \label
+\label:
+	leaq \func(%rip),%rax
+	leaq -ARGOFFSET+8(%rsp),\arg	/* 8 for return address */
+	jmp  ia32_ptregs_common	
+	.endm
+
+	PTREGSCALL3 stub32_iopl, sys_iopl, %rsi
 
 ENTRY(ia32_ptregs_common)
 	popq %r11

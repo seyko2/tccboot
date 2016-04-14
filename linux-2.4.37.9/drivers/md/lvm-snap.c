@@ -119,7 +119,6 @@ static inline lv_block_exception_t *lvm_find_exception_table(kdev_t
 	unsigned long mask = lv->lv_snapshot_hash_mask;
 	int chunk_size = lv->lv_chunk_size;
 	lv_block_exception_t *ret;
-	int i = 0;
 
 	hash_table =
 	    &hash_table[hashfn(org_dev, org_start, mask, chunk_size)];
@@ -132,15 +131,9 @@ static inline lv_block_exception_t *lvm_find_exception_table(kdev_t
 		exception = list_entry(next, lv_block_exception_t, hash);
 		if (exception->rsector_org == org_start &&
 		    exception->rdev_org == org_dev) {
-			if (i) {
-				/* fun, isn't it? :) */
-				list_del(next);
-				list_add(next, hash_table);
-			}
 			ret = exception;
 			break;
 		}
-		i++;
 	}
 	return ret;
 }
@@ -554,15 +547,17 @@ int lvm_snapshot_alloc_hash_table(lv_t * lv)
 
 int lvm_snapshot_alloc(lv_t * lv_snap)
 {
-	int ret;
+	int ret, max_sectors;
 
 	/* allocate kiovec to do chunk io */
 	ret = alloc_kiovec(1, &lv_snap->lv_iobuf);
 	if (ret)
 		goto out;
 
-	ret = lvm_snapshot_alloc_iobuf_pages(lv_snap->lv_iobuf,
-					     KIO_MAX_SECTORS);
+	max_sectors = KIO_MAX_SECTORS << (PAGE_SHIFT - 9);
+
+	ret =
+	    lvm_snapshot_alloc_iobuf_pages(lv_snap->lv_iobuf, max_sectors);
 	if (ret)
 		goto out_free_kiovec;
 

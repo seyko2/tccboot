@@ -160,6 +160,7 @@
 
 #ifdef CONFIG_AU1X00_UART
 #include <asm/au1000.h>
+#ifdef CONFIG_SOC_AU1000
 #define AU1000_SERIAL_PORT_DEFNS                              \
     { .baud_base = 0, .port = UART0_ADDR, .irq = AU1000_UART0_INT,  \
       .flags = STD_COM_FLAGS, .type = 1 },                        \
@@ -169,6 +170,44 @@
       .flags = STD_COM_FLAGS, .type = 1 },    \
     { .baud_base = 0, .port = UART3_ADDR, .irq = AU1000_UART3_INT,  \
       .flags = STD_COM_FLAGS, .type = 1 },
+#endif
+
+#ifdef CONFIG_SOC_AU1500
+#define AU1000_SERIAL_PORT_DEFNS                              \
+    { .baud_base = 0, .port = UART0_ADDR, .irq = AU1500_UART0_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },                        \
+    { .baud_base = 0, .port = UART3_ADDR, .irq = AU1500_UART3_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },
+#endif
+
+#ifdef CONFIG_SOC_AU1100
+#define AU1000_SERIAL_PORT_DEFNS                              \
+    { .baud_base = 0, .port = UART0_ADDR, .irq = AU1100_UART0_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },                        \
+    { .baud_base = 0, .port = UART1_ADDR, .irq = AU1100_UART1_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },     \
+    { .baud_base = 0, .port = UART3_ADDR, .irq = AU1100_UART3_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },
+#endif
+
+#ifdef CONFIG_SOC_AU1550
+#define AU1000_SERIAL_PORT_DEFNS                              \
+    { .baud_base = 0, .port = UART0_ADDR, .irq = AU1550_UART0_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },                        \
+    { .baud_base = 0, .port = UART1_ADDR, .irq = AU1550_UART1_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },     \
+    { .baud_base = 0, .port = UART3_ADDR, .irq = AU1550_UART3_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },
+#endif
+
+#ifdef CONFIG_SOC_AU1200
+#define AU1000_SERIAL_PORT_DEFNS                              \
+    { .baud_base = 0, .port = UART0_ADDR, .irq = AU1200_UART0_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },                        \
+    { .baud_base = 0, .port = UART1_ADDR, .irq = AU1200_UART1_INT,  \
+      .flags = STD_COM_FLAGS, .type = 1 },
+#endif
+
 #else
 #define AU1000_SERIAL_PORT_DEFNS
 #endif
@@ -323,6 +362,24 @@
 #define MOMENCO_OCELOT_C_SERIAL_PORT_DEFNS
 #endif
 
+#ifdef CONFIG_PMC_STRETCH
+/* 16550 Compatible. FIXME: Need to get the defines below */
+
+#define PMC_STRETCH_BASE_BAUD 		( 1843200 / 16 )
+#define	PMC_STRETCH_IRQ			0
+#define	PMC_STRETCH_BASE_ADDRESS	0xbd110000
+
+#define	_PMC_STRETCH_SERIAL_INIT(int, base)				\
+	{ baud_base: PMC_STRETCH_BASE_BAUD, irq: int,			\
+	  flags: STD_COM_FLAGS,	iomem_base: (u8 *) base,		\
+	  iomem_reg_shift: 2, io_type: SERIAL_IO_MEM }
+
+#define	PMC_STRETCH_SERIAL_PORT_DEFNS						\
+	_PMC_STRETCH_SERIAL_INIT(PMC_STRETCH_IRQ, PMC_STRETCH_BASE_ADDRESS)
+#else
+#define	PMC_STRETCH_SERIAL_PORT_DEFNS
+#endif		
+
 #ifdef CONFIG_MOMENCO_JAGUAR_ATX
 /* Ordinary NS16552 duart with a 20MHz crystal.  */
 #define JAGUAR_ATX_BASE_BAUD ( 20000000 / 16 )
@@ -425,6 +482,7 @@
 	MOMENCO_OCELOT_G_SERIAL_PORT_DEFNS	\
 	MOMENCO_OCELOT_C_SERIAL_PORT_DEFNS	\
 	MOMENCO_JAGUAR_ATX_SERIAL_PORT_DEFNS	\
+	PMC_STRETCH_SERIAL_PORT_DEFNS		\
 	SEAD_SERIAL_PORT_DEFNS			\
 	STD_SERIAL_PORT_DEFNS			\
 	TITAN_SERIAL_PORT_DEFNS			\

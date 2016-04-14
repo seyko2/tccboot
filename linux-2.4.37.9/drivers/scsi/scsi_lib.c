@@ -422,19 +422,20 @@ static Scsi_Cmnd *__scsi_end_request(Scsi_Cmnd * SCpnt,
 		return SCpnt;
 	}
 
-	/*
-	 * This request is done.  If there is someone blocked waiting for this
-	 * request, wake them up.  Typically used to wake up processes trying
-	 * to swap a page into memory.
-	 */
-	if (req->waiting)
-		complete(req->waiting);
-
 	spin_lock_irqsave(&io_request_lock, flags);
 	req_finished_io(req);
 	spin_unlock_irqrestore(&io_request_lock, flags);
 
 	add_blkdev_randomness(MAJOR(req->rq_dev));
+
+	/*
+	 * This request is done.  If there is someone blocked waiting for this
+	 * request, wake them up.  Do this last, as 'req' might be on the stack
+	 * and thus not valid right after the complete() call if the task
+	 * exist
+	 */
+	if (req->waiting)
+		complete(req->waiting);
 
 	/*
 	 * This will goose the queue request function at the end, so we don't

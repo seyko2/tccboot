@@ -335,6 +335,7 @@ acpi_pci_irq_enable (
 {
 	int			irq = 0;
 	u8			pin = 0;
+	extern int via_interrupt_line_quirk;
 
 	ACPI_FUNCTION_TRACE("acpi_pci_irq_enable");
 
@@ -373,7 +374,7 @@ acpi_pci_irq_enable (
 	if (!irq) {
 		printk(KERN_WARNING PREFIX "No IRQ known for interrupt pin %c of device %s", ('A' + pin), dev->slot_name);
 		/* Interrupt Line values above 0xF are forbidden */
-		if (dev->irq && dev->irq >= 0xF) {
+		if (dev->irq && (dev->irq <= 0xF)) {
 			printk(" - using IRQ %d\n", dev->irq);
 			return_VALUE(dev->irq);
 		}
@@ -382,6 +383,9 @@ acpi_pci_irq_enable (
 			return_VALUE(0);
 		}
  	}
+
+	if (via_interrupt_line_quirk)
+		pci_write_config_byte(dev, PCI_INTERRUPT_LINE, irq & 15);
 
 	dev->irq = irq;
 

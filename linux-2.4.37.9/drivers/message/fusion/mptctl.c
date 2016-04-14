@@ -29,7 +29,7 @@
  *
  *      (see also mptbase.c)
  *
- *  Copyright (c) 1999-2002 LSI Logic Corporation
+ *  Copyright (c) 1999-2004 LSI Logic Corporation
  *  Originally By: Steven J. Ralston, Noah Romer
  *  (mailto:sjralston1@netscape.net)
  *  (mailto:mpt_linux_developer@lsil.com)
@@ -93,7 +93,7 @@
 #include "../../scsi/scsi.h"
 #include "../../scsi/hosts.h"
 
-#define COPYRIGHT	"Copyright (c) 1999-2001 LSI Logic Corporation"
+#define COPYRIGHT	"Copyright (c) 1999-2004 LSI Logic Corporation"
 #define MODULEAUTHOR	"Steven J. Ralston, Noah Romer, Pamela Delaney"
 #include "mptbase.h"
 #include "mptctl.h"
@@ -209,6 +209,14 @@ mptctl_syscall_down(MPT_ADAPTER *ioc, int nonblock)
 		return -EBUSY;
 	}
 
+#ifdef MPT_CONFIG_COMPAT
+	if (!nonblock) {
+		if (down_interruptible(&mptctl_syscall_sem_ioc[ioc->id]))
+			rc = -ERESTARTSYS;
+	} else {
+		rc = -EPERM;
+	}
+#else
 	if (nonblock) {
 		if (down_trylock(&mptctl_syscall_sem_ioc[ioc->id]))
 			rc = -EAGAIN;
@@ -216,6 +224,7 @@ mptctl_syscall_down(MPT_ADAPTER *ioc, int nonblock)
 		if (down_interruptible(&mptctl_syscall_sem_ioc[ioc->id]))
 			rc = -ERESTARTSYS;
 	}
+#endif
 	dctlprintk((KERN_INFO MYNAM "::mptctl_syscall_down return %d\n", rc));
 	return rc;
 }
@@ -1357,16 +1366,19 @@ mptctl_gettargetinfo (unsigned long arg)
 	MPT_ADAPTER		*ioc;
 	struct Scsi_Host	*sh;
 	MPT_SCSI_HOST		*hd;
+	VirtDevice		*vdev;
 	char			*pmem;
 	int			*pdata;
+	IOCPage2_t		*pIoc2;
+	IOCPage3_t		*pIoc3;
 	int			iocnum;
 	int			numDevices = 0;
 	unsigned int		max_id;
-	int			ii, jj, indexed_lun, lun_index;
+	int			id, jj, indexed_lun, lun_index;
 	u32			lun;
 	int			maxWordsLeft;
 	int			numBytes;
-	u8			port;
+	u8			port, devType, bus_id;
 
 	dctlprintk(("mptctl_gettargetinfo called.\n"));
 	if (copy_from_user(&karg, uarg, sizeof(struct mpt_ioctl_targetinfo))) {
@@ -1433,29 +1445,63 @@ mptctl_gettargetinfo (unsigned long arg)
 		 * sh->max_id = maximum target ID + 1
 		 */
 		if (hd && hd->Targets) {
-			ii = 0;
-			while (ii <= max_id) {
-				if (hd->Targets[ii]) {
+			mpt_findImVolumes(ioc);
+			pIoc2 = ioc->spi_data.pIocPg2;
+			for ( id = 0; id <= max_id; ) {
+				if ( pIoc2 && pIoc2->NumActiveVolumes ) {
+					if ( id == pIoc2->RaidVolume[0].VolumeID ) {
+						if (maxWordsLeft <= 0) {
+							printk(KERN_ERR "mptctl_gettargetinfo - "
+			"buffer is full but volume is available on ioc %d\n, numDevices=%d", iocnum, numDevices);
+							goto data_space_full;
+						}
+						if ( ( pIoc2->RaidVolume[0].Flags & MPI_IOCPAGE2_FLAG_VOLUME_INACTIVE ) == 0 )
+                        				devType = 0x80;
+                    				else
+                        				devType = 0xC0;
+						bus_id = pIoc2->RaidVolume[0].VolumeBus;
+	            				numDevices++;
+                    				*pdata = ( (devType << 24) | (bus_id << 8) | id );
+						dctlprintk((KERN_ERR "mptctl_gettargetinfo - "
+		"volume ioc=%d target=%x numDevices=%d pdata=%p\n", iocnum, *pdata, numDevices, pdata));
+                    				pdata++;
+						--maxWordsLeft;
+						goto next_id;
+					} else {
+						pIoc3 = ioc->spi_data.pIocPg3;
+            					for ( jj = 0; jj < pIoc3->NumPhysDisks; jj++ ) {
+                    					if ( pIoc3->PhysDisk[jj].PhysDiskID == id )
+								goto next_id;
+						}
+					}
+				}
+				if ( (vdev = hd->Targets[id]) ) {
 					for (jj = 0; jj <= MPT_LAST_LUN; jj++) {
 						lun_index = (jj >> 5);
 						indexed_lun = (jj % 32);
 						lun = (1 << indexed_lun);
-						if (hd->Targets[ii]->luns[lun_index] & lun) {
+						if (vdev->luns[lun_index] & lun) {
+							if (maxWordsLeft <= 0) {
+								printk(KERN_ERR "mptctl_gettargetinfo - "
+			"buffer is full but more targets are available on ioc %d numDevices=%d\n", iocnum, numDevices);
+								goto data_space_full;
+							}
+							bus_id = vdev->bus_id;
 							numDevices++;
-							*pdata = (jj << 16) | ii;
-							--maxWordsLeft;
-
+                            				*pdata = ( (jj << 16) | (bus_id << 8) | id );
+							dctlprintk((KERN_ERR "mptctl_gettargetinfo - "
+		"target ioc=%d target=%x numDevices=%d pdata=%p\n", iocnum, *pdata, numDevices, pdata));
 							pdata++;
-
-							if (maxWordsLeft <= 0)
-								break;
+							--maxWordsLeft;
 						}
 					}
 				}
-				ii++;
+next_id:
+				id++;
 			}
 		}
 	}
+data_space_full:
 	karg.numDevices = numDevices;
 
 	/* Copy part of the data from kernel memory to user memory
@@ -1693,12 +1739,11 @@ mptctl_replace_fw (unsigned long arg)
 	struct mpt_ioctl_replace_fw	*uarg = (struct mpt_ioctl_replace_fw *) arg;
 	struct mpt_ioctl_replace_fw	 karg;
 	MPT_ADAPTER		 *ioc;
-	fw_image_t		 **fwmem = NULL;
+	u8			 *fwmem = NULL;
 	int			 iocnum;
 	int			 newFwSize;
-	int			 num_frags, alloc_sz;
+	int			 alloc_sz;
 	int			 ii;
-	u32			 offset;
 
 	dctlprintk(("mptctl_replace_fw called.\n"));
 	if (copy_from_user(&karg, uarg, sizeof(struct mpt_ioctl_replace_fw))) {
@@ -1715,51 +1760,39 @@ mptctl_replace_fw (unsigned long arg)
 		return -ENODEV;
 	}
 
-	/* If not caching FW, return 0
+	/* If caching FW, Free the old FW image
 	 */
-	if ((ioc->cached_fw == NULL) && (ioc->alt_ioc) && (ioc->alt_ioc->cached_fw == NULL))
+	if (ioc->cached_fw) {
+		mpt_free_fw_memory(ioc);
+	} else
 		return 0;
 
 	/* Allocate memory for the new FW image
 	 */
 	newFwSize = karg.newImageSize;
-	fwmem = mpt_alloc_fw_memory(ioc, newFwSize, &num_frags, &alloc_sz);
-	if (fwmem == NULL)
+	if ( newFwSize & 0x01 )
+		newFwSize += 1;
+	if ( newFwSize & 0x02 )
+		newFwSize += 2;
+
+	mpt_alloc_fw_memory(ioc, newFwSize);
+	if (ioc->cached_fw == NULL)
 		return -ENOMEM;
 
-	offset = 0;
-	for (ii = 0; ii < num_frags; ii++) {
-		/* Copy the data from user memory to kernel space
-		 */
-		if (copy_from_user(fwmem[ii]->fw, uarg->newImage + offset, fwmem[ii]->size)) {
-			printk(KERN_ERR "%s@%d::mptctl_replace_fw - "
-				"Unable to read in mpt_ioctl_replace_fw image @ %p\n",
-					__FILE__, __LINE__, (void*)uarg);
-
-			mpt_free_fw_memory(ioc, fwmem);
-			return -EFAULT;
-		}
-		offset += fwmem[ii]->size;
-	}
-
-
-	/* Free the old FW image
+	/* Copy the data from user memory to kernel space
 	 */
-	if (ioc->cached_fw) {
-		mpt_free_fw_memory(ioc, 0);
-		ioc->cached_fw = fwmem;
-		ioc->alloc_total += alloc_sz;
-	} else if ((ioc->alt_ioc) && (ioc->alt_ioc->cached_fw)) {
-		mpt_free_fw_memory(ioc->alt_ioc, 0);
-		ioc->alt_ioc->cached_fw = fwmem;
-		ioc->alt_ioc->alloc_total += alloc_sz;
+	if (copy_from_user(ioc->cached_fw, uarg->newImage, newFwSize)) {
+		printk(KERN_ERR "%s@%d::mptctl_replace_fw - "
+			"Unable to read in mpt_ioctl_replace_fw image @ %p\n",
+				__FILE__, __LINE__, (void*)uarg);
+
+		mpt_free_fw_memory(ioc);
+		return -EFAULT;
 	}
 
 	/* Update IOCFactsReply
 	 */
 	ioc->facts.FWImageSize = newFwSize;
-	if (ioc->alt_ioc)
-		ioc->alt_ioc->facts.FWImageSize = newFwSize;
 
 	return 0;
 }
@@ -2520,6 +2553,20 @@ mptctl_hp_hostinfo(unsigned long arg, unsigned int data_size)
 		}
 	}
 
+	cfg.pageAddr = 0;
+	cfg.action = MPI_TOOLBOX_ISTWI_READ_WRITE_TOOL;
+	cfg.dir = MPI_TB_ISTWI_FLAGS_READ;
+	cfg.timeout = 10;
+	pbuf = pci_alloc_consistent(ioc->pcidev, 4, &buf_dma);
+	if (pbuf) {
+		cfg.physAddr = buf_dma;
+		if ((mpt_toolbox(ioc, &cfg)) == 0) {
+			karg.rsvd = *(u32 *)pbuf;
+		}
+		pci_free_consistent(ioc->pcidev, 4, pbuf, buf_dma);
+		pbuf = NULL;
+	}
+
 	/* Copy the data from kernel memory to user memory
 	 */
 	if (copy_to_user((char *)arg, &karg,
@@ -2900,8 +2947,7 @@ int __init mptctl_init(void)
 	if (++where && err) goto out_fail;
 	err = register_ioctl32_conversion(HP_GETHOSTINFO, compat_mptctl_ioctl);
 	if (++where && err) goto out_fail;
-	err = register_ioctl32_conversion(HP_GETTARGETINFO,
-	    				compat_mptctl_ioctl);
+	err = register_ioctl32_conversion(HP_GETTARGETINFO, compat_mptctl_ioctl);
 	if (++where && err) goto out_fail;
 #endif
 

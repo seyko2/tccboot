@@ -218,7 +218,6 @@ typedef struct uhci {
 	int timeout_urbs;
 	struct pci_dev *uhci_pci;
 	struct pci_pool *desc_pool;
-	long last_error_time;          // last error output in uhci_interrupt()
 } uhci_t, *puhci_t;
 
 

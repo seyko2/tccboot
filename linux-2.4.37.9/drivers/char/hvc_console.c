@@ -217,10 +217,7 @@ static void hvc_poll(int index)
 
 		if (hp->do_wakeup) {
 			hp->do_wakeup = 0;
-			if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP))
-			    && tty->ldisc.write_wakeup)
-				(tty->ldisc.write_wakeup)(tty);
-			wake_up_interruptible(&tty->write_wait);
+			tty_wakeup(tty);
 		}
 	}
 

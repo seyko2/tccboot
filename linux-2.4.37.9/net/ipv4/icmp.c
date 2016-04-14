@@ -281,11 +281,15 @@ static void icmp_out_count(int type)
  *	Checksum each fragment, and on the first include the headers and final checksum.
  */
  
-static int icmp_glue_bits(const void *p, char *to, unsigned int offset, unsigned int fraglen)
+static int icmp_glue_bits(const void *p, char *to, unsigned int offset,
+                          unsigned int fraglen, struct sk_buff *skb)
 {
 	struct icmp_bxm *icmp_param = (struct icmp_bxm *)p;
 	struct icmphdr *icmph;
 	unsigned int csum;
+
+	if (icmp_pointers[icmp_param->data.icmph.type].error)
+		nf_ct_attach(skb, icmp_param->skb);
 
 	if (offset) {
 		icmp_param->csum=skb_copy_and_csum_bits(icmp_param->skb,

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2000, 2001, 2002, 2003 Broadcom Corporation
+ * Copyright (C) 2004  Maciej W. Rozycki
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,7 +27,7 @@
 
 /* Boot all other cpus in the system, initialize them, and
    bring them into the boot fn */
-void prom_boot_secondary(int cpu, unsigned long sp, unsigned long gp)
+int prom_boot_secondary(int cpu, unsigned long sp, unsigned long gp)
 {
 	int retval;
 	
@@ -34,6 +35,8 @@ void prom_boot_secondary(int cpu, unsigned long sp, unsigned long gp)
 	if (retval != 0) {
 		printk("cfe_start_cpu(%i) returned %i\n" , cpu, retval);
 	}
+
+	return retval;
 }
 
 void prom_init_secondary(void)

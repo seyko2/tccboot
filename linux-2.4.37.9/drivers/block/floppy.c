@@ -2548,7 +2548,7 @@ static void copy_buffer(int ssize, int max_sector, int max_sector_2)
 			       current_count_sectors);
 			if (CT(COMMAND) == FD_READ)
 				printk("read\n");
-			if (CT(COMMAND) == FD_READ)
+			if (CT(COMMAND) == FD_WRITE)
 				printk("write\n");
 			break;
 		}
@@ -2889,7 +2889,7 @@ static int make_raw_rw_request(void)
 			       current_count_sectors);
 			if (CT(COMMAND) == FD_READ)
 				printk("read\n");
-			if (CT(COMMAND) == FD_READ)
+			if (CT(COMMAND) == FD_WRITE)
 				printk("write\n");
 			return 0;
 		}
@@ -4254,6 +4254,14 @@ int __init floppy_init(void)
 		floppy_track_buffer = NULL;
 		max_buffer_sectors = 0;
 	}
+
+	/*
+	 * Small 10 msec delay to let through any interrupt that
+	 * initialization might have triggered, to not
+	 * confuse detection:
+	 */
+	current->state = TASK_UNINTERRUPTIBLE;
+	schedule_timeout(HZ/100 + 1);
 
 	for (i = 0; i < N_FDC; i++) {
 		fdc = i;

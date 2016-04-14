@@ -29,6 +29,9 @@
  *
  * Support for Rx NAPI, Rx checksum offload, IOCTL and ETHTOOL added
  * Manish Lachwani (lachwani@pmc-sierra.com) - 09/16/2003
+ *
+ * Modified for later version of Linux 2.4 kernel
+ * Manish Lachwani (lachwani@pmc-sierra.com) - 04/29/2004
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -77,11 +80,19 @@
  *  > 3	lots of change-of-state messages.
  *  > 4	EXTENSIVE data/descriptor dumps.
  */
+
 #ifdef GT64240_DEBUG
 static int gt64240_debug = GT64240_DEBUG;
 #else
 static int gt64240_debug = 0;
 #endif
+
+static int debug = -1;
+
+#define GT64240_MSG_ENABLE	(NETIF_MSG_DRV          | \
+				NETIF_MSG_PROBE        | \
+				NETIF_MSG_LINK)
+
 
 /********************************************************/
 
@@ -254,119 +265,84 @@ static int read_MII(struct net_device *dev, u32 reg)
 	return (int) (smir & smirDataMask);
 }
 
-/* Ethtool support */
-static int netdev_ethtool_ioctl(struct net_device *dev, void *useraddr)
+static void gp_get_drvinfo (struct net_device *dev, 
+				struct ethtool_drvinfo *info)
+{
+	strcpy(info->driver, "gt64260");
+	strcpy(info->version, version);
+}
+
+static int gp_get_settings(struct net_device *dev, 
+				struct ethtool_cmd *cmd)
 {
 	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
-	u32 ethcmd;
+	int rc;
 
-	if (copy_from_user(&ethcmd, useraddr, sizeof(ethcmd)))
-		return -EFAULT;
-
-	switch (ethcmd) {
-
-		/* Get driver info */
-	case ETHTOOL_GDRVINFO:{
-			struct ethtool_drvinfo info = { ETHTOOL_GDRVINFO };
-			strncpy(info.driver, "gt64260",
-				sizeof(info.driver) - 1);
-			strncpy(info.version, version,
-				sizeof(info.version) - 1);
-			if (copy_to_user(useraddr, &info, sizeof(info)))
-				return -EFAULT;
-			return 0;
-		}
-		/* get settings */
-	case ETHTOOL_GSET:{
-			struct ethtool_cmd ecmd = { ETHTOOL_GSET };
-			spin_lock_irq(&gp->lock);
-			mii_ethtool_gset(&gp->mii_if, &ecmd);
-			spin_unlock_irq(&gp->lock);
-			if (copy_to_user(useraddr, &ecmd, sizeof(ecmd)))
-				return -EFAULT;
-			return 0;
-		}
-		/* set settings */
-	case ETHTOOL_SSET:{
-			int r;
-			struct ethtool_cmd ecmd;
-			if (copy_from_user(&ecmd, useraddr, sizeof(ecmd)))
-				return -EFAULT;
-			spin_lock_irq(&gp->lock);
-			r = mii_ethtool_sset(&gp->mii_if, &ecmd);
-			spin_unlock_irq(&gp->lock);
-			return r;
-		}
-		/* restart autonegotiation */
-	case ETHTOOL_NWAY_RST:{
-			return mii_nway_restart(&gp->mii_if);
-		}
-		/* get link status */
-	case ETHTOOL_GLINK:{
-			struct ethtool_value edata = { ETHTOOL_GLINK };
-			edata.data = mii_link_ok(&gp->mii_if);
-			if (copy_to_user(useraddr, &edata, sizeof(edata)))
-				return -EFAULT;
-			return 0;
-		}
-		/* get message-level */
-	case ETHTOOL_GMSGLVL:{
-			struct ethtool_value edata = { ETHTOOL_GMSGLVL };
-			edata.data = 0;	/* XXX */
-			if (copy_to_user(useraddr, &edata, sizeof(edata)))
-				return -EFAULT;
-			return 0;
-		}
-		/* set message-level */
-	case ETHTOOL_SMSGLVL:{
-			struct ethtool_value edata;
-			if (copy_from_user
-			    (&edata, useraddr, sizeof(edata)))
-				return -EFAULT;
-			/* debug = edata.data; *//* XXX */
-			return 0;
-		}
-	}
-	return -EOPNOTSUPP;
+	spin_lock_irq(&gp->lock);
+	rc = mii_ethtool_gset(&gp->mii_if, cmd);
+	spin_unlock_irq(&gp->lock);
+	return rc;
 }
+
+static int gp_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+{
+	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
+	int rc;
+
+	spin_lock_irq(&gp->lock);
+	rc = mii_ethtool_sset(&gp->mii_if, cmd);
+	spin_unlock_irq(&gp->lock);
+	return rc;
+}
+
+static int gp_nway_reset(struct net_device *dev)
+{
+	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
+	return mii_nway_restart(&gp->mii_if);
+}
+
+static u32 gp_get_link(struct net_device *dev)
+{
+	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
+	return mii_link_ok(&gp->mii_if);
+}
+
+static u32 gp_get_msglevel(struct net_device *dev)
+{
+	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
+	return gp->msg_enable;
+}
+
+static void gp_set_msglevel(struct net_device *dev, u32 value)
+{
+	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
+	gp->msg_enable = value;
+}
+
+static struct ethtool_ops gp_ethtool_ops = {
+	.get_drvinfo		= gp_get_drvinfo,
+	.get_settings		= gp_get_settings,
+	.set_settings		= gp_set_settings,
+	.nway_reset		= gp_nway_reset,
+	.get_link		= gp_get_link,
+	.get_msglevel		= gp_get_msglevel,
+	.set_msglevel		= gp_set_msglevel,
+};
 
 static int gt64240_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
+	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
 	struct mii_ioctl_data *data =
 	    (struct mii_ioctl_data *) &rq->ifr_data;
-	int phy = dev->base_addr & 0x1f;
 	int retval;
 
-	switch (cmd) {
-	case SIOCETHTOOL:
-		retval = netdev_ethtool_ioctl(dev, (void *) rq->ifr_data);
-		break;
+	if (!netif_running(dev))
+		return -EINVAL;
 
-	case SIOCGMIIPHY:	/* Get address of MII PHY in use. */
-	case SIOCDEVPRIVATE:	/* for binary compat, remove in 2.5 */
-		data->phy_id = phy;
-		/* Fall through */
+	spin_lock_irq(&gp->lock);
+	retval = generic_mii_ioctl(&gp->mii_if, data, cmd, NULL);
+	spin_unlock_irq(&gp->lock);
 
-	case SIOCGMIIREG:	/* Read MII PHY register. */
-	case SIOCDEVPRIVATE + 1:	/* for binary compat, remove in 2.5 */
-		data->val_out = read_MII(dev, data->reg_num & 0x1f);
-		retval = 0;
-		break;
-
-	case SIOCSMIIREG:	/* Write MII PHY register. */
-	case SIOCDEVPRIVATE + 2:	/* for binary compat, remove in 2.5 */
-		if (!capable(CAP_NET_ADMIN)) {
-			retval = -EPERM;
-		} else {
-			write_MII(dev, data->reg_num & 0x1f, data->val_in);
-			retval = 0;
-		}
-		break;
-
-	default:
-		retval = -EOPNOTSUPP;
-		break;
-	}
 	return retval;
 }
 
@@ -714,17 +690,6 @@ static void disable_ether_irq(struct net_device *dev)
 	GT64240ETH_WRITE(gp, GT64240_ETH_INT_MASK, 0);
 }
 
-#ifdef GT64240_NAPI
-static inline void __netif_rx_complete(struct net_device *dev)
-{
-	if (!test_bit(__LINK_STATE_RX_SCHED, &dev->state))
-		BUG();
-	list_del(&dev->poll_list);
-	clear_bit(__LINK_STATE_RX_SCHED, &dev->state);
-}
-#endif
-
-
 /*
  * Probe for a GT64240 ethernet controller.
  */
@@ -770,21 +735,12 @@ static int __init gt64240_probe1(uint32_t ioaddr, int irq, int port_num)
 	static unsigned version_printed = 0;
 	struct gt64240_private *gp = NULL;
 	int retval;
-	u16 vendor_id, device_id;
 	u32 cpuConfig;
 	unsigned char chip_rev;
 
-	// probe for GT64240 by reading PCI0 vendor/device ID register
-	pcibios_read_config_word(0, 0, PCI_VENDOR_ID, &vendor_id);
-	pcibios_read_config_word(0, 0, PCI_DEVICE_ID, &device_id);
-
-	dev = init_etherdev(NULL, sizeof(struct gt64240_private));
-
-	if (gt64240_debug > 2)
-		printk
-		    ("%s: gt64240_probe1 vendId=0x%08x, devId=0x%08x, addr=0x%08lx, irq=%d.,port=%d.\n",
-		     dev->name, vendor_id, device_id, ioaddr, irq,
-		     port_num);
+	dev = alloc_etherdev(sizeof(struct gt64240_private));
+	if (!dev)
+		return -ENOMEM;
 
 	if (irq < 0) {
 		printk
@@ -801,12 +757,8 @@ static int __init gt64240_probe1(uint32_t ioaddr, int irq, int port_num)
 	       (cpuConfig & (1 << 12)) ? "little" : "big");
 
 	printk
-	    ("%s: GT64240 found at ioaddr 0x%lx, irq %d., PCI devID=%x\n",
-	     dev->name, ioaddr, irq, device_id);
-
-	/* Allocate a new 'dev' if needed. */
-	if (dev == NULL)
-		dev = init_etherdev(0, sizeof(struct gt64240_private));
+	    ("%s: GT64240 found at ioaddr 0x%lx, irq %d.\n",
+	     dev->name, ioaddr, irq);
 
 	if (gt64240_debug && version_printed++ == 0)
 		printk("%s: %s", dev->name, version);
@@ -821,23 +773,9 @@ static int __init gt64240_probe1(uint32_t ioaddr, int irq, int port_num)
 	printk("%s: HW Address ", dev->name);
 	dump_hw_addr(dev->dev_addr);
 
-	/* Initialize our private structure. */
-	if (dev->priv == NULL) {
-
-		gp = (struct gt64240_private *) kmalloc(sizeof(*gp),
-							GFP_KERNEL);
-		if (gp == NULL) {
-			retval = -ENOMEM;
-			goto free_region;
-		}
-
-		dev->priv = gp;
-	}
-
 	gp = dev->priv;
 
-	memset(gp, 0, sizeof(*gp));	// clear it
-
+	gp->msg_enable = (debug < 0 ? GT64240_MSG_ENABLE : debug);
 	gp->port_num = port_num;
 	gp->io_size = GT64240_ETH_IO_SIZE;
 	gp->port_offset = port_num * GT64240_ETH_IO_SIZE;
@@ -927,12 +865,12 @@ static int __init gt64240_probe1(uint32_t ioaddr, int irq, int port_num)
 	dev->poll = gt64240_poll;
 	dev->weight = 64;
 #endif
+	dev->ethtool_ops = &gp_ethtool_ops;
 
 	/* Fill in the fields of the device structure with ethernet values. */
-	ether_setup(dev);
 	return 0;
 
-      free_region:
+free_region:
 	release_region(ioaddr, gp->io_size);
 	unregister_netdev(dev);
 	if (dev->priv != NULL)
@@ -1036,7 +974,6 @@ static void reset_rx(struct net_device *dev)
 static int gt64240_init(struct net_device *dev)
 {
 	struct gt64240_private *gp = (struct gt64240_private *) dev->priv;
-	u32 ciu;
 
 	if (gt64240_debug > 3) {
 		printk("%s: gt64240_init: dev=%p\n", dev->name, dev);
@@ -1292,7 +1229,7 @@ static int gt64240_poll(struct net_device *netdev, int *budget)
 	    (struct gt64240_private *) netdev->priv;
 	unsigned long flags;
 	int done = 1, orig_budget, work_done;
-	u32 intMask, status = GT64240ETH_READ(gp, GT64240_ETH_INT_CAUSE);
+	u32 status = GT64240ETH_READ(gp, GT64240_ETH_INT_CAUSE);
 
 	spin_lock_irqsave(&gp->lock, flags);
 	gt64240_tx_fill(netdev, status);
@@ -1315,6 +1252,8 @@ static int gt64240_poll(struct net_device *netdev, int *budget)
 	}
 
 	spin_unlock_irqrestore(&gp->lock, flags);
+
+	return (done ? 0 : 1);
 }
 #endif
 
@@ -1852,3 +1791,6 @@ static struct net_device_stats *gt64240_get_stats(struct net_device *dev)
 
 	return &gp->stats;
 }
+MODULE_AUTHOR("MontaVista Software, Inc.");
+MODULE_DESCRIPTION("Ethernet driver for the MIPS GT96100 Advanced Communication Controller. Modified for the Gallileo/Marvell GT-64240 Communication Controller.");
+MODULE_LICENSE("GPL");

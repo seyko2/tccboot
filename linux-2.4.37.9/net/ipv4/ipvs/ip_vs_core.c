@@ -188,10 +188,10 @@ ip_vs_sched_persist(struct ip_vs_service *svc, struct iphdr *iph)
 	if (portp[1] == svc->port) {
 		/* Check if a template already exists */
 		if (svc->port != FTPPORT)
-			ct = ip_vs_conn_in_get(iph->protocol, snet, 0,
+			ct = ip_vs_ct_in_get(iph->protocol, snet, 0,
 					       iph->daddr, portp[1]);
 		else
-			ct = ip_vs_conn_in_get(iph->protocol, snet, 0,
+			ct = ip_vs_ct_in_get(iph->protocol, snet, 0,
 					       iph->daddr, 0);
 
 		if (!ct || !ip_vs_check_template(ct)) {
@@ -216,14 +216,14 @@ ip_vs_sched_persist(struct ip_vs_service *svc, struct iphdr *iph)
 						    snet, 0,
 						    iph->daddr, portp[1],
 						    dest->addr, dest->port,
-						    0,
+						    IP_VS_CONN_F_TEMPLATE,
 						    dest);
 			else
 				ct = ip_vs_conn_new(iph->protocol,
 						    snet, 0,
 						    iph->daddr, 0,
 						    dest->addr, 0,
-						    0,
+						    IP_VS_CONN_F_TEMPLATE,
 						    dest);
 			if (ct == NULL)
 				return NULL;
@@ -242,10 +242,10 @@ ip_vs_sched_persist(struct ip_vs_service *svc, struct iphdr *iph)
 		 * port zero template: <protocol,caddr,0,vaddr,0,daddr,0>
 		 */
 		if (svc->fwmark)
-			ct = ip_vs_conn_in_get(IPPROTO_IP, snet, 0,
+			ct = ip_vs_ct_in_get(IPPROTO_IP, snet, 0,
 					       htonl(svc->fwmark), 0);
 		else
-			ct = ip_vs_conn_in_get(iph->protocol, snet, 0,
+			ct = ip_vs_ct_in_get(iph->protocol, snet, 0,
 					       iph->daddr, 0);
 
 		if (!ct || !ip_vs_check_template(ct)) {
@@ -270,14 +270,14 @@ ip_vs_sched_persist(struct ip_vs_service *svc, struct iphdr *iph)
 						    snet, 0,
 						    htonl(svc->fwmark), 0,
 						    dest->addr, 0,
-						    0,
+						    IP_VS_CONN_F_TEMPLATE,
 						    dest);
 			else
 				ct = ip_vs_conn_new(iph->protocol,
 						    snet, 0,
 						    iph->daddr, 0,
 						    dest->addr, 0,
-						    0,
+						    IP_VS_CONN_F_TEMPLATE,
 						    dest);
 			if (ct == NULL)
 				return NULL;
@@ -506,7 +506,7 @@ static int ip_vs_out_icmp(struct sk_buff **skb_p)
 
 	/* reassemble IP fragments, but will it happen in ICMP packets?? */
 	if (skb->nh.iph->frag_off & __constant_htons(IP_MF|IP_OFFSET)) {
-		skb = ip_defrag(skb);
+		skb = ip_defrag(skb, IP_DEFRAG_VS_OUT);
 		if (!skb)
 			return NF_STOLEN;
 		*skb_p = skb;
@@ -658,7 +658,7 @@ static unsigned int ip_vs_out(unsigned int hooknum,
 
 	/* reassemble IP fragments */
 	if (iph->frag_off & __constant_htons(IP_MF|IP_OFFSET)) {
-		skb = ip_defrag(skb);
+		skb = ip_defrag(skb, IP_DEFRAG_VS_OUT);
 		if (!skb)
 			return NF_STOLEN;
 		iph = skb->nh.iph;
@@ -1106,16 +1106,15 @@ static unsigned int ip_vs_in(unsigned int hooknum,
 
 	/* Check the server status */
 	if (cp->dest && !(cp->dest->flags & IP_VS_DEST_F_AVAILABLE)) {
-		/* the destination server is not availabe */
+		/* the destination server is not available */
 
 		if (sysctl_ip_vs_expire_nodest_conn) {
 			/* try to expire the connection immediately */
 			ip_vs_conn_expire_now(cp);
-		} else {
-			/* don't restart its timer, and silently
-			   drop the packet. */
-			__ip_vs_conn_put(cp);
 		}
+		/* don't restart its timer, and silently
+		   drop the packet. */
+		__ip_vs_conn_put(cp);
 		return NF_DROP;
 	}
 
@@ -1131,7 +1130,7 @@ static unsigned int ip_vs_in(unsigned int hooknum,
 	/* increase its packet counter and check if it is needed
 	   to be synchronized */
 	atomic_inc(&cp->in_pkts);
-	if (ip_vs_sync_state == IP_VS_STATE_MASTER &&
+	if (ip_vs_sync_state & IP_VS_STATE_MASTER &&
 	    (cp->protocol != IPPROTO_TCP ||
 	     cp->state == IP_VS_S_ESTABLISHED) &&
 	    (atomic_read(&cp->in_pkts) % 50 == sysctl_ip_vs_sync_threshold))
@@ -1164,7 +1163,7 @@ static unsigned int ip_vs_forward_icmp(unsigned int hooknum,
 		return NF_ACCEPT;
 
 	if (iph->frag_off & __constant_htons(IP_MF|IP_OFFSET)) {
-		skb = ip_defrag(skb);
+		skb = ip_defrag(skb, IP_DEFRAG_VS_FWD);
 		if (!skb)
 			return NF_STOLEN;
 		*skb_p = skb;

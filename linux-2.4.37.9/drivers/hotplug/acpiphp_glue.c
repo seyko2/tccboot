@@ -26,12 +26,12 @@
  *
  */
 
-#include <linux/config.h>
-#include <linux/kernel.h>
+#include <linux/init.h>
 #include <linux/module.h>
+
+#include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/smp_lock.h>
-#include <linux/init.h>
 #include <asm/semaphore.h>
 
 #include "pci_hotplug.h"
@@ -389,12 +389,8 @@ static struct pci_bus *find_pci_bus(const struct list_head *list, int bus)
 static void decode_hpp(struct acpiphp_bridge *bridge)
 {
 	acpi_status status;
-#if ACPI_CA_VERSION < 0x20020201
-	acpi_buffer buffer;
-#else
 	struct acpi_buffer buffer = { .length = ACPI_ALLOCATE_BUFFER,
 				      .pointer = NULL};
-#endif
 	union acpi_object *package;
 	int i;
 
@@ -404,21 +400,7 @@ static void decode_hpp(struct acpiphp_bridge *bridge)
 	bridge->hpp.enable_SERR = 0;
 	bridge->hpp.enable_PERR = 0;
 
-#if ACPI_CA_VERSION < 0x20020201
-	buffer.length = 0;
-	buffer.pointer = NULL;
-
 	status = acpi_evaluate_object(bridge->handle, "_HPP", NULL, &buffer);
-
-	if (status == AE_BUFFER_OVERFLOW) {
-		buffer.pointer = kmalloc(buffer.length, GFP_KERNEL);
-		if (!buffer.pointer)
-			return;
-		status = acpi_evaluate_object(bridge->handle, "_HPP", NULL, &buffer);
-	}
-#else
-	status = acpi_evaluate_object(bridge->handle, "_HPP", NULL, &buffer);
-#endif
 
 	if (ACPI_FAILURE(status)) {
 		dbg("_HPP evaluation failed\n");
@@ -494,12 +476,8 @@ static void init_bridge_misc (struct acpiphp_bridge *bridge)
 static void add_host_bridge (acpi_handle *handle, int seg, int bus)
 {
 	acpi_status status;
-#if ACPI_CA_VERSION < 0x20020201
-	acpi_buffer buffer;
-#else
 	struct acpi_buffer buffer = { .length = ACPI_ALLOCATE_BUFFER,
 				      .pointer = NULL};
-#endif
 	struct acpiphp_bridge *bridge;
 
 	bridge = kmalloc(sizeof(struct acpiphp_bridge), GFP_KERNEL);
@@ -522,21 +500,7 @@ static void add_host_bridge (acpi_handle *handle, int seg, int bus)
 
 	/* decode resources */
 
-#if ACPI_CA_VERSION < 0x20020201
-	buffer.length = 0;
-	buffer.pointer = NULL;
-
 	status = acpi_get_current_resources(handle, &buffer);
-
-	if (status == AE_BUFFER_OVERFLOW) {
-		buffer.pointer = kmalloc(buffer.length, GFP_KERNEL);
-		if (!buffer.pointer)
-			return;
-		status = acpi_get_current_resources(handle, &buffer);
-	}
-#else
-	status = acpi_get_current_resources(handle, &buffer);
-#endif
 
 	if (ACPI_FAILURE(status)) {
 		err("failed to decode bridge resources\n");
@@ -819,7 +783,7 @@ static int power_on_slot (struct acpiphp_slot *slot)
 	struct list_head *l;
 	int retval = 0;
 
-	/* is this already enabled? */
+	/* if already enabled, just skip */
 	if (slot->flags & SLOT_POWEREDON)
 		goto err_exit;
 
@@ -827,14 +791,14 @@ static int power_on_slot (struct acpiphp_slot *slot)
 		func = list_entry(l, struct acpiphp_func, sibling);
 
 		if (func->flags & FUNC_HAS_PS0) {
-			dbg("%s: executing _PS0 on %s\n", __FUNCTION__,
-			    func->pci_dev->slot_name);
+			dbg("%s: executing _PS0\n", __FUNCTION__);
 			status = acpi_evaluate_object(func->handle, "_PS0", NULL, NULL);
 			if (ACPI_FAILURE(status)) {
 				warn("%s: _PS0 failed\n", __FUNCTION__);
 				retval = -1;
 				goto err_exit;
-			}
+			} else
+				break;
 		}
 	}
 
@@ -857,20 +821,21 @@ static int power_off_slot (struct acpiphp_slot *slot)
 
 	int retval = 0;
 
-	/* is this already enabled? */
+	/* if already disabled, just skip */
 	if ((slot->flags & SLOT_POWEREDON) == 0)
 		goto err_exit;
 
 	list_for_each (l, &slot->funcs) {
 		func = list_entry(l, struct acpiphp_func, sibling);
 
-		if (func->flags & (FUNC_HAS_PS3 | FUNC_EXISTS)) {
+		if (func->pci_dev && (func->flags & FUNC_HAS_PS3)) {
 			status = acpi_evaluate_object(func->handle, "_PS3", NULL, NULL);
 			if (ACPI_FAILURE(status)) {
 				warn("%s: _PS3 failed\n", __FUNCTION__);
 				retval = -1;
 				goto err_exit;
-			}
+			} else
+				break;
 		}
 	}
 
@@ -878,20 +843,19 @@ static int power_off_slot (struct acpiphp_slot *slot)
 		func = list_entry(l, struct acpiphp_func, sibling);
 
 		/* We don't want to call _EJ0 on non-existing functions. */
-		if (func->flags & (FUNC_HAS_EJ0 | FUNC_EXISTS)) {
+		if (func->pci_dev && (func->flags & FUNC_HAS_EJ0)) {
 			/* _EJ0 method take one argument */
 			arg_list.count = 1;
 			arg_list.pointer = &arg;
 			arg.type = ACPI_TYPE_INTEGER;
 			arg.integer.value = 1;
-
 			status = acpi_evaluate_object(func->handle, "_EJ0", &arg_list, NULL);
 			if (ACPI_FAILURE(status)) {
 				warn("%s: _EJ0 failed\n", __FUNCTION__);
 				retval = -1;
 				goto err_exit;
-			}
-			func->flags &= (~FUNC_EXISTS);
+			} else
+				break;
 		}
 	}
 
@@ -973,8 +937,6 @@ static int enable_device (struct acpiphp_slot *slot)
 		retval = acpiphp_configure_function(func);
 		if (retval)
 			goto err_exit;
-
-		func->flags |= FUNC_EXISTS;
 	}
 
 	slot->flags |= SLOT_ENABLED;
@@ -1003,15 +965,12 @@ static int disable_device (struct acpiphp_slot *slot)
 	list_for_each (l, &slot->funcs) {
 		func = list_entry(l, struct acpiphp_func, sibling);
 
-		if (func->pci_dev) {
-			if (acpiphp_unconfigure_function(func) == 0) {
-				func->pci_dev = NULL;
-			} else {
+		if (func->pci_dev)
+			if (acpiphp_unconfigure_function(func)) {
 				err("failed to unconfigure device\n");
 				retval = -1;
 				goto err_exit;
 			}
-		}
 	}
 
 	slot->flags &= (~SLOT_ENABLED);
@@ -1391,7 +1350,7 @@ int acpiphp_check_bridge (struct acpiphp_bridge *bridge)
 					up(&slot->crit_sect);
 					goto err_exit;
 				}
-				enabled++;
+				disabled++;
 			}
 		} else {
 			/* if disabled but present, enable */
@@ -1402,7 +1361,7 @@ int acpiphp_check_bridge (struct acpiphp_bridge *bridge)
 					up(&slot->crit_sect);
 					goto err_exit;
 				}
-				disabled++;
+				enabled++;
 			}
 		}
 	}
@@ -1467,4 +1426,19 @@ u8 acpiphp_get_adapter_status (struct acpiphp_slot *slot)
 	sta = get_slot_status(slot);
 
 	return (sta == 0) ? 0 : 1;
+}
+
+
+/*
+ * pci address (seg/bus/dev)
+ */
+u32 acpiphp_get_address (struct acpiphp_slot *slot)
+{
+	u32 address;
+
+	address = ((slot->bridge->seg) << 16) |
+		  ((slot->bridge->bus) << 8) |
+		  slot->device;
+
+	return address;
 }

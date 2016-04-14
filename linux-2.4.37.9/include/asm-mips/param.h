@@ -12,6 +12,8 @@
 
 #include <linux/config.h>
 
+#include <asm/compiler.h>
+
 #ifdef CONFIG_DECSTATION
    /*
     * log2(HZ), change this here if you want another HZ value. This is also
@@ -28,8 +30,9 @@
    ({ unsigned long __res;			\
       unsigned long __lo;			\
 	__asm__("multu\t%2,%3\n\t"		\
-		:"=h" (__res), "=l" (__lo)	\
-		:"r" (a), "r" (QUOTIENT));	\
+		: "=h" (__res), "=l" (__lo)	\
+		: "r" (a), "r" (QUOTIENT)	\
+		: GCC_REG_ACCUM);		\
 	(__typeof__(a)) __res;})
 
 #else /* Not a DECstation  */

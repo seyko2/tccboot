@@ -1513,14 +1513,16 @@ static unsigned long mpu_timer_get_time(int dev)
 static int mpu_timer_ioctl(int dev, unsigned int command, caddr_t arg)
 {
 	int midi_dev = sound_timer_devs[dev]->devlink;
+	int *p = (int *)arg;
 
 	switch (command)
 	{
 		case SNDCTL_TMR_SOURCE:
 			{
 				int parm;
-	
-				parm = *(int *) arg;
+
+				if (get_user(parm, p))
+					return -EFAULT;
 				parm &= timer_caps;
 
 				if (parm != 0)
@@ -1532,7 +1534,9 @@ static int mpu_timer_ioctl(int dev, unsigned int command, caddr_t arg)
 					else if (timer_mode & TMR_MODE_SMPTE)
 						mpu_cmd(midi_dev, 0x3d, 0);		/* Use SMPTE sync */
 				}
-				return (*(int *) arg = timer_mode);
+				if (put_user(timer_mode, p))
+					return -EFAULT;
+				return timer_mode;
 			}
 			break;
 
@@ -1557,10 +1561,13 @@ static int mpu_timer_ioctl(int dev, unsigned int command, caddr_t arg)
 			{
 				int val;
 
-				val = *(int *) arg;
+				if (get_user(val, p))
+					return -EFAULT;
 				if (val)
 					set_timebase(midi_dev, val);
-				return (*(int *) arg = curr_timebase);
+				if (put_user(curr_timebase, p))
+					return -EFAULT;
+				return curr_timebase;
 			}
 			break;
 
@@ -1569,7 +1576,8 @@ static int mpu_timer_ioctl(int dev, unsigned int command, caddr_t arg)
 				int val;
 				int ret;
 
-				val = *(int *) arg;
+				if (get_user(val, p))
+					return -EFAULT;
 
 				if (val)
 				{
@@ -1584,7 +1592,9 @@ static int mpu_timer_ioctl(int dev, unsigned int command, caddr_t arg)
 					}
 					curr_tempo = val;
 				}
-				return (*(int *) arg = curr_tempo);
+				if (put_user(curr_tempo, p))
+					return -EFAULT;
+				return curr_tempo;
 			}
 			break;
 
@@ -1592,18 +1602,25 @@ static int mpu_timer_ioctl(int dev, unsigned int command, caddr_t arg)
 			{
 				int val;
 
-				val = *(int *) arg;
+				if (get_user(val, p))
+					return -EFAULT;
 				if (val != 0)		/* Can't change */
 					return -EINVAL;
-				return (*(int *) arg = ((curr_tempo * curr_timebase) + 30) / 60);
+				val = (curr_tempo * curr_timebase + 30) / 60;
+				if (put_user(val, p))
+					return -EFAULT;
+				return val;
 			}
 			break;
 
 		case SNDCTL_SEQ_GETTIME:
-			return (*(int *) arg = curr_ticks);
+			if (put_user(curr_ticks, p))
+				return -EFAULT;
+			return curr_ticks;
 
 		case SNDCTL_TMR_METRONOME:
-			metronome_mode = *(int *) arg;
+			if (get_user(metronome_mode, p))
+				return -EFAULT;
 			setup_metronome(midi_dev);
 			return 0;
 

@@ -64,7 +64,8 @@ struct rtattr
 
 #define RTA_ALIGNTO	4
 #define RTA_ALIGN(len) ( ((len)+RTA_ALIGNTO-1) & ~(RTA_ALIGNTO-1) )
-#define RTA_OK(rta,len) ((len) > 0 && (rta)->rta_len >= sizeof(struct rtattr) && \
+#define RTA_OK(rta,len) ((len) >= (int)sizeof(struct rtattr) && \
+			 (rta)->rta_len >= sizeof(struct rtattr) && \
 			 (rta)->rta_len <= (len))
 #define RTA_NEXT(rta,attrlen)	((attrlen) -= RTA_ALIGN((rta)->rta_len), \
 				 (struct rtattr*)(((char*)(rta)) + RTA_ALIGN((rta)->rta_len)))
@@ -113,9 +114,10 @@ enum
 	RTN_THROW,		/* Not in this table		*/
 	RTN_NAT,		/* Translate this address	*/
 	RTN_XRESOLVE,		/* Use external resolver	*/
+	__RTN_MAX
 };
 
-#define RTN_MAX RTN_XRESOLVE
+#define RTN_MAX (__RTN_MAX - 1)
 
 
 /* rtm_protocol */
@@ -178,9 +180,10 @@ enum rt_class_t
 /* User defined values */
 	RT_TABLE_DEFAULT=253,
 	RT_TABLE_MAIN=254,
-	RT_TABLE_LOCAL=255
+	RT_TABLE_LOCAL=255,
+	__RT_TABLE_MAX
 };
-#define RT_TABLE_MAX RT_TABLE_LOCAL
+#define RT_TABLE_MAX (__RT_TABLE_MAX - 1)
 
 
 
@@ -200,10 +203,11 @@ enum rtattr_type_t
 	RTA_MULTIPATH,
 	RTA_PROTOINFO,
 	RTA_FLOW,
-	RTA_CACHEINFO
+	RTA_CACHEINFO,
+	__RTA_MAX
 };
 
-#define RTA_MAX RTA_CACHEINFO
+#define RTA_MAX (__RTA_MAX - 1)
 
 #define RTM_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct rtmsg))))
 #define RTM_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct rtmsg))
@@ -282,9 +286,10 @@ enum
 #define RTAX_ADVMSS RTAX_ADVMSS
 	RTAX_REORDERING,
 #define RTAX_REORDERING RTAX_REORDERING
+	__RTAX_MAX
 };
 
-#define RTAX_MAX RTAX_REORDERING
+#define RTAX_MAX (__RTAX_MAX - 1)
 
 
 
@@ -309,10 +314,11 @@ enum
 	IFA_LABEL,
 	IFA_BROADCAST,
 	IFA_ANYCAST,
-	IFA_CACHEINFO
+	IFA_CACHEINFO,
+	__IFA_MAX
 };
 
-#define IFA_MAX IFA_CACHEINFO
+#define IFA_MAX (__IFA_MAX - 1)
 
 /* ifa_flags */
 
@@ -360,10 +366,11 @@ enum
 	NDA_UNSPEC,
 	NDA_DST,
 	NDA_LLADDR,
-	NDA_CACHEINFO
+	NDA_CACHEINFO,
+	__NDA_MAX
 };
 
-#define NDA_MAX NDA_CACHEINFO
+#define NDA_MAX (__NDA_MAX - 1)
 
 #define NDA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ndmsg))))
 #define NDA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct ndmsg))
@@ -448,10 +455,11 @@ enum
 #define IFLA_WIRELESS IFLA_WIRELESS
 	IFLA_PROTINFO,		/* Protocol specific information for a link */
 #define IFLA_PROTINFO IFLA_PROTINFO
+	__IFLA_MAX
 };
 
 
-#define IFLA_MAX IFLA_PROTINFO
+#define IFLA_MAX (__IFLA_MAX - 1)
 
 #define IFLA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ifinfomsg))))
 #define IFLA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct ifinfomsg))
@@ -493,9 +501,10 @@ enum
 	IFLA_INET6_CONF,	/* sysctl parameters		*/
 	IFLA_INET6_STATS,	/* statistics			*/
 	IFLA_INET6_MCAST,	/* MC things. What of them?	*/
+	__IFLA_INET6_MAX
 };
 
-#define IFLA_INET6_MAX	IFLA_INET6_MCAST
+#define IFLA_INET6_MAX	(__IFLA_INET6_MAX - 1)
 
 /*****************************************************************
  *		Traffic control messages.
@@ -520,9 +529,10 @@ enum
 	TCA_STATS,
 	TCA_XSTATS,
 	TCA_RATE,
+	__TCA_MAX
 };
 
-#define TCA_MAX TCA_RATE
+#define TCA_MAX (__TCA_MAX - 1)
 
 #define TCA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct tcmsg))))
 #define TCA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct tcmsg))

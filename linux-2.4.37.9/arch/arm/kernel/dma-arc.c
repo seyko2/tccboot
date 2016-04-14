@@ -55,7 +55,7 @@ static void arc_floppy_data_enable_dma(dmach_t channel, dma_t *dma)
 		memcpy ((void *)0x1c, (void *)&fdc1772_dma_write,
 			&fdc1772_dma_write_end - &fdc1772_dma_write);
 		fdc1772_setupdma(dma->buf.length, dma->buf.address); /* Sets data pointer up */
-		enable_fiq(FIQ_FLOPPYDATA;
+		enable_fiq(FIQ_FLOPPYDATA);
 
 		local_irq_restore(flags);
 	    }

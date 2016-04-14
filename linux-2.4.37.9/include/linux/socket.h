@@ -87,6 +87,10 @@ struct cmsghdr {
 				  (struct cmsghdr *)(ctl) : \
 				  (struct cmsghdr *)NULL)
 #define CMSG_FIRSTHDR(msg)	__CMSG_FIRSTHDR((msg)->msg_control, (msg)->msg_controllen)
+#define CMSG_OK(mhdr, cmsg) ((cmsg)->cmsg_len >= sizeof(struct cmsghdr) && \
+			     (cmsg)->cmsg_len <= (unsigned long) \
+			     ((mhdr)->msg_controllen - \
+			      ((char *)(cmsg) - (char *)(mhdr)->msg_control)))
 
 /*
  *	This mess will go away with glibc
@@ -137,7 +141,6 @@ __KINLINE struct cmsghdr * cmsg_nxthdr (struct msghdr *__msg, struct cmsghdr *__
 
 #define	SCM_RIGHTS	0x01		/* rw: access rights (array of int) */
 #define SCM_CREDENTIALS 0x02		/* rw: struct ucred		*/
-#define SCM_CONNECT	0x03		/* rw: struct scm_connect	*/
 
 struct ucred {
 	__u32	pid;

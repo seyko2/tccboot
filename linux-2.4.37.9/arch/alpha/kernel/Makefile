@@ -76,7 +76,7 @@ ifneq ($(CONFIG_ALPHA_ALCOR)$(CONFIG_ALPHA_XLT),)
 obj-y    += sys_alcor.o
 endif
 ifneq ($(CONFIG_ALPHA_CABRIOLET)$(CONFIG_ALPHA_EB164)$(CONFIG_ALPHA_EB66P)$(CONFIG_ALPHA_LX164)$(CONFIG_ALPHA_PC164),)
-obj-y    += sys_cabriolet.o
+obj-y    += sys_cabriolet.o ns87312.o
 endif
 
 obj-$(CONFIG_ALPHA_DP264) += sys_dp264.o

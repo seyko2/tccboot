@@ -42,12 +42,13 @@ static struct bcache_ops no_sc_ops = {
 
 struct bcache_ops *bcops = &no_sc_ops;
 
+#define cpu_is_r4600_v1_x()	((read_c0_prid() & 0xfffffff0) == 0x2010)
+#define cpu_is_r4600_v2_x()	((read_c0_prid() & 0xfffffff0) == 0x2020)
+
 #define R4600_HIT_CACHEOP_WAR_IMPL					\
 do {									\
-	if (R4600_V2_HIT_CACHEOP_WAR &&					\
-	    (read_c0_prid() & 0xfff0) == 0x2020) {	/* R4600 V2.0 */\
+	if (R4600_V2_HIT_CACHEOP_WAR && cpu_is_r4600_v2_x())		\
 		*(volatile unsigned long *)KSEG1;			\
-	}								\
 	if (R4600_V1_HIT_CACHEOP_WAR)					\
 		__asm__ __volatile__("nop;nop;nop;nop");		\
 } while (0)
@@ -104,6 +105,15 @@ static inline void r4k_blast_dcache_setup(void)
 #define CACHE32_UNROLL32_ALIGN	JUMP_TO_ALIGN(10) /* 32 * 32 = 1024 */
 #define CACHE32_UNROLL32_ALIGN2	JUMP_TO_ALIGN(11)
 
+static inline void blast_r4600_v1_icache32(void)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	blast_icache32();
+	local_irq_restore(flags);
+}
+
 static inline void tx49_blast_icache32(void)
 {
 	unsigned long start = KSEG0;
@@ -123,6 +133,15 @@ static inline void tx49_blast_icache32(void)
 	for (ws = 0; ws < ws_end; ws += ws_inc) 
 		for (addr = start; addr < end; addr += 0x400 * 2) 
 			cache32_unroll32(addr|ws,Index_Invalidate_I);
+}
+
+static inline void blast_icache32_r4600_v1_page_indexed(unsigned long page)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	blast_icache32_page_indexed(page);
+	local_irq_restore(flags);
 }
 
 static inline void tx49_blast_icache32_page_indexed(unsigned long page)
@@ -168,11 +187,17 @@ static inline void r4k_blast_icache_page_indexed_setup(void)
 
 	if (ic_lsize == 16)
 		r4k_blast_icache_page_indexed = blast_icache16_page_indexed;
-	else if (ic_lsize == 32 && TX49XX_ICACHE_INDEX_INV_WAR)
-		r4k_blast_icache_page_indexed = tx49_blast_icache32_page_indexed;
-	else if (ic_lsize == 32)
-		r4k_blast_icache_page_indexed = blast_icache32_page_indexed;
-	else if (ic_lsize == 64)
+	else if (ic_lsize == 32) {
+		if (TX49XX_ICACHE_INDEX_INV_WAR)
+			r4k_blast_icache_page_indexed =
+				tx49_blast_icache32_page_indexed;
+		else if (R4600_V1_INDEX_ICACHEOP_WAR && cpu_is_r4600_v1_x())
+			r4k_blast_icache_page_indexed =
+				blast_icache32_r4600_v1_page_indexed;
+		else
+			r4k_blast_icache_page_indexed =
+				blast_icache32_page_indexed;
+	} else if (ic_lsize == 64)
 		r4k_blast_icache_page_indexed = blast_icache64_page_indexed;
 }
 
@@ -184,11 +209,14 @@ static inline void r4k_blast_icache_setup(void)
 
 	if (ic_lsize == 16)
 		r4k_blast_icache = blast_icache16;
-	else if (ic_lsize == 32 && TX49XX_ICACHE_INDEX_INV_WAR)
-		r4k_blast_icache = tx49_blast_icache32;
-	else if (ic_lsize == 32)
-		r4k_blast_icache = blast_icache32;
-	else if (ic_lsize == 64)
+	else if (ic_lsize == 32) {
+		if (R4600_V1_INDEX_ICACHEOP_WAR && cpu_is_r4600_v1_x())
+			r4k_blast_icache = blast_r4600_v1_icache32;
+		else if (TX49XX_ICACHE_INDEX_INV_WAR)
+			r4k_blast_icache = tx49_blast_icache32;
+		else if (ic_lsize == 32)
+			r4k_blast_icache = blast_icache32;
+	} else if (ic_lsize == 64)
 		r4k_blast_icache = blast_icache64;
 }
 
@@ -352,6 +380,7 @@ static void r4k_flush_data_cache_page(unsigned long addr)
 static void r4k_flush_icache_range(unsigned long start, unsigned long end)
 {
 	unsigned long dc_lsize = current_cpu_data.dcache.linesz;
+	unsigned long ic_lsize = current_cpu_data.icache.linesz;
 	unsigned long addr, aend;
 
 	if (!cpu_has_ic_fills_f_dc) {
@@ -374,14 +403,14 @@ static void r4k_flush_icache_range(unsigned long start, unsigned long end)
 	if (end - start > icache_size)
 		r4k_blast_icache();
 	else {
-		addr = start & ~(dc_lsize - 1);
-		aend = (end - 1) & ~(dc_lsize - 1);
+		addr = start & ~(ic_lsize - 1);
+		aend = (end - 1) & ~(ic_lsize - 1);
 		while (1) {
 			/* Hit_Invalidate_I */
 			protected_flush_icache_line(addr);
 			if (addr == aend)
 				break;
-			addr += dc_lsize;
+			addr += ic_lsize;
 		}
 	}
 }
@@ -445,6 +474,9 @@ static void r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 {
 	unsigned long end, a;
 
+	/* Catch bad driver code */
+	BUG_ON(size == 0);
+
 	if (cpu_has_subset_pcaches) {
 		unsigned long sc_lsize = current_cpu_data.scache.linesz;
 
@@ -491,6 +523,9 @@ static void r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
 {
 	unsigned long end, a;
+
+	/* Catch bad driver code */
+	BUG_ON(size == 0);
 
 	if (cpu_has_subset_pcaches) {
 		unsigned long sc_lsize = current_cpu_data.scache.linesz;
@@ -754,7 +789,10 @@ static void __init probe_pcache(void)
 		c->dcache.ways = 4;
 		c->dcache.waybit = ffs(dcache_size / c->dcache.ways) - 1;
 
-		c->options |= MIPS_CPU_CACHE_CDEX_P | MIPS_CPU_PREFETCH;
+#if !defined(CONFIG_SMP) || !defined(RM9000_CDEX_SMP_WAR)
+		c->options |= MIPS_CPU_CACHE_CDEX_P;
+#endif
+		c->options |= MIPS_CPU_PREFETCH;
 		break;
 
 	default:
@@ -852,7 +890,7 @@ static void __init probe_pcache(void)
 	       cpu_has_vtag_icache ? "virtually tagged" : "physically tagged",
 	       way_string[c->icache.ways], c->icache.linesz);
 
-	printk("Primary data cache %ldkB %s, linesize %d bytes.\n",
+	printk("Primary data cache %ldkB, %s, linesize %d bytes.\n",
 	       dcache_size >> 10, way_string[c->dcache.ways], c->dcache.linesz);
 }
 
@@ -937,10 +975,8 @@ static void __init setup_scache(void)
 	 * Linux memory managment.
 	 */
 	switch (c->cputype) {
-	case CPU_R4000PC:
 	case CPU_R4000SC:
 	case CPU_R4000MC:
-	case CPU_R4400PC:
 	case CPU_R4400SC:
 	case CPU_R4400MC:
 		probe_scache_kseg1 = (probe_func_t) (KSEG1ADDR(&probe_scache));

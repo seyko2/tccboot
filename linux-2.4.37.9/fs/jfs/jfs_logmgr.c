@@ -1340,6 +1340,8 @@ int lmLogInit(struct jfs_log * log)
 	 *      unwind on error
 	 */
       errout30:		/* release log page */
+	log->wqueue = NULL;
+	bp->l_wqnext = NULL;
 	lbmFree(bp);
 
       errout20:		/* release log superblock */
@@ -1390,6 +1392,7 @@ int lmLogClose(struct super_block *sb, struct jfs_log * log)
 	blkdev_put(log->bdev, BDEV_FS);
 
       out:
+	kfree(log);
 	jfs_info("lmLogClose: exit(%d)", rc);
 	return rc;
 }

@@ -201,7 +201,7 @@ static struct sk_buff *tbf_dequeue(struct Qdisc* sch)
 
 	if (skb) {
 		psched_time_t now;
-		long toks;
+		long toks, delay;
 		long ptoks = 0;
 		unsigned int len = skb->len;
 
@@ -229,14 +229,12 @@ static struct sk_buff *tbf_dequeue(struct Qdisc* sch)
 			return skb;
 		}
 
-		if (!netif_queue_stopped(sch->dev)) {
-			long delay = PSCHED_US2JIFFIE(max_t(long, -toks, -ptoks));
+		delay = PSCHED_US2JIFFIE(max_t(long, -toks, -ptoks));
 
-			if (delay == 0)
-				delay = 1;
+		if (delay == 0)
+			delay = 1;
 
-			mod_timer(&q->wd_timer, jiffies+delay);
-		}
+		mod_timer(&q->wd_timer, jiffies+delay);
 
 		/* Maybe we have a shorter packet in the queue,
 		   which can be sent now. It sounds cool,
@@ -503,6 +501,11 @@ static void tbf_walk(struct Qdisc *sch, struct qdisc_walker *walker)
 	}
 }
 
+static struct tcf_proto **tbf_find_tcf(struct Qdisc *sch, unsigned long cl)
+{
+	return NULL;
+}
+
 static struct Qdisc_class_ops tbf_class_ops =
 {
 	.graft		= 	tbf_graft,
@@ -512,6 +515,7 @@ static struct Qdisc_class_ops tbf_class_ops =
 	.change		=	tbf_change_class,
 	.delete		=	tbf_delete,
 	.walk		=	tbf_walk,
+	.tcf_chain	=	tbf_find_tcf,
 	.dump		=	tbf_dump_class,
 };
 

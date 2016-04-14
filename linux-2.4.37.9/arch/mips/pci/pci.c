@@ -129,7 +129,7 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 	return pcibios_enable_resources(dev, mask);
 }
 
-#ifdef CONFIG_NEW_PCI
+#ifdef CONFIG_PCI_NEW
 /*
  * Named PCI new and about to die before it's old :-)
  *

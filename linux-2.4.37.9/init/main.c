@@ -101,6 +101,11 @@ extern void signals_init(void);
 extern int init_pcmcia_ds(void);
 
 extern void free_initmem(void);
+#ifdef  CONFIG_ACPI_BUS
+extern void acpi_early_init(void);
+#else
+static inline void acpi_early_init(void) { }
+#endif
 
 #ifdef CONFIG_TC
 extern void tc_init(void);
@@ -426,6 +431,7 @@ asmlinkage void __init start_kernel(void)
 	proc_root_init();
 #endif
 	check_bugs();
+	acpi_early_init(); /* before LAPIC and SMP init */
 	printk("POSIX conformance testing by UNIFIX\n");
 
 	/* 

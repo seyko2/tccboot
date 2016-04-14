@@ -558,7 +558,7 @@ static int matroxfb_g450_program(void* md) {
 }
 
 static int matroxfb_g450_verify_mode(void* md, u_int32_t arg) {
-	MINFO_FROM(md);
+//	MINFO_FROM(md);
 	
 	switch (arg) {
 		case MATROXFB_OUTPUT_MODE_PAL:

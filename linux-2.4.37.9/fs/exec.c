@@ -327,7 +327,7 @@ int setup_arg_pages(struct linux_binprm *bprm)
 {
 	unsigned long stack_base;
 	struct vm_area_struct *mpnt;
-	int i;
+	int i, ret;
 
 	stack_base = STACK_TOP - MAX_ARG_PAGES*PAGE_SIZE;
 
@@ -351,7 +351,11 @@ int setup_arg_pages(struct linux_binprm *bprm)
 		mpnt->vm_pgoff = 0;
 		mpnt->vm_file = NULL;
 		mpnt->vm_private_data = (void *) 0;
-		insert_vm_struct(current->mm, mpnt);
+		if ((ret = insert_vm_struct(current->mm, mpnt))) {
+			up_write(&current->mm->mmap_sem);
+			kmem_cache_free(vm_area_cachep, mpnt);
+			return ret;
+		}
 		current->mm->total_vm = (mpnt->vm_end - mpnt->vm_start) >> PAGE_SHIFT;
 	} 
 
@@ -563,12 +567,30 @@ static inline void de_thread(struct task_struct *tsk)
 	tsk->tgid = tsk->pid;
 }
 
+void get_task_comm(char *buf, struct task_struct *tsk)
+{
+	/* buf must be at least sizeof(tsk->comm) in size */
+	task_lock(tsk);
+	memcpy(buf, tsk->comm, sizeof(tsk->comm));
+	task_unlock(tsk);
+}
+
+void set_task_comm(struct task_struct *tsk, char *buf)
+{
+	task_lock(tsk);
+	strncpy(tsk->comm, buf, sizeof(tsk->comm));
+	tsk->comm[sizeof(tsk->comm)-1]='\0';
+	task_unlock(tsk);
+}
+
 int flush_old_exec(struct linux_binprm * bprm)
 {
 	char * name;
 	int i, ch, retval;
+	unsigned new_mm_dumpable;
 	struct signal_struct * oldsig;
 	struct files_struct * files;
+	char tcomm[sizeof(current->comm)];
 
 	/*
 	 * Make sure we have a private signal table
@@ -601,27 +623,37 @@ int flush_old_exec(struct linux_binprm * bprm)
 
 	current->sas_ss_sp = current->sas_ss_size = 0;
 
+	new_mm_dumpable = 0; /* no change */
 	if (current->euid == current->uid && current->egid == current->gid) {
-		current->mm->dumpable = 1;
+		new_mm_dumpable = 1;
 		current->task_dumpable = 1;
 	}
+
+	if (mmap_min_addr)
+		current->personality &= ~(unsigned long)MMAP_PAGE_ZERO;
+
 	name = bprm->filename;
 	for (i=0; (ch = *(name++)) != '\0';) {
 		if (ch == '/')
 			i = 0;
 		else
-			if (i < 15)
-				current->comm[i++] = ch;
+			if (i < (sizeof(tcomm) - 1))
+				tcomm[i++] = ch;
 	}
-	current->comm[i] = '\0';
+	tcomm[i] = '\0';
+	set_task_comm(current, tcomm);
 
 	flush_thread();
 
 	de_thread(current);
 
-	if (bprm->e_uid != current->euid || bprm->e_gid != current->egid || 
-	    permission(bprm->file->f_dentry->d_inode,MAY_READ))
+	if (bprm->e_uid != current->euid || bprm->e_gid != current->egid) {
 		current->mm->dumpable = 0;
+		current->pdeath_signal = 0;
+	} else if (permission(bprm->file->f_dentry->d_inode, MAY_READ)) {
+		current->mm->dumpable = 0;
+	} else if (new_mm_dumpable)
+		current->mm->dumpable = 1;
 
 	/* An exec changes our domain. We are no longer part of the thread
 	   group */
@@ -746,6 +778,7 @@ void compute_creds(struct linux_binprm *bprm)
 	if (bprm->e_uid != current->uid || bprm->e_gid != current->gid ||
 	    !cap_issubset(new_permitted, current->cap_permitted)) {
                 current->mm->dumpable = 0;
+		current->pdeath_signal = 0;
 		
 		lock_kernel();
 		if (must_not_trace_exec(current)
@@ -1136,6 +1169,12 @@ int do_coredump(long signr, struct pt_regs * regs)
 		goto close_fail;
 
 	if (!S_ISREG(inode->i_mode))
+		goto close_fail;
+	/*
+	 * Dont allow local users get cute and trick others to coredump
+	 * into their pre-created files:
+	 */
+	if (inode->i_uid != current->fsuid)
 		goto close_fail;
 	if (!file->f_op)
 		goto close_fail;

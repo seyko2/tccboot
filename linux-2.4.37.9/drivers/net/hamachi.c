@@ -1369,109 +1369,6 @@ static int hamachi_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return 0;
 }
 
-/* The interrupt handler does all of the Rx thread work and cleans up
-   after the Tx thread. */
-static void hamachi_interrupt(int irq, void *dev_instance, struct pt_regs *rgs)
-{
-	struct net_device *dev = dev_instance;
-	struct hamachi_private *hmp;
-	long ioaddr, boguscnt = max_interrupt_work;
-
-#ifndef final_version			/* Can never occur. */
-	if (dev == NULL) {
-		printk (KERN_ERR "hamachi_interrupt(): irq %d for unknown device.\n", irq);
-		return;
-	}
-#endif
-
-	ioaddr = dev->base_addr;
-	hmp = dev->priv;
-	spin_lock(&hmp->lock);
-
-	do {
-		u32 intr_status = readl(ioaddr + InterruptClear);
-
-		if (hamachi_debug > 4)
-			printk(KERN_DEBUG "%s: Hamachi interrupt, status %4.4x.\n",
-				   dev->name, intr_status);
-
-		if (intr_status == 0)
-			break;
-
-		if (intr_status & IntrRxDone)
-			hamachi_rx(dev);
-
-		if (intr_status & IntrTxDone){
-			/* This code should RARELY need to execute. After all, this is
-			 * a gigabit link, it should consume packets as fast as we put
-			 * them in AND we clear the Tx ring in hamachi_start_xmit().
-			 */ 
-			if (hmp->tx_full){
-				for (; hmp->cur_tx - hmp->dirty_tx > 0; hmp->dirty_tx++){
-					int entry = hmp->dirty_tx % TX_RING_SIZE;
-					struct sk_buff *skb;
-
-					if (hmp->tx_ring[entry].status_n_length & cpu_to_le32(DescOwn)) 
-						break;
-					skb = hmp->tx_skbuff[entry];
-					/* Free the original skb. */
-					if (skb){
-						pci_unmap_single(hmp->pci_dev, 
-							hmp->tx_ring[entry].addr, 
-							skb->len,
-							PCI_DMA_TODEVICE);
-						dev_kfree_skb_irq(skb);
-						hmp->tx_skbuff[entry] = 0;
-					}
-					hmp->tx_ring[entry].status_n_length = 0;
-					if (entry >= TX_RING_SIZE-1)  
-						hmp->tx_ring[TX_RING_SIZE-1].status_n_length |= 
-							cpu_to_le32(DescEndRing);
-					hmp->stats.tx_packets++;
-				}
-				if (hmp->cur_tx - hmp->dirty_tx < TX_RING_SIZE - 4){
-					/* The ring is no longer full */
-					hmp->tx_full = 0;
-					netif_wake_queue(dev);
-				}
-			} else {
-				netif_wake_queue(dev);
-			}
-		}
-
-
-		/* Abnormal error summary/uncommon events handlers. */
-		if (intr_status &
-			(IntrTxPCIFault | IntrTxPCIErr | IntrRxPCIFault | IntrRxPCIErr |
-			 LinkChange | NegotiationChange | StatsMax))
-			hamachi_error(dev, intr_status);
-
-		if (--boguscnt < 0) {
-			printk(KERN_WARNING "%s: Too much work at interrupt, status=0x%4.4x.\n",
-				   dev->name, intr_status);
-			break;
-		}
-	} while (1);
-
-	if (hamachi_debug > 3)
-		printk(KERN_DEBUG "%s: exiting interrupt, status=%#4.4x.\n",
-			   dev->name, readl(ioaddr + IntrStatus));
-
-#ifndef final_version
-	/* Code that should never be run!  Perhaps remove after testing.. */
-	{
-		static int stopit = 10;
-		if (dev->start == 0  &&  --stopit < 0) {
-			printk(KERN_ERR "%s: Emergency stop, looping startup interrupt.\n",
-				   dev->name);
-			free_irq(irq, dev);
-		}
-	}
-#endif
-
-	spin_unlock(&hmp->lock);
-}
-
 /* This routine is logically part of the interrupt handler, but seperated
    for clarity and better register allocation. */
 static int hamachi_rx(struct net_device *dev)
@@ -1675,6 +1572,109 @@ static int hamachi_rx(struct net_device *dev)
 		writew(0x0001, dev->base_addr + RxCmd);
 
 	return 0;
+}
+
+/* The interrupt handler does all of the Rx thread work and cleans up
+   after the Tx thread. */
+static void hamachi_interrupt(int irq, void *dev_instance, struct pt_regs *rgs)
+{
+	struct net_device *dev = dev_instance;
+	struct hamachi_private *hmp;
+	long ioaddr, boguscnt = max_interrupt_work;
+
+#ifndef final_version			/* Can never occur. */
+	if (dev == NULL) {
+		printk (KERN_ERR "hamachi_interrupt(): irq %d for unknown device.\n", irq);
+		return;
+	}
+#endif
+
+	ioaddr = dev->base_addr;
+	hmp = dev->priv;
+	spin_lock(&hmp->lock);
+
+	do {
+		u32 intr_status = readl(ioaddr + InterruptClear);
+
+		if (hamachi_debug > 4)
+			printk(KERN_DEBUG "%s: Hamachi interrupt, status %4.4x.\n",
+				   dev->name, intr_status);
+
+		if (intr_status == 0)
+			break;
+
+		if (intr_status & IntrRxDone)
+			hamachi_rx(dev);
+
+		if (intr_status & IntrTxDone){
+			/* This code should RARELY need to execute. After all, this is
+			 * a gigabit link, it should consume packets as fast as we put
+			 * them in AND we clear the Tx ring in hamachi_start_xmit().
+			 */ 
+			if (hmp->tx_full){
+				for (; hmp->cur_tx - hmp->dirty_tx > 0; hmp->dirty_tx++){
+					int entry = hmp->dirty_tx % TX_RING_SIZE;
+					struct sk_buff *skb;
+
+					if (hmp->tx_ring[entry].status_n_length & cpu_to_le32(DescOwn)) 
+						break;
+					skb = hmp->tx_skbuff[entry];
+					/* Free the original skb. */
+					if (skb){
+						pci_unmap_single(hmp->pci_dev, 
+							hmp->tx_ring[entry].addr, 
+							skb->len,
+							PCI_DMA_TODEVICE);
+						dev_kfree_skb_irq(skb);
+						hmp->tx_skbuff[entry] = 0;
+					}
+					hmp->tx_ring[entry].status_n_length = 0;
+					if (entry >= TX_RING_SIZE-1)  
+						hmp->tx_ring[TX_RING_SIZE-1].status_n_length |= 
+							cpu_to_le32(DescEndRing);
+					hmp->stats.tx_packets++;
+				}
+				if (hmp->cur_tx - hmp->dirty_tx < TX_RING_SIZE - 4){
+					/* The ring is no longer full */
+					hmp->tx_full = 0;
+					netif_wake_queue(dev);
+				}
+			} else {
+				netif_wake_queue(dev);
+			}
+		}
+
+
+		/* Abnormal error summary/uncommon events handlers. */
+		if (intr_status &
+			(IntrTxPCIFault | IntrTxPCIErr | IntrRxPCIFault | IntrRxPCIErr |
+			 LinkChange | NegotiationChange | StatsMax))
+			hamachi_error(dev, intr_status);
+
+		if (--boguscnt < 0) {
+			printk(KERN_WARNING "%s: Too much work at interrupt, status=0x%4.4x.\n",
+				   dev->name, intr_status);
+			break;
+		}
+	} while (1);
+
+	if (hamachi_debug > 3)
+		printk(KERN_DEBUG "%s: exiting interrupt, status=%#4.4x.\n",
+			   dev->name, readl(ioaddr + IntrStatus));
+
+#ifndef final_version
+	/* Code that should never be run!  Perhaps remove after testing.. */
+	{
+		static int stopit = 10;
+		if (dev->start == 0  &&  --stopit < 0) {
+			printk(KERN_ERR "%s: Emergency stop, looping startup interrupt.\n",
+				   dev->name);
+			free_irq(irq, dev);
+		}
+	}
+#endif
+
+	spin_unlock(&hmp->lock);
 }
 
 /* This is more properly named "uncommon interrupt events", as it covers more

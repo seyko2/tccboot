@@ -1108,7 +1108,6 @@ static long do_readv_writev32(int type, struct file *file,
 	unsigned long tot_len;
 	struct iovec iovstack[UIO_FASTIOV];
 	struct iovec *iov=iovstack, *ivp;
-	struct inode *inode;
 	long retval, i;
 	io_fn_t fn;
 	iov_fn_t fnv;
@@ -1145,11 +1144,9 @@ static long do_readv_writev32(int type, struct file *file,
 		i--;
 	}
 
-	inode = file->f_dentry->d_inode;
 	/* VERIFY_WRITE actually means a read, as we write to user space */
-	retval = locks_verify_area((type == VERIFY_WRITE
-				    ? FLOCK_VERIFY_READ : FLOCK_VERIFY_WRITE),
-				   inode, file, file->f_pos, tot_len);
+	retval = rw_verify_area((type == VERIFY_WRITE ? READ : WRITE),
+				   file, &file->f_pos, tot_len);
 	if (retval)
 		goto out;
 
@@ -2306,6 +2303,11 @@ struct cmsghdr32 {
 				    (struct cmsghdr32 *)(ctl) : \
 				    (struct cmsghdr32 *)NULL)
 #define CMSG32_FIRSTHDR(msg)	__CMSG32_FIRSTHDR((msg)->msg_control, (msg)->msg_controllen)
+#define CMSG32_OK(ucmlen, ucmsg, mhdr) \
+	((ucmlen) >= sizeof(struct cmsghdr32) && \
+	 (ucmlen) <= (unsigned long) \
+	 ((mhdr)->msg_controllen - \
+	  ((char *)(ucmsg) - (char *)(mhdr)->msg_control)))
 
 __inline__ struct cmsghdr32 *__cmsg32_nxthdr(void *__ctl, __kernel_size_t __size,
 					      struct cmsghdr32 *__cmsg, int __cmsg_len)
@@ -2423,24 +2425,22 @@ static int cmsghdr_from_user32_to_kern(struct msghdr *kmsg,
 	struct cmsghdr *kcmsg, *kcmsg_base;
 	__kernel_size_t32 ucmlen;
 	__kernel_size_t kcmlen, tmp;
+	int err = -EFAULT;
 
 	kcmlen = 0;
 	kcmsg_base = kcmsg = (struct cmsghdr *)stackbuf;
 	ucmsg = CMSG32_FIRSTHDR(kmsg);
 	while(ucmsg != NULL) {
-		if(get_user(ucmlen, &ucmsg->cmsg_len))
+		if (get_user(ucmlen, &ucmsg->cmsg_len))
 			return -EFAULT;
 
 		/* Catch bogons. */
-		if(CMSG32_ALIGN(ucmlen) <
-		   CMSG32_ALIGN(sizeof(struct cmsghdr32)))
-			return -EINVAL;
-		if((unsigned long)(((char *)ucmsg - (char *)kmsg->msg_control)
-				   + ucmlen) > kmsg->msg_controllen)
+		if (!CMSG32_OK(ucmlen, ucmsg, kmsg))
 			return -EINVAL;
 
 		tmp = ((ucmlen - CMSG32_ALIGN(sizeof(*ucmsg))) +
 		       CMSG_ALIGN(sizeof(struct cmsghdr)));
+		tmp = CMSG_ALIGN(tmp);
 		kcmlen += tmp;
 		ucmsg = CMSG32_NXTHDR(kmsg, ucmsg, ucmlen);
 	}
@@ -2461,21 +2461,23 @@ static int cmsghdr_from_user32_to_kern(struct msghdr *kmsg,
 	memset(kcmsg, 0, kcmlen);
 	ucmsg = CMSG32_FIRSTHDR(kmsg);
 	while(ucmsg != NULL) {
-		__get_user(ucmlen, &ucmsg->cmsg_len);
+		if (__get_user(ucmlen, &ucmsg->cmsg_len))
+			goto Efault;
 		tmp = ((ucmlen - CMSG32_ALIGN(sizeof(*ucmsg))) +
 		       CMSG_ALIGN(sizeof(struct cmsghdr)));
+		if ((char *)kcmsg_base + kcmlen - (char *)kcmsg < CMSG_ALIGN(tmp))
+			goto Einval;
 		kcmsg->cmsg_len = tmp;
-		__get_user(kcmsg->cmsg_level, &ucmsg->cmsg_level);
-		__get_user(kcmsg->cmsg_type, &ucmsg->cmsg_type);
-
-		/* Copy over the data. */
-		if(copy_from_user(CMSG_DATA(kcmsg),
-				  CMSG32_DATA(ucmsg),
-				  (ucmlen - CMSG32_ALIGN(sizeof(*ucmsg)))))
-			goto out_free_efault;
+		tmp = CMSG_ALIGN(tmp);
+		if (__get_user(kcmsg->cmsg_level, &ucmsg->cmsg_level) ||
+		    __get_user(kcmsg->cmsg_type, &ucmsg->cmsg_type) ||
+		    copy_from_user(CMSG_DATA(kcmsg),
+				   CMSG32_DATA(ucmsg),
+				   (ucmlen - CMSG32_ALIGN(sizeof(*ucmsg)))))
+			goto Efault;
 
 		/* Advance. */
-		kcmsg = (struct cmsghdr *)((char *)kcmsg + CMSG_ALIGN(tmp));
+		kcmsg = (struct cmsghdr *)((char *)kcmsg + tmp);
 		ucmsg = CMSG32_NXTHDR(kmsg, ucmsg, ucmlen);
 	}
 
@@ -2484,10 +2486,12 @@ static int cmsghdr_from_user32_to_kern(struct msghdr *kmsg,
 	kmsg->msg_controllen = kcmlen;
 	return 0;
 
-out_free_efault:
-	if(kcmsg_base != (struct cmsghdr *)stackbuf)
+Einval:
+	err = -EINVAL;
+Efault:
+	if (kcmsg_base != (struct cmsghdr *)stackbuf)
 		kfree(kcmsg_base);
-	return -EFAULT;
+	return err;
 }
 
 static void put_cmsg32(struct msghdr *kmsg, int level, int type,
@@ -2599,7 +2603,8 @@ static void scm_detach_fds32(struct msghdr *kmsg, struct scm_cookie *scm)
  *		IPV6_RTHDR	ipv6 routing exthdr	32-bit clean
  *		IPV6_AUTHHDR	ipv6 auth exthdr	32-bit clean
  */
-static void cmsg32_recvmsg_fixup(struct msghdr *kmsg, unsigned long orig_cmsg_uptr)
+static void cmsg32_recvmsg_fixup(struct msghdr *kmsg,
+		unsigned long orig_cmsg_uptr, __kernel_size_t orig_cmsg_len)
 {
 	unsigned char *workbuf, *wp;
 	unsigned long bufsz, space_avail;
@@ -2630,6 +2635,9 @@ static void cmsg32_recvmsg_fixup(struct msghdr *kmsg, unsigned long orig_cmsg_up
 		__get_user(kcmsg32->cmsg_type, &ucmsg->cmsg_type);
 
 		clen64 = kcmsg32->cmsg_len;
+		if ((clen64 < CMSG_ALIGN(sizeof(*ucmsg))) ||
+				(clen64 > (orig_cmsg_len + wp - workbuf)))
+			break;
 		copy_from_user(CMSG32_DATA(kcmsg32), CMSG_DATA(ucmsg),
 			       clen64 - CMSG_ALIGN(sizeof(*ucmsg)));
 		clen32 = ((clen64 - CMSG_ALIGN(sizeof(*ucmsg))) +
@@ -2889,7 +2897,8 @@ out:
 
 static __inline__ void
 scm_recv32(struct socket *sock, struct msghdr *msg,
-		struct scm_cookie *scm, int flags, unsigned long cmsg_ptr)
+		struct scm_cookie *scm, int flags, unsigned long cmsg_ptr,
+		__kernel_size_t cmsg_len)
 {
 	if(!msg->msg_control)
 	{
@@ -2904,7 +2913,7 @@ scm_recv32(struct socket *sock, struct msghdr *msg,
 	 * to fix it up before we tack on more stuff.
 	 */
 	if((unsigned long) msg->msg_control != cmsg_ptr)
-		cmsg32_recvmsg_fixup(msg, cmsg_ptr);
+		cmsg32_recvmsg_fixup(msg, cmsg_ptr, cmsg_len);
 	/* Wheee... */
 	if(sock->passcred)
 		put_cmsg32(msg,
@@ -2918,14 +2927,14 @@ scm_recv32(struct socket *sock, struct msghdr *msg,
 
 static int  
 sock_recvmsg32(struct socket *sock, struct msghdr *msg, int size, int flags,
-               unsigned long cmsg_ptr)
+               unsigned long cmsg_ptr, __kernel_size_t cmsg_len)
 {
 	struct scm_cookie scm;
 
 	memset(&scm, 0, sizeof(scm));
 	size = sock->ops->recvmsg(sock, msg, size, flags, &scm);
 	if (size >= 0)
-		scm_recv32(sock, msg, &scm, flags, cmsg_ptr);
+		scm_recv32(sock, msg, &scm, flags, cmsg_ptr, cmsg_len);
 
 	return size;
 }
@@ -2942,6 +2951,7 @@ sys32_recvmsg (int fd, struct msghdr32 *msg, unsigned int flags)
 	struct iovec *iov=iovstack;
 	struct msghdr msg_sys;
 	unsigned long cmsg_ptr;
+	__kernel_size_t cmsg_len;
 	int err, iov_size, total_len, len;
 
 	/* kernel mode address */
@@ -2985,11 +2995,12 @@ sys32_recvmsg (int fd, struct msghdr32 *msg, unsigned int flags)
 	total_len=err;
 
 	cmsg_ptr = (unsigned long)msg_sys.msg_control;
+	cmsg_len = msg_sys.msg_controllen;
 	msg_sys.msg_flags = 0;
 	
 	if (sock->file->f_flags & O_NONBLOCK)
 		flags |= MSG_DONTWAIT;
-	err = sock_recvmsg32(sock, &msg_sys, total_len, flags, cmsg_ptr);
+	err = sock_recvmsg32(sock, &msg_sys, total_len, flags, cmsg_ptr, cmsg_len);
 	if (err < 0)
 		goto out_freeiov;
 	len = err;
@@ -4427,7 +4438,7 @@ asmlinkage long sys32_stat64(char * filename, struct stat64_emu31 * statbuf, lon
     ret = sys_newstat(tmp, &s);
     set_fs (old_fs);
     putname(tmp);
-    if (putstat64 (statbuf, &s)) 
+    if (!ret && putstat64 (statbuf, &s))
 	    return -EFAULT;
     return ret;
 }
@@ -4451,7 +4462,7 @@ asmlinkage long sys32_lstat64(char * filename, struct stat64_emu31 * statbuf, lo
     ret = sys_newlstat(tmp, &s);
     set_fs (old_fs);
     putname(tmp);
-    if (putstat64 (statbuf, &s)) 
+    if (!ret && putstat64 (statbuf, &s))
 	    return -EFAULT;
     return ret;
 }
@@ -4467,7 +4478,7 @@ asmlinkage long sys32_fstat64(unsigned long fd, struct stat64_emu31 * statbuf, l
     set_fs (KERNEL_DS);
     ret = sys_newfstat(fd, &s);
     set_fs (old_fs);
-    if (putstat64 (statbuf, &s))
+    if (!ret && putstat64 (statbuf, &s))
 	    return -EFAULT;
     return ret;
 }
@@ -4507,7 +4518,7 @@ static inline long do_mmap2(
 	error = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
 	if (!IS_ERR((void *) error) && error + len >= 0x80000000ULL) {
 		/* Result is out of bounds.  */
-		do_munmap(current->mm, addr, len);
+		do_munmap(current->mm, error, len);
 		error = -ENOMEM;
 	}
 	up_write(&current->mm->mmap_sem);

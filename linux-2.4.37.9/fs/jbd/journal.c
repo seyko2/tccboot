@@ -1581,7 +1581,7 @@ void journal_ack_err (journal_t *journal)
  * journal_datalist_lock spinlock: most callers will need those anyway
  * in order to probe the buffer's journaling state safely.
  */
-void __jbd_unexpected_dirty_buffer(char *function, int line, 
+void __jbd_unexpected_dirty_buffer(const char *function, int line, 
 				 struct journal_head *jh)
 {
 	struct buffer_head *bh = jh2bh(jh);
@@ -1646,7 +1646,7 @@ void shrink_journal_memory(void)
  * Simple support for retying memory allocations.  Introduced to help to
  * debug different VM deadlock avoidance strategies. 
  */
-void * __jbd_kmalloc (char *where, size_t size, int flags, int retry)
+void * __jbd_kmalloc (const char *where, size_t size, int flags, int retry)
 {
 	void *p;
 	static unsigned long last_warning;

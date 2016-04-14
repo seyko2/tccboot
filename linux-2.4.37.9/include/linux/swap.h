@@ -116,7 +116,7 @@ extern void swap_setup(void);
 extern wait_queue_head_t kswapd_wait;
 extern int FASTCALL(try_to_free_pages_zone(zone_t *, unsigned int));
 extern int FASTCALL(try_to_free_pages(unsigned int));
-extern int vm_vfs_scan_ratio, vm_cache_scan_ratio, vm_lru_balance_ratio, vm_passes, vm_gfp_debug, vm_mapped_ratio;
+extern int vm_vfs_scan_ratio, vm_cache_scan_ratio, vm_lru_balance_ratio, vm_passes, vm_gfp_debug, vm_mapped_ratio, vm_anon_lru;
 
 /* linux/mm/page_io.c */
 extern void rw_swap_page(int, struct page *);

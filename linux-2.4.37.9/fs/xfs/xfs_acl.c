@@ -111,7 +111,7 @@ posix_acl_xattr_to_xfs(
 		return EINVAL;
 
 	if (src->a_version != cpu_to_le32(POSIX_ACL_XATTR_VERSION))
-		return EINVAL;
+		return EOPNOTSUPP;
 
 	memset(dest, 0, sizeof(xfs_acl_t));
 	dest->acl_cnt = posix_acl_xattr_count(size);
@@ -231,8 +231,6 @@ xfs_acl_vget(
 	int			flags = 0;
 
 	VN_HOLD(vp);
-	if ((error = _MAC_VACCESS(vp, NULL, VREAD)))
-		goto out;
 	if(size) {
 		if (!(_ACL_ALLOC(xfs_acl))) {
 			error = ENOMEM;
@@ -340,7 +338,6 @@ xfs_acl_vset(
 		xfs_acl_vremove(vp, _ACL_TYPE_ACCESS);
 	}
 
-
 out:
 	VN_RELE(vp);
 	_ACL_FREE(xfs_acl);
@@ -354,13 +351,15 @@ xfs_acl_iaccess(
 	cred_t		*cr)
 {
 	xfs_acl_t	*acl;
-	int		error;
+	int		rval;
 
 	if (!(_ACL_ALLOC(acl)))
 		return -1;
 
 	/* If the file has no ACL return -1. */
-	if (xfs_attr_fetch(ip, SGI_ACL_FILE, (char *)acl, sizeof(xfs_acl_t))) {
+	rval = sizeof(xfs_acl_t);
+	if (xfs_attr_fetch(ip, SGI_ACL_FILE, SGI_ACL_FILE_SIZE,
+			(char *)acl, &rval, ATTR_ROOT | ATTR_KERNACCESS, cr)) {
 		_ACL_FREE(acl);
 		return -1;
 	}
@@ -375,9 +374,9 @@ xfs_acl_iaccess(
 	/* Synchronize ACL with mode bits */
 	xfs_acl_sync_mode(ip->i_d.di_mode, acl);
 
-	error = xfs_acl_access(ip->i_d.di_uid, ip->i_d.di_gid, acl, mode, cr);
+	rval = xfs_acl_access(ip->i_d.di_uid, ip->i_d.di_gid, acl, mode, cr);
 	_ACL_FREE(acl);
-	return error;
+	return rval;
 }
 
 STATIC int
@@ -394,8 +393,6 @@ xfs_acl_allow_set(
 		return ENOTDIR;
 	if (vp->v_vfsp->vfs_flag & VFS_RDONLY)
 		return EROFS;
-	if ((error = _MAC_VACCESS(vp, NULL, VWRITE)))
-		return error;
 	va.va_mask = XFS_AT_UID;
 	VOP_GETATTR(vp, &va, 0, NULL, error);
 	if (error)

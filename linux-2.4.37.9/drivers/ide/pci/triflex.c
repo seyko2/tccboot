@@ -44,15 +44,17 @@
 #include "ide_modes.h"
 #include "triflex.h"
 
-static struct pci_dev *triflex_dev;
+#ifdef CONFIG_PROC_FS
+static u8 triflex_proc;
 
-static int triflex_get_info(char *buf, char **addr, off_t offset, int count)
+#define TRIFLEX_MAX_DEVS	2
+static struct pci_dev *triflex_devs[TRIFLEX_MAX_DEVS];
+static unsigned int n_triflex_devs;
+
+static int triflex_info(char *buffer, struct pci_dev *dev)
 {
-	char *p = buf;
-	int len;
-
-	struct pci_dev *dev	= triflex_dev;
 	unsigned long bibma = pci_resource_start(dev, 4);
+	char *p = buffer;
 	u8  c0 = 0, c1 = 0;
 	u32 pri_timing, sec_timing;
 
@@ -87,11 +89,23 @@ static int triflex_get_info(char *buf, char **addr, off_t offset, int count)
 	p += sprintf(p, "DMA\n");
 	p += sprintf(p, "PIO\n");
 
+	return p - buffer;
+}
+
+static int triflex_get_info(char *buf, char **addr, off_t offset, int count)
+{
+	char *p = buf;
+	unsigned int i, len;
+
+	for (i = 0; i < n_triflex_devs; i++)
+		buf += triflex_info(buf, triflex_devs[i]);
+
 	len = (p - buf) - offset;
 	*addr = buf + offset;
-	
+
 	return len > count ? count : len;
 }
+#endif
 
 static int triflex_tune_chipset(ide_drive_t *drive, u8 xferspeed)
 {
@@ -211,9 +225,13 @@ static unsigned int __init init_chipset_triflex(struct pci_dev *dev,
 		const char *name) 
 {
 #ifdef CONFIG_PROC_FS
-	ide_pci_register_host_proc(&triflex_proc);
+	triflex_devs[n_triflex_devs++] = dev;
+	if (!triflex_proc) {
+		triflex_proc = 1;
+		ide_pci_register_host_proc(&triflex_procs);
+	}
 #endif
-	return 0;	
+	return 0;
 }
 
 static int __devinit triflex_init_one(struct pci_dev *dev, 
@@ -222,11 +240,10 @@ static int __devinit triflex_init_one(struct pci_dev *dev,
 	ide_pci_device_t *d = &triflex_devices[id->driver_data];
 	if (dev->device != d->device)
 		BUG();
-	
+
 	ide_setup_pci_device(dev, d);
-	triflex_dev = dev;
 	MOD_INC_USE_COUNT;
-	
+
 	return 0;
 }
 

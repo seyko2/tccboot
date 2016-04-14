@@ -1205,8 +1205,8 @@ static int __init rio_init(void)
       hp->Ivec = get_irq (pdev);
       if (((1 << hp->Ivec) & rio_irqmask) == 0)
               hp->Ivec = 0;
-      hp->CardP	= (struct DpRam *)
       hp->Caddr = ioremap(p->RIOHosts[p->RIONumHosts].PaddrP, RIO_WINDOW_LEN);
+      hp->CardP	= (struct DpRam *) hp->Caddr;
       hp->Type  = RIO_PCI;
       hp->Copy  = rio_pcicopy; 
       hp->Mode  = RIO_PCI_BOOT_FROM_RAM;
@@ -1277,8 +1277,8 @@ static int __init rio_init(void)
       if (((1 << hp->Ivec) & rio_irqmask) == 0) 
       	hp->Ivec = 0;
       hp->Ivec |= 0x8000; /* Mark as non-sharable */
-      hp->CardP	= (struct DpRam *)
       hp->Caddr = ioremap(p->RIOHosts[p->RIONumHosts].PaddrP, RIO_WINDOW_LEN);
+      hp->CardP	= (struct DpRam *) hp->Caddr;
       hp->Type  = RIO_PCI;
       hp->Copy  = rio_pcicopy;
       hp->Mode  = RIO_PCI_BOOT_FROM_RAM;
@@ -1329,8 +1329,8 @@ static int __init rio_init(void)
     hp->PaddrP = rio_probe_addrs[i];
     /* There was something about the IRQs of these cards. 'Forget what.--REW */
     hp->Ivec = 0;
-    hp->CardP = (struct DpRam *)
     hp->Caddr = ioremap(p->RIOHosts[p->RIONumHosts].PaddrP, RIO_WINDOW_LEN);
+    hp->CardP = (struct DpRam *) hp->Caddr;
     hp->Type = RIO_AT;
     hp->Copy = rio_pcicopy; /* AT card PCI???? - PVDL
                              * -- YES! this is now a normal copy. Only the 
@@ -1384,7 +1384,7 @@ static int __init rio_init(void)
               rio_dprintk (RIO_DEBUG_INIT, "Enabling interrupts on rio card.\n"); 
               hp->Mode |= RIO_PCI_INT_ENABLE;
       } else
-              hp->Mode &= !RIO_PCI_INT_ENABLE;
+              hp->Mode &= ~RIO_PCI_INT_ENABLE;
       rio_dprintk (RIO_DEBUG_INIT, "New Mode: %x\n", hp->Mode);
       rio_start_card_running (hp);
     }

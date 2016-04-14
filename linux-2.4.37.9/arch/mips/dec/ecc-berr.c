@@ -74,7 +74,7 @@ static int dec_ecc_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 
 	if (!(erraddr & KN0X_EAR_VALID)) {
 		/* No idea what happened. */
-		printk(KERN_ALERT "Unindentified bus error %s.\n", kind);
+		printk(KERN_ALERT "Unidentified bus error %s.\n", kind);
 		return action;
 	}
 

@@ -401,6 +401,8 @@ struct gt64240_private {
     int drv_flags;
     spinlock_t lock;	   /* Serialise access to device */
     struct mii_if_info mii_if;
+
+    u32	msg_enable;
 };
 
 #endif /* _GT64240ETH_H */

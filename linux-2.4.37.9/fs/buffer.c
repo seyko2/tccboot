@@ -160,7 +160,7 @@ static inline void write_buffer(struct buffer_head *bh)
 	ll_rw_block(WRITE, 1, &bh);
 }
 
-void unlock_buffer(struct buffer_head *bh)
+void fastcall unlock_buffer(struct buffer_head *bh)
 {
 	clear_bit(BH_Wait_IO, &bh->b_state);
 	clear_bit(BH_Launder, &bh->b_state);
@@ -371,6 +371,7 @@ int sync_buffers(kdev_t dev, int wait)
 	}
 	return err;
 }
+EXPORT_SYMBOL(sync_buffers);
 
 int fsync_super(struct super_block *sb)
 {
@@ -583,7 +584,7 @@ static void __insert_into_lru_list(struct buffer_head * bh, int blist)
 	(*bhp)->b_prev_free->b_next_free = bh;
 	(*bhp)->b_prev_free = bh;
 	nr_buffers_type[blist]++;
-	size_buffers_type[blist] += bh->b_size;
+	size_buffers_type[blist] += bh->b_size >> 9;
 }
 
 static void __remove_from_lru_list(struct buffer_head * bh)
@@ -603,7 +604,7 @@ static void __remove_from_lru_list(struct buffer_head * bh)
 		bh->b_next_free = NULL;
 		bh->b_prev_free = NULL;
 		nr_buffers_type[blist]--;
-		size_buffers_type[blist] -= bh->b_size;
+		size_buffers_type[blist] -= bh->b_size >> 9;
 	}
 }
 
@@ -649,7 +650,7 @@ struct buffer_head * get_hash_table(kdev_t dev, int block, int size)
 	return bh;
 }
 
-void buffer_insert_list(struct buffer_head *bh, struct list_head *list)
+void fastcall buffer_insert_list(struct buffer_head *bh, struct list_head *list)
 {
 	spin_lock(&lru_list_lock);
 	if (buffer_attached(bh))
@@ -1032,7 +1033,7 @@ static int balance_dirty_state(void)
 {
 	unsigned long dirty, tot, hard_dirty_limit, soft_dirty_limit;
 
-	dirty = size_buffers_type[BUF_DIRTY] >> PAGE_SHIFT;
+	dirty = size_buffers_type[BUF_DIRTY] >> (PAGE_SHIFT - 9);
 	tot = nr_free_buffer_pages();
 
 	dirty *= 100;
@@ -1053,7 +1054,7 @@ static int bdflush_stop(void)
 {
 	unsigned long dirty, tot, dirty_limit;
 
-	dirty = size_buffers_type[BUF_DIRTY] >> PAGE_SHIFT;
+	dirty = size_buffers_type[BUF_DIRTY] >> (PAGE_SHIFT - 9);
 	tot = nr_free_buffer_pages();
 
 	dirty *= 100;
@@ -1092,7 +1093,7 @@ void balance_dirty(void)
 }
 EXPORT_SYMBOL(balance_dirty);
 
-inline void __mark_dirty(struct buffer_head *bh)
+inline void fastcall __mark_dirty(struct buffer_head *bh)
 {
 	bh->b_flushtime = jiffies + bdf_prm.b_un.age_buffer;
 	refile_buffer(bh);
@@ -1100,13 +1101,13 @@ inline void __mark_dirty(struct buffer_head *bh)
 
 /* atomic version, the user must call balance_dirty() by hand
    as soon as it become possible to block */
-void __mark_buffer_dirty(struct buffer_head *bh)
+void fastcall __mark_buffer_dirty(struct buffer_head *bh)
 {
 	if (!atomic_set_buffer_dirty(bh))
 		__mark_dirty(bh);
 }
 
-void mark_buffer_dirty(struct buffer_head *bh)
+void fastcall mark_buffer_dirty(struct buffer_head *bh)
 {
 	if (!atomic_set_buffer_dirty(bh)) {
 		if (block_dump)
@@ -1122,7 +1123,7 @@ void set_buffer_flushtime(struct buffer_head *bh)
 }
 EXPORT_SYMBOL(set_buffer_flushtime);
 
-inline int get_buffer_flushtime(void)
+int get_buffer_flushtime(void)
 {
 	return bdf_prm.b_un.interval;
 }
@@ -1260,8 +1261,9 @@ struct buffer_head * get_unused_buffer_head(int async)
 
 	/*
 	 * If we need an async buffer, use the reserved buffer heads.
+	 * Non-PF_MEMALLOC tasks can just loop in create_buffers().
 	 */
-	if (async) {
+	if (async && (current->flags & PF_MEMALLOC)) {
 		spin_lock(&unused_list_lock);
 		if (unused_list) {
 			bh = unused_list;
@@ -2730,7 +2732,7 @@ static int sync_page_buffers(struct buffer_head *head)
  *       obtain a reference to a buffer head within a page.  So we must
  *	 lock out all of these paths to cleanly toss the page.
  */
-int try_to_free_buffers(struct page * page, unsigned int gfp_mask)
+int fastcall try_to_free_buffers(struct page * page, unsigned int gfp_mask)
 {
 	struct buffer_head * tmp, * bh = page->buffers;
 
@@ -2836,8 +2838,8 @@ void show_buffers(void)
 				       buf_types[nlist], found, tmp);
 		}
 		printk("%9s: %d buffers, %lu kbyte, %d used (last=%d), "
-		       "%d locked, %d dirty %d delay\n",
-		       buf_types[nlist], found, size_buffers_type[nlist]>>10,
+		       "%d locked, %d dirty, %d delay\n",
+		       buf_types[nlist], found, size_buffers_type[nlist]>>(10-9),
 		       used, lastused, locked, dirty, delalloc);
 	}
 	spin_unlock(&lru_list_lock);

@@ -469,6 +469,13 @@
  *	  * Add support for VLAN hardware acceleration capable slaves.
  *	  * Add capability to tag self generated packets in ALB/TLB modes.
  *	  Set version to 2.6.0.
+ * 2004/10/29 - Mitch Williams <mitch.a.williams at intel dot com>
+ *	- Fixed bug when unloading module while using 802.3ad.  If
+ *	  spinlock debugging is turned on, this causes a stack dump.
+ *	  Solution is to move call to dev_remove_pack outside of the
+ *	  spinlock.
+ *	  Set version to 2.6.1.
+ *
  */
 
 //#define BONDING_DEBUG 1
@@ -1078,7 +1085,7 @@ verify:
  */
 static int bond_check_dev_link(struct bonding *bond, struct net_device *slave_dev, int reporting)
 {
-	static int (* ioctl)(struct net_device *, struct ifreq *, int);
+	int (* ioctl)(struct net_device *, struct ifreq *, int);
 	struct ifreq ifr;
 	struct mii_ioctl_data *mii;
 	struct ethtool_value etool;
@@ -3086,8 +3093,6 @@ out:
 
 #ifdef CONFIG_PROC_FS
 
-#define SEQ_START_TOKEN ((void *)1)
-
 static void *bond_info_seq_start(struct seq_file *seq, loff_t *pos)
 {
 	struct bonding *bond = seq->private;
@@ -3567,14 +3572,14 @@ static int bond_close(struct net_device *bond_dev)
 {
 	struct bonding *bond = bond_dev->priv;
 
-	write_lock_bh(&bond->lock);
-
-	bond_mc_list_destroy(bond);
-
 	if (bond->params.mode == BOND_MODE_8023AD) {
 		/* Unregister the receive of LACPDUs */
 		bond_unregister_lacpdu(bond);
 	}
+
+	write_lock_bh(&bond->lock);
+
+	bond_mc_list_destroy(bond);
 
 	/* signal timers not to re-arm */
 	bond->kill_timers = 1;

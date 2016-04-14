@@ -334,8 +334,8 @@ static struct symbolic_list urb_errlist[] = {
  **********************************************************************/
 
 static void ov51x_clear_snapshot(struct usb_ov511 *);
-static inline int sensor_get_picture(struct usb_ov511 *,
-				     struct video_picture *);
+static int sensor_get_picture(struct usb_ov511 *,
+			      struct video_picture *);
 #if defined(CONFIG_PROC_FS) && defined(CONFIG_VIDEO_PROC_FS)
 static int sensor_get_exposure(struct usb_ov511 *, unsigned char *);
 static int ov51x_control_ioctl(struct inode *, struct file *, unsigned int,
@@ -2014,7 +2014,7 @@ sensor_set_picture(struct usb_ov511 *ov, struct video_picture *p)
 	return 0;
 }
 
-static inline int
+static int
 sensor_get_picture(struct usb_ov511 *ov, struct video_picture *p)
 {
 	int rc;

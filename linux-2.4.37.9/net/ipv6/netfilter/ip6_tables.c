@@ -20,6 +20,7 @@
 #include <linux/udp.h>
 #include <linux/icmpv6.h>
 #include <net/ip.h>
+#include <net/ipv6.h>
 #include <asm/uaccess.h>
 #include <asm/semaphore.h>
 #include <linux/proc_fs.h>
@@ -57,7 +58,6 @@ do {								\
 #endif
 #define SMP_ALIGN(x) (((x) + SMP_CACHE_BYTES-1) & ~(SMP_CACHE_BYTES-1))
 
-/* Mutex protects lists (only traversed in user context). */
 static DECLARE_MUTEX(ip6t_mutex);
 
 /* Must have mutex */
@@ -150,14 +150,15 @@ ip6t_ext_hdr(u8 nexthdr)
 /* Returns whether matches rule or not. */
 static inline int
 ip6_packet_match(const struct sk_buff *skb,
-		 const struct ipv6hdr *ipv6,
 		 const char *indev,
 		 const char *outdev,
 		 const struct ip6t_ip6 *ip6info,
-		 int isfrag)
+		 unsigned int *protoff,
+		 int *fragoff)
 {
 	size_t i;
 	unsigned long ret;
+	const struct ipv6hdr *ipv6 = skb->nh.ipv6h;
 
 #define FWINV(bool,invflg) ((bool) ^ !!(ip6info->invflags & invflg))
 
@@ -211,6 +212,7 @@ ip6_packet_match(const struct sk_buff *skb,
 		struct ipv6_opt_hdr *hdrptr;
 		u_int16_t ptr;		/* Header offset in skb */
 		u_int16_t hdrlen;	/* Header */
+		u_int16_t foff = 0;
 
 		ptr = IPV6_HDR_LEN;
 
@@ -224,12 +226,22 @@ ip6_packet_match(const struct sk_buff *skb,
 			 * we will change the return 0 to 1*/
 			if ((currenthdr == IPPROTO_NONE) || 
 				(currenthdr == IPPROTO_ESP))
-				return 0;
+				break;
 
 	                hdrptr = (struct ipv6_opt_hdr *)(skb->data + ptr);
 
 			/* Size calculation */
 	                if (currenthdr == IPPROTO_FRAGMENT) {
+				unsigned int foff_off;
+
+				foff_off = ptr + offsetof(struct frag_hdr,
+							  frag_off);
+				if (skb->len - foff_off < sizeof(foff))
+					return 0;
+
+				foff = ntohs(*(u_int16_t *)(skb->data
+							    + foff_off))
+				       & ~0x7;
 	                        hdrlen = 8;
 	                } else if (currenthdr == IPPROTO_AH)
 	                        hdrlen = (hdrptr->hdrlen+2)<<2;
@@ -241,7 +253,15 @@ ip6_packet_match(const struct sk_buff *skb,
 			/* ptr is too large */
 	                if ( ptr > skb->len ) 
 				return 0;
+			if (foff) {
+				if (ip6t_ext_hdr(currenthdr))
+					return 0;
+				break;
+			}
 		}
+
+		*protoff = ptr;
+		*fragoff = foff;
 
 		/* currenthdr contains the protocol header */
 
@@ -330,10 +350,8 @@ ip6t_do_table(struct sk_buff **pskb,
 	      void *userdata)
 {
 	static const char nulldevname[IFNAMSIZ] = { 0 };
-	u_int16_t offset = 0;
-	struct ipv6hdr *ipv6;
-	void *protohdr;
-	u_int16_t datalen;
+	int offset = 0;
+	unsigned int protoff = 0;
 	int hotdrop = 0;
 	/* Initializing verdict to NF_DROP keeps gcc happy. */
 	unsigned int verdict = NF_DROP;
@@ -342,9 +360,6 @@ ip6t_do_table(struct sk_buff **pskb,
 	struct ip6t_entry *e, *back;
 
 	/* Initialization */
-	ipv6 = (*pskb)->nh.ipv6h;
-	protohdr = (u_int32_t *)((char *)ipv6 + IPV6_HDR_LEN);
-	datalen = (*pskb)->len - IPV6_HDR_LEN;
 	indev = in ? in->name : nulldevname;
 	outdev = out ? out->name : nulldevname;
 
@@ -382,17 +397,20 @@ ip6t_do_table(struct sk_buff **pskb,
 		IP_NF_ASSERT(e);
 		IP_NF_ASSERT(back);
 		(*pskb)->nfcache |= e->nfcache;
-		if (ip6_packet_match(*pskb, ipv6, indev, outdev, 
-			&e->ipv6, offset)) {
+		if (ip6_packet_match(*pskb, indev, outdev, &e->ipv6,
+				     &protoff, &offset)) {
 			struct ip6t_entry_target *t;
 
 			if (IP6T_MATCH_ITERATE(e, do_match,
 					       *pskb, in, out,
-					       offset, protohdr,
-					       datalen, &hotdrop) != 0)
+					       offset,
+					       (void *)((*pskb)->data
+							+ protoff),
+					       (*pskb)->len - protoff,
+					       &hotdrop) != 0)
 				goto no_match;
 
-			ADD_COUNTER(e->counters, ntohs(ipv6->payload_len) + IPV6_HDR_LEN, 1);
+			ADD_COUNTER(e->counters, ntohs((*pskb)->nh.ipv6h->payload_len) + IPV6_HDR_LEN, 1);
 
 			t = ip6t_get_target(e);
 			IP_NF_ASSERT(t->u.kernel.target);
@@ -448,11 +466,6 @@ ip6t_do_table(struct sk_buff **pskb,
 				((struct ip6t_entry *)table_base)->comefrom
 					= 0x57acc001;
 #endif
-				/* Target might have changed stuff. */
-				ipv6 = (*pskb)->nh.ipv6h;
-				protohdr = (u_int32_t *)((void *)ipv6 + IPV6_HDR_LEN);
-				datalen = (*pskb)->len - IPV6_HDR_LEN;
-
 				if (verdict == IP6T_CONTINUE)
 					e = (void *)e + e->next_offset;
 				else
@@ -535,7 +548,7 @@ find_inlist_lock(struct list_head *head,
 #endif
 
 static inline struct ip6t_table *
-find_table_lock(const char *name, int *error, struct semaphore *mutex)
+ip6t_find_table_lock(const char *name, int *error, struct semaphore *mutex)
 {
 	return find_inlist_lock(&ip6t_tables, name, "ip6table_", error, mutex);
 }
@@ -546,8 +559,8 @@ find_match_lock(const char *name, int *error, struct semaphore *mutex)
 	return find_inlist_lock(&ip6t_match, name, "ip6t_", error, mutex);
 }
 
-static inline struct ip6t_target *
-find_target_lock(const char *name, int *error, struct semaphore *mutex)
+struct ip6t_target *
+ip6t_find_target_lock(const char *name, int *error, struct semaphore *mutex)
 {
 	return find_inlist_lock(&ip6t_target, name, "ip6t_", error, mutex);
 }
@@ -764,7 +777,7 @@ check_entry(struct ip6t_entry *e, const char *name, unsigned int size,
 		goto cleanup_matches;
 
 	t = ip6t_get_target(e);
-	target = find_target_lock(t->u.user.name, &ret, &ip6t_mutex);
+	target = ip6t_find_target_lock(t->u.user.name, &ret, &ip6t_mutex);
 	if (!target) {
 		duprintf("check_entry: `%s' not found\n", t->u.user.name);
 		goto cleanup_matches;
@@ -1101,7 +1114,7 @@ get_entries(const struct ip6t_get_entries *entries,
 	int ret;
 	struct ip6t_table *t;
 
-	t = find_table_lock(entries->name, &ret, &ip6t_mutex);
+	t = ip6t_find_table_lock(entries->name, &ret, &ip6t_mutex);
 	if (t) {
 		duprintf("t->private->number = %u\n",
 			 t->private->number);
@@ -1138,6 +1151,13 @@ do_replace(void *user, unsigned int len)
 	if ((SMP_ALIGN(tmp.size) >> PAGE_SHIFT) + 2 > num_physpages)
 		return -ENOMEM;
 
+	/* overflow check */
+	if (tmp.size >= (INT_MAX - sizeof(struct ip6t_table_info)) / NR_CPUS -
+			SMP_CACHE_BYTES)
+		return -ENOMEM;
+	if (tmp.num_counters >= INT_MAX / sizeof(struct ip6t_counters))
+		return -ENOMEM;
+
 	newinfo = vmalloc(sizeof(struct ip6t_table_info)
 			  + SMP_ALIGN(tmp.size) * smp_num_cpus);
 	if (!newinfo)
@@ -1164,7 +1184,7 @@ do_replace(void *user, unsigned int len)
 
 	duprintf("ip_tables: Translated table\n");
 
-	t = find_table_lock(tmp.name, &ret, &ip6t_mutex);
+	t = ip6t_find_table_lock(tmp.name, &ret, &ip6t_mutex);
 	if (!t)
 		goto free_newinfo_counters_untrans;
 
@@ -1258,12 +1278,12 @@ do_add_counters(void *user, unsigned int len)
 		goto free;
 	}
 
-	t = find_table_lock(tmp.name, &ret, &ip6t_mutex);
+	t = ip6t_find_table_lock(tmp.name, &ret, &ip6t_mutex);
 	if (!t)
 		goto free;
 
 	write_lock_bh(&t->lock);
-	if (t->private->number != paddc->num_counters) {
+	if (t->private->number != tmp.num_counters) {
 		ret = -EINVAL;
 		goto unlock_up_free;
 	}
@@ -1333,7 +1353,7 @@ do_ip6t_get_ctl(struct sock *sk, int cmd, void *user, int *len)
 			break;
 		}
 		name[IP6T_TABLE_MAXNAMELEN-1] = '\0';
-		t = find_table_lock(name, &ret, &ip6t_mutex);
+		t = ip6t_find_table_lock(name, &ret, &ip6t_mutex);
 		if (t) {
 			struct ip6t_getinfo info;
 
@@ -1344,7 +1364,7 @@ do_ip6t_get_ctl(struct sock *sk, int cmd, void *user, int *len)
 			       sizeof(info.underflow));
 			info.num_entries = t->private->number;
 			info.size = t->private->size;
-			strcpy(info.name, name);
+			memcpy(info.name, name, sizeof(info.name));
 
 			if (copy_to_user(user, &info, *len) != 0)
 				ret = -EFAULT;
@@ -1568,10 +1588,8 @@ tcp_match(const struct sk_buff *skb,
 	  u_int16_t datalen,
 	  int *hotdrop)
 {
-	const struct tcphdr *tcp;
+	const struct tcphdr *tcp = hdr;
 	const struct ip6t_tcp *tcpinfo = matchinfo;
-	int tcpoff;
-	u8 nexthdr = skb->nh.ipv6h->nexthdr;
 
 	/* To quote Alan:
 
@@ -1591,24 +1609,6 @@ tcp_match(const struct sk_buff *skb,
 		*hotdrop = 1;
 		return 0;
 	}
-
-	tcpoff = (u8*)(skb->nh.ipv6h + 1) - skb->data;
-	tcpoff = ipv6_skip_exthdr(skb, tcpoff, &nexthdr, skb->len - tcpoff);
-	if (tcpoff < 0 || tcpoff > skb->len) {
-		duprintf("tcp_match: cannot skip exthdr. Dropping.\n");
-		*hotdrop = 1;
-		return 0;
-	} else if (nexthdr == IPPROTO_FRAGMENT)
-		return 0;
-	else if (nexthdr != IPPROTO_TCP ||
-		 skb->len - tcpoff < sizeof(struct tcphdr)) {
-		/* cannot be occured */
-		duprintf("tcp_match: cannot get TCP header. Dropping.\n");
-		*hotdrop = 1;
-		return 0;
-	}
-
-	tcp = (struct tcphdr *)(skb->data + tcpoff);
 
 	/* FIXME: Try tcp doff >> packet len against various stacks --RR */
 
@@ -1660,10 +1660,8 @@ udp_match(const struct sk_buff *skb,
 	  u_int16_t datalen,
 	  int *hotdrop)
 {
-	const struct udphdr *udp;
+	const struct udphdr *udp = hdr;
 	const struct ip6t_udp *udpinfo = matchinfo;
-	int udpoff;
-	u8 nexthdr = skb->nh.ipv6h->nexthdr;
 
 	if (offset == 0 && datalen < sizeof(struct udphdr)) {
 		/* We've been asked to examine this packet, and we
@@ -1672,23 +1670,6 @@ udp_match(const struct sk_buff *skb,
 		*hotdrop = 1;
 		return 0;
 	}
-
-	udpoff = (u8*)(skb->nh.ipv6h + 1) - skb->data;
-	udpoff = ipv6_skip_exthdr(skb, udpoff, &nexthdr, skb->len - udpoff);
-	if (udpoff < 0 || udpoff > skb->len) {
-		duprintf("udp_match: cannot skip exthdr. Dropping.\n");
-		*hotdrop = 1;
-		return 0;
-	} else if (nexthdr == IPPROTO_FRAGMENT)
-		return 0;
-	else if (nexthdr != IPPROTO_UDP ||
-		 skb->len - udpoff < sizeof(struct udphdr)) {
-		duprintf("udp_match: cannot get UDP header. Dropping.\n");
-		*hotdrop = 1;
-		return 0;
-	}
-
-	udp = (struct udphdr *)(skb->data + udpoff);
 
 	/* Must not be a fragment. */
 	return !offset
@@ -1823,6 +1804,15 @@ static inline int print_name(const char *i,
 	return 0;
 }
 
+static inline int print_target(const struct ip6t_target *t,
+                               off_t start_offset, char *buffer, int length,
+                               off_t *pos, unsigned int *count)
+{
+	if (t == &ip6t_standard_target || t == &ip6t_error_target)
+		return 0;
+	return print_name((char *)t, start_offset, buffer, length, pos, count);
+}
+
 static int ip6t_get_tables(char *buffer, char **start, off_t offset, int length)
 {
 	off_t pos = 0;
@@ -1849,7 +1839,7 @@ static int ip6t_get_targets(char *buffer, char **start, off_t offset, int length
 	if (down_interruptible(&ip6t_mutex) != 0)
 		return 0;
 
-	LIST_FIND(&ip6t_target, print_name, char *,
+	LIST_FIND(&ip6t_target, print_target, struct ip6t_target *,
 		  offset, buffer, length, &pos, &count);
 
 	up(&ip6t_mutex);
@@ -1940,6 +1930,7 @@ static void __exit fini(void)
 EXPORT_SYMBOL(ip6t_register_table);
 EXPORT_SYMBOL(ip6t_unregister_table);
 EXPORT_SYMBOL(ip6t_do_table);
+EXPORT_SYMBOL(ip6t_find_target_lock);
 EXPORT_SYMBOL(ip6t_register_match);
 EXPORT_SYMBOL(ip6t_unregister_match);
 EXPORT_SYMBOL(ip6t_register_target);

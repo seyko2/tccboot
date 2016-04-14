@@ -82,6 +82,7 @@ static IADEV *ia_dev[8];
 static struct atm_dev *_ia_dev[8];
 static int iadev_count;
 static void ia_led_timer(unsigned long arg);
+static int ia_pkt_tx (struct atm_vcc *vcc, struct sk_buff *skb);
 static struct timer_list ia_timer = { function: ia_led_timer };
 struct atm_vcc *vcc_close_que[100];
 static int IA_TX_BUF = DFL_TX_BUFFERS, IA_TX_BUF_SZ = DFL_TX_BUF_SZ;
@@ -627,7 +628,6 @@ static int ia_que_tx (IADEV *iadev) {
    int num_desc;
    struct atm_vcc *vcc;
    struct ia_vcc *iavcc;
-   static int ia_pkt_tx (struct atm_vcc *vcc, struct sk_buff *skb);
    num_desc = ia_avail_descs(iadev);
    while (num_desc && (skb = skb_dequeue(&iadev->tx_backlog))) {
       if (!(vcc = ATM_SKB(skb)->vcc)) {
@@ -1782,7 +1782,7 @@ static int open_tx(struct atm_vcc *vcc)
                          (iadev->tx_buf_sz - sizeof(struct cpcs_trailer))){
            printk("IA:  SDU size over (%d) the configured SDU size %d\n",
 		  vcc->qos.txtp.max_sdu,iadev->tx_buf_sz);
-	   INPH_IA_VCC(vcc) = NULL;  
+	   vcc->dev_data = NULL;  
            kfree(ia_vcc);
            return -EINVAL; 
         }
@@ -2707,7 +2707,7 @@ static void ia_close(struct atm_vcc *vcc)
         }
 	kfree(INPH_IA_VCC(vcc));  
         ia_vcc = NULL;
-        INPH_IA_VCC(vcc) = NULL;  
+        vcc->dev_data = NULL;  
         clear_bit(ATM_VF_ADDR,&vcc->flags);
         return;        
 }  
@@ -2720,7 +2720,7 @@ static int ia_open(struct atm_vcc *vcc, short vpi, int vci)
 	if (!test_bit(ATM_VF_PARTIAL,&vcc->flags))  
 	{  
 		IF_EVENT(printk("ia: not partially allocated resources\n");)  
-		INPH_IA_VCC(vcc) = NULL;  
+		vcc->dev_data = NULL;  
 	}  
 	iadev = INPH_IA_DEV(vcc->dev);  
 	error = atm_find_ci(vcc, &vpi, &vci);  
@@ -2744,7 +2744,7 @@ static int ia_open(struct atm_vcc *vcc, short vpi, int vci)
 	/* Device dependent initialization */  
 	ia_vcc = kmalloc(sizeof(*ia_vcc), GFP_KERNEL);  
 	if (!ia_vcc) return -ENOMEM;  
-	INPH_IA_VCC(vcc) = ia_vcc;  
+	vcc->dev_data = ia_vcc;  
   
 	if ((error = open_rx(vcc)))  
 	{  
@@ -3256,7 +3256,7 @@ static int __devinit ia_init_one(struct pci_dev *pdev,
 		ret = -ENOMEM;
 		goto err_out_disable_dev;
 	}
-	INPH_IA_DEV(dev) = iadev; 
+	dev->dev_data = iadev; 
 	IF_INIT(printk(DEV_LABEL "registered at (itf :%d)\n", dev->number);)
 	IF_INIT(printk("dev_id = 0x%x iadev->LineRate = %d \n", (u32)dev,
 		iadev->LineRate);)

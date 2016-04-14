@@ -19,7 +19,7 @@
 #include <asm/io.h>
 
 #ifdef CONFIG_SH_CAYMAN
-#define KEYBOARD_IRQ			(START_EXT_IRQS + 2) /* SMSC IRQ 1 */
+#define KEYBOARD_IRQ			(START_EXT_IRQS + 2) /* SMSC SuperIO IRQ 1 */
 #endif
 #define DISABLE_KBD_DURING_INTERRUPTS	0
 
@@ -61,7 +61,7 @@ extern unsigned char pckbd_sysrq_xlate[128];
  */
 
 #ifdef CONFIG_SH_CAYMAN
-#define AUX_IRQ (START_EXT_IRQS + 6) /* SMSC IRQ12 */
+#define AUX_IRQ (START_EXT_IRQS + 6) /* SMSC SuperIO IRQ12 */
 #endif
 
 #define aux_request_irq(hand, dev_id)					\

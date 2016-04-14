@@ -3595,7 +3595,7 @@ MODULE_AUTHOR("ChenLi Tien, cltien@cmedia.com.tw");
 MODULE_DESCRIPTION("CM8x38 Audio Driver");
 MODULE_LICENSE("GPL");
 
-static void __devinit cm_remove(struct pci_dev *dev)
+static void __devexit cm_remove(struct pci_dev *dev)
 {
 	struct cm_state *s = pci_get_drvdata(dev);
 
@@ -3643,10 +3643,10 @@ static struct pci_device_id id_table[] __devinitdata = {
 MODULE_DEVICE_TABLE(pci, id_table);
 
 static struct pci_driver cm_driver = {
-       name: "cmpci",
-       id_table: id_table,
-       probe: cm_probe,
-       remove: cm_remove
+	.name		= "cmpci",
+	.id_table	= id_table,
+	.probe		= cm_probe,
+	.remove		= __devexit_p(cm_remove)
 };
  
 static int __init init_cmpci(void)

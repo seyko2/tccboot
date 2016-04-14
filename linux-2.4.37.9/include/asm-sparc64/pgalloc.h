@@ -147,11 +147,11 @@ extern __inline__ void free_pgd_fast(pgd_t *pgd)
 	struct page *page = virt_to_page(pgd);
 
 	if (!page->pprev_hash) {
-		(unsigned long *)page->next_hash = pgd_quicklist;
+		page->next_hash = (struct page *)pgd_quicklist;
 		pgd_quicklist = (unsigned long *)page;
 	}
-	(unsigned long)page->pprev_hash |=
-		(((unsigned long)pgd & (PAGE_SIZE / 2)) ? 2 : 1);
+	page->pprev_hash = (struct page **)(((unsigned long)page->pprev_hash) |
+	    (((unsigned long)pgd & (PAGE_SIZE / 2)) ? 2 : 1));
 	pgd_cache_size++;
 }
 
@@ -169,7 +169,7 @@ extern __inline__ pgd_t *get_pgd_fast(void)
 			off = PAGE_SIZE / 2;
 			mask &= ~2;
 		}
-		(unsigned long)ret->pprev_hash = mask;
+		ret->pprev_hash = (struct page **)mask;
 		if (!mask)
 			pgd_quicklist = (unsigned long *)ret->next_hash;
                 ret = (struct page *)(__page_address(ret) + off);
@@ -180,8 +180,8 @@ extern __inline__ pgd_t *get_pgd_fast(void)
 		if (page) {
 			ret = (struct page *)page_address(page);
 			clear_page(ret);
-			(unsigned long)page->pprev_hash = 2;
-			(unsigned long *)page->next_hash = pgd_quicklist;
+			page->pprev_hash = (struct page **) 2UL;
+			page->next_hash = (struct page *) pgd_quicklist;
 			pgd_quicklist = (unsigned long *)page;
 			pgd_cache_size++;
 		}

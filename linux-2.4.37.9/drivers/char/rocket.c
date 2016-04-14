@@ -241,9 +241,12 @@ static _INLINE_ void rp_do_receive(struct r_port *info, struct tty_struct *tty,
 				   CHANNEL_t *cp, unsigned int ChanStatus)
 {
 	unsigned int CharNStat;
-	int ToRecv, wRecv, space, count;
+	int ToRecv, wRecv, space = 0, count;
 	unsigned char	*cbuf;
 	char		*fbuf;
+	struct tty_ldisc *ld;
+
+	ld = tty_ldisc_ref(tty);
 	
 	ToRecv= sGetRxCnt(cp);
 	space = 2*TTY_FLIPBUF_SIZE;
@@ -348,8 +351,8 @@ static _INLINE_ void rp_do_receive(struct r_port *info, struct tty_struct *tty,
 		fbuf += ToRecv;
 		count += ToRecv;
 	}
-	tty->ldisc.receive_buf(tty, tty->flip.char_buf,
-			       tty->flip.flag_buf, count);
+	ld->receive_buf(tty, tty->flip.char_buf, tty->flip.flag_buf, count);
+	tty_ldisc_deref(ld);
 }
 
 /*
@@ -400,10 +403,7 @@ static _INLINE_ void rp_do_transmit(struct r_port *info)
 	if (info->xmit_cnt == 0)
 		xmit_flags[info->line >> 5] &= ~(1 << (info->line & 0x1f));
 	if (info->xmit_cnt < WAKEUP_CHARS) {
-		if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-		    tty->ldisc.write_wakeup)
-			(tty->ldisc.write_wakeup)(tty);
-		wake_up_interruptible(&tty->write_wait);
+		tty_wakeup(tty);
 	}
 #ifdef ROCKET_DEBUG_INTR
 	printk("(%d,%d,%d,%d)...", info->xmit_cnt, info->xmit_head,
@@ -1128,8 +1128,7 @@ static void rp_close(struct tty_struct *tty, struct file * filp)
 	}
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 
 	xmit_flags[info->line >> 5] &= ~(1 << (info->line & 0x1f));
 	if (info->blocked_open) {
@@ -1806,10 +1805,7 @@ end_intr:
 	restore_flags(flags);
 end:
 	if (info->xmit_cnt < WAKEUP_CHARS) {
-		if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-		    tty->ldisc.write_wakeup)
-			(tty->ldisc.write_wakeup)(tty);
-		wake_up_interruptible(&tty->write_wait);
+		tty_wakeup(tty);
 	}
 	return retval;
 }
@@ -1868,9 +1864,7 @@ static void rp_flush_buffer(struct tty_struct *tty)
 	info->xmit_cnt = info->xmit_head = info->xmit_tail = 0;
 	sti();
 	wake_up_interruptible(&tty->write_wait);
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup)(tty);
+	tty_wakeup(tty);
 	
 	cp = &info->channel;
 	

@@ -1045,7 +1045,7 @@ struct super_block *ntfs_read_super(struct super_block *sb, void *options,
 	}
 	ntfs_debug(DEBUG_OTHER, "$Mft at cluster 0x%lx\n", vol->mft_lcn);
 	brelse(bh);
-	NTFS_SB(vol) = sb;
+	vol->sb = sb;
 	if (vol->cluster_size > PAGE_SIZE) {
 		ntfs_error("Partition cluster size is not supported yet (it "
 			   "is > max kernel blocksize).\n");

@@ -108,7 +108,7 @@ fw_in(unsigned int hooknum,
 					  (*pskb)->nh.raw, &redirpt, pskb);
 
 		if ((*pskb)->nh.iph->frag_off & htons(IP_MF|IP_OFFSET)) {
-			*pskb = ip_ct_gather_frags(*pskb);
+			*pskb = ip_ct_gather_frags(*pskb, IP_DEFRAG_CONNTRACK_IN);
 
 			if (!*pskb)
 				return NF_STOLEN;

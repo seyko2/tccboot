@@ -623,7 +623,7 @@ acpi_bus_generate_event (
 	int			data)
 {
 	struct acpi_bus_event	*event = NULL;
-	u32			flags = 0;
+	unsigned long		flags = 0;
 
 	ACPI_FUNCTION_TRACE("acpi_bus_generate_event");
 
@@ -656,7 +656,7 @@ int
 acpi_bus_receive_event (
 	struct acpi_bus_event	*event)
 {
-	u32			flags = 0;
+	unsigned long		flags = 0;
 	struct acpi_bus_event	*entry = NULL;
 
 	DECLARE_WAITQUEUE(wait, current);
@@ -1844,14 +1844,16 @@ acpi_bus_init_irq (void)
 }
 
 
-static int __init
-acpi_bus_init (void)
+void __init
+acpi_early_init (void)
 {
-	int			result = 0;
 	acpi_status		status = AE_OK;
 	struct acpi_buffer	buffer = {sizeof(acpi_fadt), &acpi_fadt};
 
-	ACPI_FUNCTION_TRACE("acpi_bus_init");
+	ACPI_FUNCTION_TRACE("acpi_early_init");
+
+	if (acpi_disabled)
+		return_VOID;
 
 	status = acpi_initialize_subsystem();
 	if (ACPI_FAILURE(status)) {
@@ -1871,7 +1873,7 @@ acpi_bus_init (void)
 	status = acpi_get_table(ACPI_TABLE_FADT, 1, &buffer);
 	if (ACPI_FAILURE(status)) {
 		printk(KERN_ERR PREFIX "Unable to get the FADT\n");
-		goto error1;
+		goto error0;
 	}
 
 #ifdef CONFIG_X86
@@ -1894,12 +1896,40 @@ acpi_bus_init (void)
 	}
 #endif
 
-	status = acpi_enable_subsystem(ACPI_FULL_INITIALIZATION);
+	status = acpi_enable_subsystem(~(ACPI_NO_HARDWARE_INIT | ACPI_NO_ACPI_ENABLE));
+	if (ACPI_FAILURE(status)) {
+		printk(KERN_ERR PREFIX "Unable to enable ACPI\n");
+		goto error0;
+	}
+
+	return_VOID;
+
+error0:
+	disable_acpi();
+	return_VOID;
+}
+
+static int __init
+acpi_bus_init (void)
+{
+	int			result = 0;
+	acpi_status		status = AE_OK;
+	extern acpi_status	acpi_os_initialize1(void);
+
+	ACPI_FUNCTION_TRACE("acpi_bus_init");
+
+	status = acpi_os_initialize1();
+
+	status = acpi_enable_subsystem(ACPI_NO_HARDWARE_INIT | ACPI_NO_ACPI_ENABLE);
 	if (ACPI_FAILURE(status)) {
 		printk(KERN_ERR PREFIX "Unable to start the ACPI Interpreter\n");
 		goto error1;
 	}
 
+	if (ACPI_FAILURE(status)) {
+		printk(KERN_ERR PREFIX "Unable to initialize ACPI OS objects\n");
+		goto error1;
+	}
 #ifdef CONFIG_ACPI_EC
 	/*
 	 * ACPI 2.0 requires the EC driver to be loaded and work before
@@ -1964,8 +1994,10 @@ acpi_bus_init (void)
 	acpi_ec_init();		/* ACPI Embedded Controller */
 #endif
 #ifdef CONFIG_ACPI_PCI
-	acpi_pci_link_init();	/* ACPI PCI Interrupt Link */
-	acpi_pci_root_init();	/* ACPI PCI Root Bridge */
+	if (!acpi_pci_disabled) {
+		acpi_pci_link_init();	/* ACPI PCI Interrupt Link */
+		acpi_pci_root_init();	/* ACPI PCI Root Bridge */
+	}
 #endif
 	/*
 	 * Enumerate devices in the ACPI namespace.
@@ -1977,6 +2009,7 @@ acpi_bus_init (void)
 	if (result)
 		goto error4;
 
+	acpi_motherboard_init();
 	return_VALUE(0);
 
 	/* Mimic structured exception handling */
@@ -1989,7 +2022,6 @@ error2:
 		ACPI_SYSTEM_NOTIFY, &acpi_bus_notify);
 error1:
 	acpi_terminate();
-error0:
 	return_VALUE(-ENODEV);
 }
 

@@ -52,6 +52,8 @@ struct cpuinfo_S390
 
 extern void print_cpu_info(struct cpuinfo_S390 *);
 
+extern void show_trace(unsigned long* esp);
+
 /* Lazy FPU handling on uni-processor */
 extern struct task_struct *last_task_used_math;
 

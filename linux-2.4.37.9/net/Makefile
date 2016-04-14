@@ -7,7 +7,7 @@
 
 O_TARGET :=	network.o
 
-mod-subdirs :=	ipv4/netfilter ipv6/netfilter ipx irda bluetooth atm netlink sched core sctp
+mod-subdirs :=	ipv4/netfilter ipv6/netfilter ipx irda bluetooth atm netlink sched core sctp 802
 export-objs :=	netsyms.o
 
 subdir-y :=	core ethernet

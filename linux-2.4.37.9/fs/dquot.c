@@ -397,6 +397,10 @@ restart:
 			wait_on_dquot(dquot);
 		if (dquot_dirty(dquot))
 			sb->dq_op->write_dquot(dquot);
+		/* Move the inuse_list head pointer to just after the
+		 * current dquot, so that we'll restart the list walk
+		 * after this point on the next pass. */
+		list_move(&inuse_list, &dquot->dq_inuse);
 		dqput(dquot);
 		goto restart;
 	}
@@ -790,8 +794,13 @@ static inline void dquot_decr_space(struct dquot *dquot, qsize_t number)
 	mark_dquot_dirty(dquot);
 }
 
+static int flag_print_warnings = 1;
+
 static inline int need_print_warning(struct dquot *dquot, int flag)
 {
+	if (!flag_print_warnings)
+		return 0;
+
 	switch (dquot->dq_type) {
 		case USRQUOTA:
 			return current->fsuid == dquot->dq_id && !(dquot->dq_flags & flag);
@@ -1494,6 +1503,7 @@ static ctl_table fs_dqstats_table[] = {
 	{FS_DQ_ALLOCATED, "allocated_dquots", &dqstats.allocated_dquots, sizeof(int), 0444, NULL, &proc_dointvec},
 	{FS_DQ_FREE, "free_dquots", &dqstats.free_dquots, sizeof(int), 0444, NULL, &proc_dointvec},
 	{FS_DQ_SYNCS, "syncs", &dqstats.syncs, sizeof(int), 0444, NULL, &proc_dointvec},
+	{FS_DQ_WARNINGS, "warnings", &flag_print_warnings, sizeof(int), 0644, NULL, &proc_dointvec},
 	{},
 };
 

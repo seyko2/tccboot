@@ -48,7 +48,6 @@ static const char *cpu_name[] = {
 	[CPU_R4640]	"R4640",
 	[CPU_NEVADA]	"Nevada",
 	[CPU_RM7000]	"RM7000",
-	[CPU_RM9000]	"RM9000",
 	[CPU_R5432]	"R5432",
 	[CPU_4KC]	"MIPS 4Kc",
         [CPU_5KC]	"MIPS 5Kc",
@@ -58,23 +57,27 @@ static const char *cpu_name[] = {
 	[CPU_TX3922]	"TX3922",
 	[CPU_TX3927]	"TX3927",
 	[CPU_AU1000]	"Au1000",
-	[CPU_AU1500]	"Au1500",
 	[CPU_4KEC]	"MIPS 4KEc",
 	[CPU_4KSC]	"MIPS 4KSc",
 	[CPU_VR41XX]	"NEC Vr41xx",
 	[CPU_R5500]	"R5500",
 	[CPU_TX49XX]	"TX49xx",
+	[CPU_AU1500]	"Au1500",
 	[CPU_20KC]	"MIPS 20Kc",
-	[CPU_24K]	"MIPS 24K",
-	[CPU_25KF]	"MIPS 25Kf",
 	[CPU_VR4111]	"NEC VR4111",
 	[CPU_VR4121]	"NEC VR4121",
 	[CPU_VR4122]	"NEC VR4122",
 	[CPU_VR4131]	"NEC VR4131",
-	[CPU_VR4133]	"NEC VR4133",
 	[CPU_VR4181]	"NEC VR4181",
 	[CPU_VR4181A]	"NEC VR4181A",
-	[CPU_SR71000]	"Sandcraft SR71000"
+	[CPU_AU1100]	"Au1100",
+	[CPU_SR71000]	"Sandcraft SR71000",
+	[CPU_RM9000]	"RM9000",
+	[CPU_25KF]	"MIPS 25Kf",
+	[CPU_VR4133]	"NEC VR4133",
+	[CPU_AU1550]	"Au1550",
+	[CPU_24K]	"MIPS 24K",
+	[CPU_AU1200]	"Au1200",
 };
 
 
@@ -116,7 +119,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	              cpu_has_watch ? "yes" : "no");
 
 	sprintf(fmt, "VCE%%c exceptions\t\t: %s\n",
-	        cpu_has_vce ? "%d" : "not available");
+	        cpu_has_vce ? "%u" : "not available");
 	seq_printf(m, fmt, 'D', vced_count);
 	seq_printf(m, fmt, 'I', vcei_count);
 

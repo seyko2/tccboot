@@ -21,6 +21,7 @@
 #include <asm/cpu.h>
 #include <asm/bootinfo.h>
 #include <asm/mmu_context.h>
+#include <linux/module.h>
 #include <asm/pgtable.h>
 #include <asm/system.h>
 
@@ -46,7 +47,7 @@ void local_flush_tlb_all(void)
 
 	local_irq_save(flags);
 	/* Save old context and create impossible VPN2 value */
-	old_ctx = (read_c0_entryhi() & 0xff);
+	old_ctx = read_c0_entryhi();
 	write_c0_entrylo0(0);
 	write_c0_entrylo1(0);
 	BARRIER;
@@ -100,7 +101,7 @@ void local_flush_tlb_range(struct mm_struct *mm, unsigned long start,
 		size = (end - start + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
 		size = (size + 1) >> 1;
 		if (size <= current_cpu_data.tlbsize/2) {
-			int oldpid = read_c0_entryhi() & ASID_MASK;
+			int oldpid = read_c0_entryhi();
 			int newpid = cpu_asid(cpu, mm);
 
 			start &= (PAGE_MASK << 1);
@@ -148,7 +149,7 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 		newpid = cpu_asid(cpu, vma->vm_mm);
 		page &= (PAGE_MASK << 1);
 		local_irq_save(flags);
-		oldpid = (read_c0_entryhi() & 0xff);
+		oldpid = read_c0_entryhi();
 		write_c0_entryhi(page | newpid);
 		BARRIER;
 		tlb_probe();
@@ -180,7 +181,7 @@ void local_flush_tlb_one(unsigned long page)
 	int oldpid, idx;
 
 	page &= (PAGE_MASK << 1);
-	oldpid = read_c0_entryhi() & ASID_MASK;
+	oldpid = read_c0_entryhi();
 
 	local_irq_save(flags);
 	write_c0_entryhi(page);
@@ -199,6 +200,8 @@ void local_flush_tlb_one(unsigned long page)
 	write_c0_entryhi(oldpid);
 	local_irq_restore(flags);
 }
+
+EXPORT_SYMBOL(local_flush_tlb_one);
 
 /* We will need multiple versions of update_mmu_cache(), one that just
  * updates the TLB with the new pte(s), and another which also checks
@@ -265,6 +268,7 @@ static void r4k_update_mmu_cache_hwbug(struct vm_area_struct * vma,
 				       unsigned long address, pte_t pte)
 {
 	unsigned long flags;
+	unsigned int asid;
 	pgd_t *pgdp;
 	pmd_t *pmdp;
 	pte_t *ptep;
@@ -272,7 +276,8 @@ static void r4k_update_mmu_cache_hwbug(struct vm_area_struct * vma,
 
 	local_irq_save(flags);
 	address &= (PAGE_MASK << 1);
-	write_c0_entryhi(address | (read_c0_entryhi() & 0xff));
+	asid = read_c0_entryhi() & ASID_MASK;
+	write_c0_entryhi(address | asid);
 	pgdp = pgd_offset(vma->vm_mm, address);
 	tlb_probe();
 	pmdp = pmd_offset(pgdp, address);
@@ -300,7 +305,7 @@ void __init add_wired_entry(unsigned long entrylo0, unsigned long entrylo1,
 
 	local_irq_save(flags);
 	/* Save old context and create impossible VPN2 value */
-	old_ctx = read_c0_entryhi() & 0xff;
+	old_ctx = read_c0_entryhi();
 	old_pagemask = read_c0_pagemask();
 	wired = read_c0_wired();
 	write_c0_wired(wired + 1);
@@ -340,7 +345,7 @@ __init int add_temporary_entry(unsigned long entrylo0, unsigned long entrylo1,
 
 	local_irq_save(flags);
 	/* Save old context and create impossible VPN2 value */
-	old_ctx = read_c0_entryhi() & 0xff;
+	old_ctx = read_c0_entryhi();
 	old_pagemask = read_c0_pagemask();
 	wired = read_c0_wired();
 	if (--temp_tlb_entry < wired) {

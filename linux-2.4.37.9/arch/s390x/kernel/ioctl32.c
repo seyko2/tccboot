@@ -34,6 +34,7 @@
 #include <asm/uaccess.h>
 #include <asm/dasd.h>
 #include <asm/sockios.h>
+#include "../../../drivers/s390/char/tubio.h"
 
 #include "linux32.h"
 
@@ -535,6 +536,12 @@ static struct ioctl32_list ioctl32_handler_table[] = {
 
 	IOCTL32_HANDLER(HDIO_GETGEO, hd_geometry_ioctl),
 
+	IOCTL32_DEFAULT(TUBICMD),
+	IOCTL32_DEFAULT(TUBOCMD),
+	IOCTL32_DEFAULT(TUBGETI),
+	IOCTL32_DEFAULT(TUBGETO),
+	IOCTL32_DEFAULT(TUBSETMOD),
+	IOCTL32_DEFAULT(TUBGETMOD),
 	IOCTL32_DEFAULT(TCGETA),
 	IOCTL32_DEFAULT(TCSETA),
 	IOCTL32_DEFAULT(TCSETAW),

@@ -68,6 +68,21 @@
 #define USB_REQ_SET_INTERFACE		0x0B
 #define USB_REQ_SYNCH_FRAME		0x0C
 
+/*
+ * USB feature flags are written using USB_REQ_{CLEAR,SET}_FEATURE, and
+ * are read as a bit array returned by USB_REQ_GET_STATUS.  (So there
+ * are at most sixteen features of each type.)
+ */
+#define USB_DEVICE_SELF_POWERED		0	/* (read only) */
+#define USB_DEVICE_REMOTE_WAKEUP	1	/* dev may initiate wakeup */
+#define USB_DEVICE_TEST_MODE		2	/* (high speed only) */
+#define USB_DEVICE_B_HNP_ENABLE		3	/* dev may initiate HNP */
+#define USB_DEVICE_A_HNP_SUPPORT	4	/* RH port supports HNP */
+#define USB_DEVICE_A_ALT_HNP_SUPPORT	5	/* other RH port does */
+#define USB_DEVICE_DEBUG_MODE		6	/* (special devices only) */
+
+#define USB_ENDPOINT_HALT		0	/* IN/OUT will STALL */
+
 
 /**
  * struct usb_ctrlrequest - SETUP data for a USB device control request
@@ -306,6 +321,18 @@ struct usb_otg_descriptor {
 /* from usb_otg_descriptor.bmAttributes */
 #define USB_OTG_SRP		(1 << 0)
 #define USB_OTG_HNP		(1 << 1)	/* swap host/device roles */
+
+/*-------------------------------------------------------------------------*/
+
+/* USB_DT_DEBUG:  for special highspeed devices, replacing serial console */
+struct usb_debug_descriptor {
+	__u8  bLength;
+	__u8  bDescriptorType;
+
+	/* bulk endpoints with 8 byte maxpacket */
+	__u8  bDebugInEndpoint;
+	__u8  bDebugOutEndpoint;
+};
 
 /*-------------------------------------------------------------------------*/
 

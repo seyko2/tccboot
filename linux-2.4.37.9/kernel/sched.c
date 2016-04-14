@@ -209,7 +209,7 @@ static inline int preemption_goodness(struct task_struct * prev, struct task_str
  */
 static FASTCALL(void reschedule_idle(struct task_struct * p));
 
-static void reschedule_idle(struct task_struct * p)
+static void fastcall reschedule_idle(struct task_struct * p)
 {
 #ifdef CONFIG_SMP
 	int this_cpu = smp_processor_id();
@@ -367,7 +367,7 @@ out:
 	return success;
 }
 
-inline int wake_up_process(struct task_struct * p)
+inline int fastcall wake_up_process(struct task_struct * p)
 {
 	return try_to_wake_up(p, 0);
 }
@@ -405,7 +405,7 @@ static void process_timeout(unsigned long __data)
  *
  * In all cases the return value is guaranteed to be non-negative.
  */
-signed long schedule_timeout(signed long timeout)
+signed long fastcall schedule_timeout(signed long timeout)
 {
 	struct timer_list timer;
 	unsigned long expire;
@@ -735,7 +735,7 @@ static inline void __wake_up_common (wait_queue_head_t *q, unsigned int mode,
 	}
 }
 
-void __wake_up(wait_queue_head_t *q, unsigned int mode, int nr)
+void fastcall __wake_up(wait_queue_head_t *q, unsigned int mode, int nr)
 {
 	if (q) {
 		unsigned long flags;
@@ -745,7 +745,7 @@ void __wake_up(wait_queue_head_t *q, unsigned int mode, int nr)
 	}
 }
 
-void __wake_up_sync(wait_queue_head_t *q, unsigned int mode, int nr)
+void fastcall __wake_up_sync(wait_queue_head_t *q, unsigned int mode, int nr)
 {
 	if (q) {
 		unsigned long flags;
@@ -755,7 +755,7 @@ void __wake_up_sync(wait_queue_head_t *q, unsigned int mode, int nr)
 	}
 }
 
-void complete(struct completion *x)
+void fastcall complete(struct completion *x)
 {
 	unsigned long flags;
 
@@ -765,7 +765,7 @@ void complete(struct completion *x)
 	spin_unlock_irqrestore(&x->wait.lock, flags);
 }
 
-void wait_for_completion(struct completion *x)
+void fastcall wait_for_completion(struct completion *x)
 {
 	spin_lock_irq(&x->wait.lock);
 	if (!x->done) {
@@ -800,7 +800,7 @@ void wait_for_completion(struct completion *x)
 	__remove_wait_queue(q, &wait);				\
 	wq_write_unlock_irqrestore(&q->lock,flags);
 
-void interruptible_sleep_on(wait_queue_head_t *q)
+void fastcall interruptible_sleep_on(wait_queue_head_t *q)
 {
 	SLEEP_ON_VAR
 
@@ -811,7 +811,7 @@ void interruptible_sleep_on(wait_queue_head_t *q)
 	SLEEP_ON_TAIL
 }
 
-long interruptible_sleep_on_timeout(wait_queue_head_t *q, long timeout)
+long fastcall interruptible_sleep_on_timeout(wait_queue_head_t *q, long timeout)
 {
 	SLEEP_ON_VAR
 
@@ -824,7 +824,7 @@ long interruptible_sleep_on_timeout(wait_queue_head_t *q, long timeout)
 	return timeout;
 }
 
-void sleep_on(wait_queue_head_t *q)
+void fastcall sleep_on(wait_queue_head_t *q)
 {
 	SLEEP_ON_VAR
 	
@@ -835,7 +835,7 @@ void sleep_on(wait_queue_head_t *q)
 	SLEEP_ON_TAIL
 }
 
-long sleep_on_timeout(wait_queue_head_t *q, long timeout)
+long fastcall sleep_on_timeout(wait_queue_head_t *q, long timeout)
 {
 	SLEEP_ON_VAR
 	
@@ -1352,7 +1352,7 @@ void daemonize(void)
 
 extern unsigned long wait_init_idle;
 
-void __init init_idle(void)
+void init_idle(void)
 {
 	struct schedule_data * sched_data;
 	sched_data = &aligned_data[smp_processor_id()].schedule_data;

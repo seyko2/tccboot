@@ -121,7 +121,8 @@ static unsigned int ipt_snat_target(struct sk_buff **pskb,
 	ct = ip_conntrack_get(*pskb, &ctinfo);
 
 	/* Connection must be valid and new. */
-	IP_NF_ASSERT(ct && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED));
+	IP_NF_ASSERT(ct && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED
+	                    || ctinfo == IP_CT_RELATED + IP_CT_IS_REPLY));
 	IP_NF_ASSERT(out);
 
 	return ip_nat_setup_info(ct, targinfo, hooknum);
@@ -137,12 +138,8 @@ static unsigned int ipt_dnat_target(struct sk_buff **pskb,
 	struct ip_conntrack *ct;
 	enum ip_conntrack_info ctinfo;
 
-#ifdef CONFIG_IP_NF_NAT_LOCAL
 	IP_NF_ASSERT(hooknum == NF_IP_PRE_ROUTING
 		     || hooknum == NF_IP_LOCAL_OUT);
-#else
-	IP_NF_ASSERT(hooknum == NF_IP_PRE_ROUTING);
-#endif
 
 	ct = ip_conntrack_get(*pskb, &ctinfo);
 
@@ -220,13 +217,6 @@ static int ipt_dnat_checkentry(const char *tablename,
 		return 0;
 	}
 	
-#ifndef CONFIG_IP_NF_NAT_LOCAL
-	if (hook_mask & (1 << NF_IP_LOCAL_OUT)) {
-		DEBUGP("DNAT: CONFIG_IP_NF_NAT_LOCAL not enabled\n");
-		return 0;
-	}
-#endif
-
 	return 1;
 }
 
@@ -248,6 +238,27 @@ alloc_null_binding(struct ip_conntrack *conntrack,
 
 	DEBUGP("Allocating NULL binding for %p (%u.%u.%u.%u)\n", conntrack,
 	       NIPQUAD(ip));
+	return ip_nat_setup_info(conntrack, &mr, hooknum);
+}
+
+unsigned int
+alloc_null_binding_confirmed(struct ip_conntrack *conntrack,
+                             struct ip_nat_info *info,
+                             unsigned int hooknum)
+{
+	u_int32_t ip
+		= (HOOK2MANIP(hooknum) == IP_NAT_MANIP_SRC
+		   ? conntrack->tuplehash[IP_CT_DIR_REPLY].tuple.dst.ip
+		   : conntrack->tuplehash[IP_CT_DIR_REPLY].tuple.src.ip);
+	u_int16_t all
+		= (HOOK2MANIP(hooknum) == IP_NAT_MANIP_SRC
+		   ? conntrack->tuplehash[IP_CT_DIR_REPLY].tuple.dst.u.all
+		   : conntrack->tuplehash[IP_CT_DIR_REPLY].tuple.src.u.all);
+	struct ip_nat_multi_range mr
+		= { 1, { { IP_NAT_RANGE_MAP_IPS, ip, ip, { all }, { all } } } };
+
+	DEBUGP("Allocating NULL binding for confirmed %p (%u.%u.%u.%u)\n",
+	       conntrack, NIPQUAD(ip));
 	return ip_nat_setup_info(conntrack, &mr, hooknum);
 }
 

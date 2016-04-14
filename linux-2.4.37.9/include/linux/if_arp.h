@@ -40,6 +40,7 @@
 #define ARPHRD_METRICOM	23		/* Metricom STRIP (new IANA id)	*/
 #define	ARPHRD_IEEE1394	24		/* IEEE 1394 IPv4 - RFC 2734	*/
 #define ARPHRD_EUI64	27		/* EUI-64                       */
+#define ARPHRD_INFINIBAND	32		/* InfiniBand                   */
 
 /* Dummy types for non ARP hardware */
 #define ARPHRD_SLIP	256
@@ -85,6 +86,7 @@
 #define ARPHRD_IEEE80211_PRISM 802	/* IEEE 802.11 + Prism2 header  */
 
 #define ARPHRD_VOID	  0xFFFF	/* Void type, nothing is known */
+#define ARPHRD_NONE	  0xFFFE	/* zero header length */
 
 /* ARP protocol opcodes. */
 #define	ARPOP_REQUEST	1		/* ARP request			*/

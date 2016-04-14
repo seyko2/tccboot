@@ -39,6 +39,7 @@
 #include <linux/spinlock.h>
 #include <linux/timex.h>
 
+#include <asm/compiler.h>
 #include <asm/mipsregs.h>
 #include <asm/ptrace.h>
 
@@ -162,11 +163,10 @@ static unsigned long do_fast_gettimeoffset(void)
 			".set\tmips0\n\t"
 			".set\tat\n\t"
 			".set\treorder"
-			:"=&r" (quotient)
-			:"r" (timerhi),
-			 "m" (timerlo),
-			 "r" (tmp),
-			 "r" (USECS_PER_JIFFY));
+			: "=&r" (quotient)
+			: "r" (timerhi), "m" (timerlo),
+			  "r" (tmp), "r" (USECS_PER_JIFFY)
+			: "hi", "lo", GCC_REG_ACCUM);
 		cached_quotient = quotient;
 	}
 
@@ -178,9 +178,9 @@ static unsigned long do_fast_gettimeoffset(void)
 
 	__asm__("multu\t%1,%2\n\t"
 		"mfhi\t%0"
-		:"=r" (res)
-		:"r" (count),
-		 "r" (quotient));
+		: "=r" (res)
+		: "r" (count), "r" (quotient)
+		: "hi", "lo", GCC_REG_ACCUM);
 
 	/*
  	 * Due to possible jiffies inconsistencies, we need to check

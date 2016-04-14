@@ -16,6 +16,7 @@ if [ "$CONFIG_X86" = "y" ]; then
     define_bool CONFIG_ACPI_POWER		y
     if [ "$CONFIG_PCI" = "y" ]; then
       define_bool CONFIG_ACPI_PCI		y
+      define_bool CONFIG_ACPI_MMCONFIG		y
     fi
     define_bool CONFIG_ACPI_SLEEP		y
     define_bool CONFIG_ACPI_SYSTEM		y
@@ -28,7 +29,6 @@ if [ "$CONFIG_X86" = "y" ]; then
     tristate     '  ASUS Laptop Extras'  CONFIG_ACPI_ASUS
     tristate     '  Toshiba Laptop Extras'	CONFIG_ACPI_TOSHIBA
     bool         '  Debug Statements'	CONFIG_ACPI_DEBUG
-    bool         '  Relaxed AML Checking'	CONFIG_ACPI_RELAXED_AML
   else
     if [ "$CONFIG_SMP" = "y" ]; then
       define_bool CONFIG_ACPI_BOOT		y

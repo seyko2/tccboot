@@ -13,6 +13,7 @@
 #include <linux/rtnetlink.h>
 #include <net/pkt_sched.h>
 #include <net/dsfield.h>
+#include <net/inet_ecn.h>
 #include <asm/byteorder.h>
 
 
@@ -196,10 +197,12 @@ static int dsmark_enqueue(struct sk_buff *skb,struct Qdisc *sch)
 	if (p->set_tc_index) {
 		switch (skb->protocol) {
 			case __constant_htons(ETH_P_IP):
-				skb->tc_index = ipv4_get_dsfield(skb->nh.iph);
+				skb->tc_index = ipv4_get_dsfield(skb->nh.iph)
+					& ~INET_ECN_MASK;
 				break;
 			case __constant_htons(ETH_P_IPV6):
-				skb->tc_index = ipv6_get_dsfield(skb->nh.ipv6h);
+				skb->tc_index = ipv6_get_dsfield(skb->nh.ipv6h)
+					& ~INET_ECN_MASK;
 				break;
 			default:
 				skb->tc_index = 0;
@@ -324,12 +327,11 @@ int dsmark_init(struct Qdisc *sch,struct rtattr *opt)
 	__u16 tmp;
 
 	DPRINTK("dsmark_init(sch %p,[qdisc %p],opt %p)\n",sch,p,opt);
-	if (rtattr_parse(tb,TCA_DSMARK_MAX,RTA_DATA(opt),RTA_PAYLOAD(opt)) < 0 ||
+	if (!opt ||
+	    rtattr_parse(tb,TCA_DSMARK_MAX,RTA_DATA(opt),RTA_PAYLOAD(opt)) < 0 ||
 	    !tb[TCA_DSMARK_INDICES-1] ||
 	    RTA_PAYLOAD(tb[TCA_DSMARK_INDICES-1]) < sizeof(__u16))
                 return -EINVAL;
-	memset(p,0,sizeof(*p));
-	p->filter_list = NULL;
 	p->indices = *(__u16 *) RTA_DATA(tb[TCA_DSMARK_INDICES-1]);
 	if (!p->indices)
 		return -EINVAL;

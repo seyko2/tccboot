@@ -178,7 +178,7 @@ err_out_iounmap:
 	iounmap((void *)(info->window_addr));
 err_out_free_mmio_region:
 	release_mem_region(window->start, window->size);
-err_out_none:
+//err_out_none:
 	return -ENODEV;
 }
 

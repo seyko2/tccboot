@@ -18,7 +18,6 @@
 #include <linux/fcdevice.h>
 #include <linux/ioport.h>
 #include <linux/tty.h>
-#include <linux/ethtool.h>
 #include <net/neighbour.h>
 #include <net/snmp.h>
 #include <net/dst.h>
@@ -180,9 +179,13 @@ EXPORT_SYMBOL(neigh_connected_output);
 EXPORT_SYMBOL(neigh_update);
 EXPORT_SYMBOL(neigh_create);
 EXPORT_SYMBOL(neigh_lookup);
+EXPORT_SYMBOL(neigh_lookup_nodev);
 EXPORT_SYMBOL(__neigh_event_send);
 EXPORT_SYMBOL(neigh_event_ns);
 EXPORT_SYMBOL(neigh_ifdown);
+EXPORT_SYMBOL(neigh_seq_start);
+EXPORT_SYMBOL(neigh_seq_next);
+EXPORT_SYMBOL(neigh_seq_stop);
 #ifdef CONFIG_ARPD
 EXPORT_SYMBOL(neigh_app_ns);
 #endif
@@ -323,6 +326,7 @@ EXPORT_SYMBOL(tcp_hashinfo);
 EXPORT_SYMBOL(tcp_listen_wlock);
 EXPORT_SYMBOL(udp_hash);
 EXPORT_SYMBOL(udp_hash_lock);
+EXPORT_SYMBOL(udp_poll);
 
 EXPORT_SYMBOL(tcp_destroy_sock);
 EXPORT_SYMBOL(ip_queue_xmit);
@@ -602,6 +606,7 @@ EXPORT_SYMBOL(nf_hooks);
 EXPORT_SYMBOL(nf_setsockopt);
 EXPORT_SYMBOL(nf_getsockopt);
 EXPORT_SYMBOL(ip_ct_attach);
+EXPORT_SYMBOL(nf_ct_attach);
 #ifdef CONFIG_INET
 #include <linux/netfilter_ipv4.h>
 EXPORT_SYMBOL(ip_route_me_harder);
@@ -621,12 +626,5 @@ EXPORT_SYMBOL(iw_handler_set_thrspy);
 EXPORT_SYMBOL(iw_handler_get_thrspy);
 EXPORT_SYMBOL(wireless_spy_update);
 #endif /* CONFIG_NET_RADIO || CONFIG_NET_PCMCIA_RADIO */
-
-/* ethtool.c */
-EXPORT_SYMBOL(ethtool_op_get_link);
-EXPORT_SYMBOL(ethtool_op_get_tx_csum);
-EXPORT_SYMBOL(ethtool_op_set_tx_csum);
-EXPORT_SYMBOL(ethtool_op_get_sg);
-EXPORT_SYMBOL(ethtool_op_set_sg);
 
 #endif  /* CONFIG_NET */

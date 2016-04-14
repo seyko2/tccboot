@@ -39,7 +39,7 @@ extern asmlinkage int (*do_syscalls)(struct pt_regs *regs, syscall_t fun,
 extern syscall_t sys_call_table[];
 extern unsigned char sys_narg_table[];
 
-asmlinkage int sys_pipe(struct pt_regs regs)
+asmlinkage int sys_pipe(volatile struct pt_regs regs)
 {
 	int fd[2];
 	int error, res;

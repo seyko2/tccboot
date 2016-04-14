@@ -328,26 +328,6 @@ static __init int apm_likes_to_melt(struct dmi_blacklist *d)
 }
 
 /*
- * Some machines, usually laptops, can't handle an enabled local APIC.
- * The symptoms include hangs or reboots when suspending or resuming,
- * attaching or detaching the power cord, or entering BIOS setup screens
- * through magic key sequences.
- */
-static int __init local_apic_kills_bios(struct dmi_blacklist *d)
-{
-#ifdef CONFIG_X86_LOCAL_APIC
-	extern int enable_local_apic;
-	if (enable_local_apic == 0) {
-		enable_local_apic = -1;
-		printk(KERN_WARNING "%s with broken BIOS detected. "
-		       "Refusing to enable the local APIC.\n",
-		       d->ident);
-	}
-#endif
-	return 0;
-}
-
-/*
  *  Check for clue free BIOS implementations who use
  *  the following QA technique
  *
@@ -431,7 +411,7 @@ typedef void (pm_kbd_func) (void);
 
 static __init int broken_ps2_resume(struct dmi_blacklist *d)
 {
-#ifdef CONFIG_VT
+#if defined(CONFIG_VT) && !defined(CONFIG_DUMMY_KEYB)
 	if (pm_kbd_request_override == NULL)
 	{
 		pm_kbd_request_override = pckbd_pm_resume;
@@ -452,6 +432,22 @@ static __init int fix_broken_hp_bios_irq9(struct dmi_blacklist *d)
 	if (broken_hp_bios_irq9 == 0)
 	{
 		broken_hp_bios_irq9 = 1;
+		printk(KERN_INFO "%s detected - fixing broken IRQ routing\n", d->ident);
+	}
+#endif
+	return 0;
+}
+
+/*
+ * Work around broken Acer TravelMate 360 Notebooks which assign Cardbus to
+ * IRQ 11 even though it is actually wired to IRQ 10
+ */
+static __init int fix_acer_tm360_irqrouting(struct dmi_blacklist *d)
+{
+#ifdef CONFIG_PCI
+	extern int acer_tm360_irqrouting;
+	if (acer_tm360_irqrouting == 0) {
+		acer_tm360_irqrouting = 1;
 		printk(KERN_INFO "%s detected - fixing broken IRQ routing\n", d->ident);
 	}
 #endif
@@ -527,6 +523,23 @@ static __init int disable_acpi_pci(struct dmi_blacklist *d)
  *	Process the DMI blacklists
  */
  
+
+#ifdef CONFIG_VT
+/*      IBM bladeservers have a USB console switch. The keyboard type is USB
+ *      and the hardware does not have a console keyboard. We disable the
+ *      console keyboard so the kernel does not try to initialize one and
+ *      spew errors. This can be used for all systems without a console
+ *      keyboard like systems with just a USB or IrDA keyboard.
+ */
+static __init int disable_console_keyboard(struct dmi_blacklist *d)
+{
+        extern int keyboard_controller_present;
+        printk(KERN_INFO "*** Hardware has no console keyboard controller.\n");
+        printk(KERN_INFO "*** Disabling console keyboard.\n");
+        keyboard_controller_present = 0;
+        return 0;
+}
+#endif
 
 /*
  *	This will be expanded over time to force things like the APM 
@@ -776,26 +789,6 @@ static __initdata struct dmi_blacklist dmi_blacklist[]={
 			MATCH(DMI_PRODUCT_NAME, "P14H")
 			} },
 
-	/* Machines which have problems handling enabled local APICs */
-
-	{ local_apic_kills_bios, "Dell Inspiron", {
-			MATCH(DMI_SYS_VENDOR, "Dell Computer Corporation"),
-			MATCH(DMI_PRODUCT_NAME, "Inspiron"),
-			NO_MATCH, NO_MATCH
-			} },
-
-	{ local_apic_kills_bios, "Dell Latitude", {
-			MATCH(DMI_SYS_VENDOR, "Dell Computer Corporation"),
-			MATCH(DMI_PRODUCT_NAME, "Latitude"),
-			NO_MATCH, NO_MATCH
-			} },
-
-	{ local_apic_kills_bios, "IBM Thinkpad T20", {
-			MATCH(DMI_BOARD_VENDOR, "IBM"),
-			MATCH(DMI_BOARD_NAME, "264741U"),
-			NO_MATCH, NO_MATCH
-			} },
-
 	{ init_ints_after_s1, "Toshiba Satellite 4030cdt", { /* Reinitialization of 8259 is needed after S1 resume */
 			MATCH(DMI_PRODUCT_NAME, "S4030CDT/4.3"),
 			NO_MATCH, NO_MATCH, NO_MATCH
@@ -820,6 +813,12 @@ static __initdata struct dmi_blacklist dmi_blacklist[]={
 			MATCH(DMI_BOARD_VERSION, "OmniBook N32N-736")
 			} },
 
+	{ fix_acer_tm360_irqrouting, "Acer TravelMate 36x Laptop", {
+			MATCH(DMI_SYS_VENDOR, "Acer"),
+			MATCH(DMI_PRODUCT_NAME, "TravelMate 360"),
+			NO_MATCH, NO_MATCH
+			} },
+ 
 	/*
 	 *	Generic per vendor APM settings
 	 */
@@ -828,6 +827,17 @@ static __initdata struct dmi_blacklist dmi_blacklist[]={
 			MATCH(DMI_SYS_VENDOR, "IBM"),
 			NO_MATCH, NO_MATCH, NO_MATCH
 			} },
+#ifdef CONFIG_VT
+        /*
+         *      IBM Bladeservers
+         */
+
+        { disable_console_keyboard, "IBM Server Blade", {
+                        MATCH(DMI_SYS_VENDOR,"IBM"),
+                        MATCH(DMI_BOARD_NAME, "Server Blade"),
+                        NO_MATCH, NO_MATCH
+                        } },
+#endif
 
 #ifdef	CONFIG_ACPI_BOOT
 	/*
@@ -935,6 +945,13 @@ static __initdata struct dmi_blacklist dmi_blacklist[]={
 			/* newer BIOS, Revision 1011, does work */
 			MATCH(DMI_BIOS_VERSION, "ASUS A7V ACPI BIOS Revision 1007"),
 			NO_MATCH }},
+
+	{ disable_acpi_pci, "Acer TravelMate 36x Laptop", {
+			MATCH(DMI_SYS_VENDOR, "Acer"),
+			MATCH(DMI_PRODUCT_NAME, "TravelMate 360"),
+			NO_MATCH, NO_MATCH
+			} },
+ 
 #endif	/* CONFIG_ACPI_PCI */
 
 	{ NULL, }
@@ -960,7 +977,7 @@ static __init void dmi_check_blacklist(void)
 		if (s) { 
 			int year, disable = 0;
 			s++; 
-			year = simple_strtoul(s,NULL,0); 
+			year = simple_strtoul(s,NULL,10);
 			if (year >= 1000) 
 				disable = year < ACPI_BLACKLIST_CUTOFF_YEAR; 
 			else if (year < 1 || (year > 90 && year <= 99))

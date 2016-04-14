@@ -18,6 +18,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 #include <linux/config.h>
+#include <linux/module.h>
 #include <linux/init.h>
 #include <asm/mmu_context.h>
 #include <asm/bootinfo.h>
@@ -118,7 +119,7 @@ void local_flush_tlb_all(void)
  * with the firmware, go back and give all the entries invalid addresses with
  * the normal flush routine.  Wired entries will be killed as well!
  */
-void sb1_sanitize_tlb(void)
+static void __init sb1_sanitize_tlb(void)
 {
 	int entry;
 	long addr = 0;
@@ -237,6 +238,9 @@ void local_flush_tlb_one(unsigned long page)
 	write_c0_entryhi(oldpid);
 	local_irq_restore(flags);
 }
+
+/* The highmem code wants this. */
+EXPORT_SYMBOL(local_flush_tlb_one);
 
 /* All entries common to a mm share an asid.  To effectively flush
    these entries, we just bump the asid. */

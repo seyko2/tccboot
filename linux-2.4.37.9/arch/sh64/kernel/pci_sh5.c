@@ -320,43 +320,70 @@ static int __init map_cayman_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int result = -1;
 
-	if (dev->bus->number == 0) {
-	        switch ((slot + (pin-1)) & 3) {
-	        case 0:
-	          result = IRQ_INTA;
-		  break;
-                case 1:
-	          result = IRQ_INTB;
-		  break;
-                case 2:
-	          result = IRQ_INTC;
-		  break;
-		case 3:
-		  result = IRQ_INTD;
-		  break;
-                }
-        }
+	/* The complication here is that the PCI IRQ lines from the Cayman's 2
+	   5V slots get into the CPU via a different path from the IRQ lines
+	   from the 3 3.3V slots.  Thus, we have to detect whether the card's
+	   interrupts go via the 5V or 3.3V path, i.e. the 'bridge swizzling'
+	   at the point where we cross from 5V to 3.3V is not the normal case.
 
-	if (dev->bus->number == 2) {
-	        switch((slot + (pin-1)) & 3) {
-	        case 0:
-	          result = IRQ_P2INTA;
-		  break;
-                case 1:
-	          result = IRQ_P2INTB;
-		  break;
-                case 2:
-	          result = IRQ_P2INTC;
-		  break;
-                case 3:
-	          result = IRQ_P2INTD;
-		  break;
-                }
-        }
+	   The added complication is that we don't know that the 5V slots are
+	   always bus 2, because a card containing a PCI-PCI bridge may be
+	   plugged into a 3.3V slot, and this changes the bus numbering.
 
-	dprintk("map_cayman_irq for dev %d on bus %d slot %d, pin is %d : irq=%d\n",
-	       dev->devfn,dev->bus->number,slot,pin,result);
+	   Also, the Cayman has an intermediate PCI bus that goes a custom
+	   expansion board header (and to the secondary bridge).  This bus has
+	   never been used in practice.
 
+	   The 1ary onboard PCI-PCI bridge is device 3 on bus 0
+	   The 2ary onboard PCI-PCI bridge is device 0 on the 2ary bus of the 1ary bridge.
+	   */
+
+	struct slot_pin {
+		int slot;
+		int pin;
+	} path[4];
+	int i=0;
+	int base;
+
+	while (dev->bus->number > 0) {
+
+		slot = path[i].slot = PCI_SLOT(dev->devfn);
+		pin = path[i].pin = bridge_swizzle(pin, slot);
+		dev = dev->bus->self;
+		i++;
+		if (i > 3) panic("PCI path to root bus too long!\n");
+	}
+
+	slot = PCI_SLOT(dev->devfn);
+	/* This is the slot on bus 0 through which the device is eventually
+	   reachable. */
+
+	/* Now work back up. */
+	if ((slot < 3) || (i == 0)) {
+		/* Bus 0 (incl. PCI-PCI bridge itself) : perform the final
+		   swizzle now. */
+		result = IRQ_INTA + bridge_swizzle(pin, slot) - 1;
+	} else {
+		i--;
+		slot = path[i].slot;
+		pin  = path[i].pin;
+		if (slot > 0) {
+			panic("PCI expansion bus device found - not handled!\n");
+		} else {
+			if (i > 0) {
+				/* 5V slots */
+				i--;
+				slot = path[i].slot;
+				pin  = path[i].pin;
+				/* 'pin' was swizzled earlier wrt slot, don't do it again. */
+				result = IRQ_P2INTA + (pin - 1);
+			} else {
+				/* IRQ for 2ary PCI-PCI bridge : unused */
+				result = -1;
+			}
+		}
+	}
+	
 	return result;
 }
 

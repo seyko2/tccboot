@@ -19,7 +19,7 @@
 
 void __delay(unsigned long loops)
 {
-	unsigned long bclock, now;
+	unsigned bclock, now;
 	
 	rdtscl(bclock);
 	do

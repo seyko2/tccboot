@@ -74,6 +74,29 @@ static int requests_in;
 static int requests_out;
 #endif
 
+static void
+nbd_end_request(struct request *req)
+{
+	struct buffer_head *bh;
+	unsigned nsect;
+	unsigned long flags;
+	int uptodate = (req->errors == 0) ? 1 : 0;
+
+#ifdef PARANOIA
+	requests_out++;
+#endif
+	spin_lock_irqsave(&io_request_lock, flags);
+	while((bh = req->bh) != NULL) {
+		nsect = bh->b_size >> 9;
+		blk_finished_io(nsect);
+		req->bh = bh->b_reqnext;
+		bh->b_reqnext = NULL;
+		bh->b_end_io(bh, uptodate);
+	}
+	blkdev_release_request(req);
+	spin_unlock_irqrestore(&io_request_lock, flags);
+}
+
 static int nbd_open(struct inode *inode, struct file *file)
 {
 	int dev;
@@ -408,10 +431,7 @@ static int nbd_ioctl(struct inode *inode, struct file *file,
 	int dev, error, temp;
 	struct request sreq ;
 
-	/* Anyone capable of this syscall can do *real bad* things */
 
-	if (!capable(CAP_SYS_ADMIN))
-		return -EPERM;
 	if (!inode)
 		return -EINVAL;
 	dev = MINOR(inode->i_rdev);
@@ -419,6 +439,20 @@ static int nbd_ioctl(struct inode *inode, struct file *file,
 		return -ENODEV;
 
 	lo = &nbd_dev[dev];
+
+	/* these are innocent, but.... */
+	switch (cmd) {
+	case BLKGETSIZE:
+		return put_user(nbd_bytesizes[dev] >> 9, (unsigned long *) arg);
+	case BLKGETSIZE64:
+		return put_user((u64)nbd_bytesizes[dev], (u64 *) arg);
+	}
+
+	/* ... anyone capable of any of the below ioctls can do *real bad* 
+	   things */
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
 	switch (cmd) {
 	case NBD_DISCONNECT:
 	        printk("NBD_DISCONNECT\n");
@@ -524,10 +558,6 @@ static int nbd_ioctl(struct inode *inode, struct file *file,
 		       dev, lo->queue_head.next, lo->queue_head.prev, requests_in, requests_out);
 		return 0;
 #endif
-	case BLKGETSIZE:
-		return put_user(nbd_bytesizes[dev] >> 9, (unsigned long *) arg);
-	case BLKGETSIZE64:
-		return put_user((u64)nbd_bytesizes[dev], (u64 *) arg);
 	}
 	return -EINVAL;
 }

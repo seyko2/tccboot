@@ -68,7 +68,6 @@ struct cpuinfo_x86 {
 #define X86_VENDOR_UNKNOWN 0xff
 
 extern struct cpuinfo_x86 boot_cpu_data;
-extern struct tss_struct init_tss[NR_CPUS];
 
 #ifdef CONFIG_SMP
 extern struct cpuinfo_x86 cpu_data[];
@@ -260,6 +259,7 @@ static inline void clear_in_cr4 (unsigned long mask)
  * Size of io_bitmap in longwords: 32 is ports 0-0x3ff.
  */
 #define IO_BITMAP_SIZE	32
+#define IO_BITMAP_BYTES (IO_BITMAP_SIZE * sizeof(u32))
 #define IO_BITMAP_OFFSET offsetof(struct tss_struct,io_bitmap)
 #define INVALID_IO_BITMAP_OFFSET 0x8000
 
@@ -299,6 +299,8 @@ struct tss_struct {
 	u32 io_bitmap[IO_BITMAP_SIZE];
 } __attribute__((packed)) ____cacheline_aligned;
 
+extern struct tss_struct init_tss[NR_CPUS];
+
 struct thread_struct {
 	unsigned long	rsp0;
 	unsigned long	rip;
@@ -325,10 +327,9 @@ struct thread_struct {
 #define INIT_MMAP \
 { &init_mm, 0, 0, NULL, PAGE_SHARED, VM_READ | VM_WRITE | VM_EXEC, 1, NULL, NULL }
 
-#define STACKFAULT_STACK 1
-#define DOUBLEFAULT_STACK 2 
-#define NMI_STACK 3 
-#define N_EXCEPTION_STACKS 3  /* hw limit: 7 */
+#define DOUBLEFAULT_STACK 1
+#define NMI_STACK 2
+#define N_EXCEPTION_STACKS 2  /* hw limit: 7 */
 #define EXCEPTION_STKSZ PAGE_SIZE
 #define EXCEPTION_STK_ORDER 0
 

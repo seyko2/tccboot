@@ -325,27 +325,21 @@ ENTRY(stack_start)
 
 /* This is the default interrupt "handler" :-) */
 int_msg:
-	.asciz "Unknown interrupt\n"
+	.asciz "Unknown interrupt, stack: %p %p %p %p\n"
 	ALIGN
 ignore_int:
 	cld
-	pushl %eax
-	pushl %ecx
-	pushl %edx
-	pushl %es
-	pushl %ds
 	movl $(__KERNEL_DS),%eax
 	movl %eax,%ds
 	movl %eax,%es
+	pushl 12(%esp)
+	pushl 12(%esp)
+	pushl 12(%esp)
+	pushl 12(%esp)
 	pushl $int_msg
 	call SYMBOL_NAME(printk)
-	popl %eax
-	popl %ds
-	popl %es
-	popl %edx
-	popl %ecx
-	popl %eax
-	iret
+1:	hlt
+	jmp 1b
 
 /*
  * The interrupt descriptor table has room for 256 idt's,

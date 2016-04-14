@@ -1155,3 +1155,5 @@ int fc_do_prli(fc_channel *fc, unsigned char alpa)
 	kfree(p);
 	return status;
 }
+
+MODULE_LICENSE("GPL");

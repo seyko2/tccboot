@@ -256,7 +256,7 @@ static int exclusive_swap_page(struct page *page)
  * work, but we opportunistically check whether
  * we need to get all the locks first..
  */
-int can_share_swap_page(struct page *page)
+int fastcall can_share_swap_page(struct page *page)
 {
 	int retval = 0;
 
@@ -284,7 +284,7 @@ int can_share_swap_page(struct page *page)
  * Work out if there are any other processes sharing this
  * swap cache page. Free it if you can. Return success.
  */
-int remove_exclusive_swap_page(struct page *page)
+int fastcall remove_exclusive_swap_page(struct page *page)
 {
 	int retval;
 	struct swap_info_struct * p;
@@ -738,8 +738,10 @@ asmlinkage long sys_swapoff(const char * specialfile)
 	for (type = swap_list.head; type >= 0; type = swap_info[type].next) {
 		p = swap_info + type;
 		if ((p->flags & SWP_WRITEOK) == SWP_WRITEOK) {
-			if (p->swap_file == nd.dentry)
-			  break;
+			if (p->swap_file == nd.dentry ||
+			    (S_ISBLK(nd.dentry->d_inode->i_mode) &&
+			    p->swap_device == nd.dentry->d_inode->i_rdev))
+				break;
 		}
 		prev = type;
 	}

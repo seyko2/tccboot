@@ -500,12 +500,13 @@ static int swaps_read_proc(char *page, char **start, off_t off,
 static ssize_t read_profile(struct file *file, char *buf,
 			    size_t count, loff_t *ppos)
 {
-	unsigned long p = *ppos;
+	loff_t n = *ppos;
+	unsigned p = n;
 	ssize_t read;
 	char * pnt;
 	unsigned int sample_step = 1 << prof_shift;
 
-	if (p >= (prof_len+1)*sizeof(unsigned int))
+	if (p != n || p >= (prof_len+1)*sizeof(unsigned int))
 		return 0;
 	if (count > (prof_len+1)*sizeof(unsigned int) - p)
 		count = (prof_len+1)*sizeof(unsigned int) - p;
@@ -519,7 +520,7 @@ static ssize_t read_profile(struct file *file, char *buf,
 	if (copy_to_user(buf,(void *)pnt,count))
 		return -EFAULT;
 	read += count;
-	*ppos += read;
+	*ppos = n + read;
 	return read;
 }
 

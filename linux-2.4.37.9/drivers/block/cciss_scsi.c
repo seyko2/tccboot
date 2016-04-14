@@ -49,7 +49,7 @@ static int sendcmd(
 	unsigned char *scsi3addr );
 
 
-int __init cciss_scsi_detect(Scsi_Host_Template *tpnt);
+int cciss_scsi_detect(Scsi_Host_Template *tpnt);
 int cciss_scsi_release(struct Scsi_Host *sh);
 const char *cciss_scsi_info(struct Scsi_Host *sa);
 
@@ -777,7 +777,7 @@ complete_scsi_command( CommandList_struct *cp, int timeout, __u32 tag)
    The scsi mid layer (scsi_register_module) is
    called from cciss.c:cciss_init_one().  */
 
-int __init
+int
 cciss_scsi_detect(Scsi_Host_Template *tpnt)
 {
 	int i;
@@ -1569,7 +1569,7 @@ static void
 cciss_proc_tape_report(int ctlr, unsigned char *buffer, off_t *pos, off_t *len)
 {
 	int size;
-	unsigned int flags;
+	unsigned long flags;
 
 	*pos = *pos -1; *len = *len - 1; // cut off the last trailing newline
 

@@ -338,11 +338,13 @@ static int rfcomm_release_dev(unsigned long arg)
 
 	BT_DBG("dev_id %id flags 0x%x", req.dev_id, req.flags);
 
-	if (!capable(CAP_NET_ADMIN))
-		return -EPERM;
-
 	if (!(dev = rfcomm_dev_get(req.dev_id)))
 		return -ENODEV;
+
+	if (dev->flags != NOCAP_FLAGS && !capable(CAP_NET_ADMIN)) {
+		rfcomm_dev_put(dev);
+		return -EPERM;
+	}
 
 	if (req.flags & (1 << RFCOMM_HANGUP_NOW))
 		rfcomm_dlc_close(dev->dlc, 0);
@@ -530,10 +532,8 @@ static void rfcomm_tty_wakeup(unsigned long arg)
 
 	BT_DBG("dev %p tty %p", dev, tty);
 
-	if (test_bit(TTY_DO_WRITE_WAKEUP, &tty->flags) && tty->ldisc.write_wakeup)
-                (tty->ldisc.write_wakeup)(tty);
+	tty_wakeup(tty);
 
-	wake_up_interruptible(&tty->write_wait);
 #ifdef SERIAL_HAVE_POLL_WAIT
 	wake_up_interruptible(&tty->poll_wait);
 #endif
@@ -851,8 +851,7 @@ static void rfcomm_tty_flush_buffer(struct tty_struct *tty)
 
 	skb_queue_purge(&dev->dlc->tx_queue);
 
-	if (test_bit(TTY_DO_WRITE_WAKEUP, &tty->flags) && tty->ldisc.write_wakeup)
-		tty->ldisc.write_wakeup(tty);
+	tty_wakeup(tty);
 }
 
 static void rfcomm_tty_send_xchar(struct tty_struct *tty, char ch)

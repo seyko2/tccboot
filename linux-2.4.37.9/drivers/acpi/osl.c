@@ -72,6 +72,12 @@ static void *acpi_irq_context;
 acpi_status
 acpi_os_initialize(void)
 {
+	return AE_OK;
+}
+
+acpi_status
+acpi_os_initialize1(void)
+{
 	/*
 	 * Initialize PCI configuration space access, as we'll need to access
 	 * it while walking the namespace (bus 0 and root bridges w/ _BBNs).

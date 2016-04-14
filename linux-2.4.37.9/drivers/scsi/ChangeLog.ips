@@ -1,6 +1,13 @@
 IBM ServeRAID driver Change Log
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+        7.00.xx  - Linux 2.6 Kernel Changes
+             
+        6.11.07  - Make Logical Drive Info structure safe for DMA     
+                 - Get VersionInfo buffer off the stack !             
+        
+        6.10.24  - Remove 1G Addressing Limitations                   
+        
         6.00.00  - Add 6x Adapters and Battery Flash 
         
         5.30.00  - use __devexit_p()

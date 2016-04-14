@@ -622,11 +622,20 @@ int ip_route_me_harder(struct sk_buff **pskb)
 }
 #endif /*CONFIG_INET*/
 
-/* This does not belong here, but ipt_REJECT needs it if connection
-   tracking in use: without this, connection may not be in hash table,
-   and hence manufactured ICMP or RST packets will not be associated
-   with it. */
+/* This does not belong here, but locally generated errors need it if connection
+   tracking in use: without this, connection may not be in hash table, and hence
+   manufactured ICMP or RST packets will not be associated with it. */
 void (*ip_ct_attach)(struct sk_buff *, struct nf_ct_info *);
+
+void nf_ct_attach(struct sk_buff *new, struct sk_buff *skb)
+{
+	void (*attach)(struct sk_buff *, struct nf_ct_info *);
+
+	if (skb->nfct && (attach = ip_ct_attach) != NULL) {
+		mb(); /* Just to be sure: must be read before executing this */
+		attach(new, skb->nfct);
+	}
+}
 
 void __init netfilter_init(void)
 {

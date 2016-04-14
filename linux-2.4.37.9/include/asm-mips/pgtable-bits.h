@@ -49,6 +49,10 @@
 #define _PAGE_SILENT_WRITE          (1<<2)
 #define _CACHE_MASK                 (7<<3)
 
+#ifdef CONFIG_SOC_AU1X00
+#define _CACHE_CACHABLE_COW         (3<<3)
+#endif
+
 /* MIPS32 defines only values 2 and 3. The rest are implementation
  * dependent.
  */

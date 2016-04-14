@@ -3,7 +3,7 @@
  *	Linux INET6 implementation 
  *
  *	Authors:
- *	Pedro Roque		<roque@di.fc.ul.pt>	
+ *	Pedro Roque		<pedro_m@yahoo.com>	
  *
  *	$Id: mcast.c,v 1.38 2001/08/15 07:36:31 davem Exp $
  *
@@ -362,7 +362,7 @@ int ip6_mc_source(int add, int omode, struct sock *sk,
 	err = -EADDRNOTAVAIL;
 
 	for (pmc=inet6->ipv6_mc_list; pmc; pmc=pmc->next) {
-		if (pmc->ifindex != pgsr->gsr_interface)
+		if (pgsr->gsr_interface && pmc->ifindex != pgsr->gsr_interface)
 			continue;
 		if (ipv6_addr_cmp(&pmc->addr, group) == 0)
 			break;
@@ -386,12 +386,12 @@ int ip6_mc_source(int add, int omode, struct sock *sk,
 			goto done;
 		rv = !0;
 		for (i=0; i<psl->sl_count; i++) {
-			rv = memcmp(&psl->sl_addr, group,
+			rv = memcmp(&psl->sl_addr[i], source,
 				sizeof(struct in6_addr));
-			if (rv >= 0)
+			if (rv == 0)
 				break;
 		}
-		if (!rv)	/* source not found */
+		if (rv)		/* source not found */
 			goto done;
 
 		/* update the interface filter */
@@ -432,8 +432,8 @@ int ip6_mc_source(int add, int omode, struct sock *sk,
 	}
 	rv = 1;	/* > 0 for insert logic below if sl_count is 0 */
 	for (i=0; i<psl->sl_count; i++) {
-		rv = memcmp(&psl->sl_addr, group, sizeof(struct in6_addr));
-		if (rv >= 0)
+		rv = memcmp(&psl->sl_addr[i], source, sizeof(struct in6_addr));
+		if (rv == 0)
 			break;
 	}
 	if (rv == 0)		/* address already there is an error */
@@ -505,8 +505,11 @@ int ip6_mc_msfilter(struct sock *sk, struct group_filter *gsf)
 			sock_kfree_s(sk, newpsl, IP6_SFLSIZE(newpsl->sl_max));
 			goto done;
 		}
-	} else
-		newpsl = 0;
+	} else {
+		newpsl = NULL;
+		(void) ip6_mc_add_src(idev, group, gsf->gf_fmode, 0, NULL, 0);
+	}
+
 	psl = pmc->sflist;
 	if (psl) {
 		(void) ip6_mc_del_src(idev, group, pmc->sfmode,
@@ -1142,6 +1145,11 @@ int igmp6_event_report(struct sk_buff *skb)
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		return 0;
 
+	/* send our report if the MC router may not have heard this report */
+	if (skb->pkt_type != PACKET_MULTICAST &&
+	    skb->pkt_type != PACKET_BROADCAST)
+		return 0;
+
 	if (!pskb_may_pull(skb, sizeof(struct in6_addr)))
 		return -EINVAL;
 
@@ -1243,15 +1251,6 @@ static struct sk_buff *mld_newpack(struct net_device *dev, int size)
 		return 0;
 
 	skb_reserve(skb, (dev->hard_header_len + 15) & ~15);
-	if (dev->hard_header) {
-		unsigned char ha[MAX_ADDR_LEN];
-
-		ndisc_mc_map(&mld2_all_mcr, ha, dev, 1);
-		if (dev->hard_header(skb, dev, ETH_P_IPV6,ha,NULL,size) < 0) {
-			kfree_skb(skb);
-			return 0;
-		}
-	}
 
 	if (ipv6_get_lladdr(dev, &addr_buf)) {
 		/* <draft-ietf-magma-mld-source-02.txt>:
@@ -1275,6 +1274,30 @@ static struct sk_buff *mld_newpack(struct net_device *dev, int size)
 	return skb;
 }
 
+static inline int mld_dev_queue_xmit2(struct sk_buff *skb)
+{
+	struct net_device *dev = skb->dev;
+
+	if (dev->hard_header) {
+		unsigned char ha[MAX_ADDR_LEN];
+		int err;
+
+		ndisc_mc_map(&skb->nh.ipv6h->daddr, ha, dev, 1);
+		err = dev->hard_header(skb, dev, ETH_P_IPV6, ha, NULL, skb->len);
+		if (err < 0) {
+			kfree_skb(skb);
+			return err;
+		}
+	}
+	return dev_queue_xmit(skb);
+}
+
+static inline int mld_dev_queue_xmit(struct sk_buff *skb)
+{
+	return NF_HOOK(PF_INET6, NF_IP6_POST_ROUTING, skb, NULL, skb->dev,
+	               mld_dev_queue_xmit2);
+}
+
 static void mld_sendpack(struct sk_buff *skb)
 {
 	struct ipv6hdr *pip6 = skb->nh.ipv6h;
@@ -1289,7 +1312,7 @@ static void mld_sendpack(struct sk_buff *skb)
 	pmr->csum = csum_ipv6_magic(&pip6->saddr, &pip6->daddr, mldlen,
 		IPPROTO_ICMPV6, csum_partial(skb->h.raw, mldlen, 0));
 	err = NF_HOOK(PF_INET6, NF_IP6_LOCAL_OUT, skb, NULL, skb->dev,
-		      dev_queue_xmit);
+		      mld_dev_queue_xmit);
 	if (!err)
 		ICMP6_INC_STATS(Icmp6OutMsgs);
 }
@@ -1585,12 +1608,6 @@ void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 		return;
 
 	skb_reserve(skb, (dev->hard_header_len + 15) & ~15);
-	if (dev->hard_header) {
-		unsigned char ha[MAX_ADDR_LEN];
-		ndisc_mc_map(snd_addr, ha, dev, 1);
-		if (dev->hard_header(skb, dev, ETH_P_IPV6, ha, NULL, full_len) < 0)
-			goto out;
-	}
 
 	if (ipv6_get_lladdr(dev, &addr_buf)) {
 		/* <draft-ietf-magma-mld-source-02.txt>:
@@ -1616,7 +1633,7 @@ void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 					   csum_partial((__u8 *) hdr, len, 0));
 
 	err = NF_HOOK(PF_INET6, NF_IP6_LOCAL_OUT, skb, NULL, skb->dev,
-		      dev_queue_xmit);
+		      mld_dev_queue_xmit);
 	if (!err) {
 		if (type == ICMPV6_MGM_REDUCTION)
 			ICMP6_INC_STATS(Icmp6OutGroupMembReductions);
@@ -1626,9 +1643,6 @@ void igmp6_send(struct in6_addr *addr, struct net_device *dev, int type)
 	}
 
 	return;
-
-out:
-	kfree_skb(skb);
 }
 
 static int ip6_mc_del1_src(struct ifmcaddr6 *pmc, int sfmode,
@@ -1867,7 +1881,7 @@ static void ip6_mc_clear_src(struct ifmcaddr6 *pmc)
 	}
 	pmc->mca_sources = 0;
 	pmc->mca_sfmode = MCAST_EXCLUDE;
-	pmc->mca_sfcount[MCAST_EXCLUDE] = 0;
+	pmc->mca_sfcount[MCAST_INCLUDE] = 0;
 	pmc->mca_sfcount[MCAST_EXCLUDE] = 1;
 }
 

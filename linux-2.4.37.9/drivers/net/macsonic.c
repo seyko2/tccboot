@@ -199,6 +199,7 @@ int __init macsonic_init(struct net_device* dev)
 	if ((lp->rba = (char *)
 	     kmalloc(SONIC_NUM_RRS * SONIC_RBSIZE, GFP_KERNEL | GFP_DMA)) == NULL) {
 		printk(KERN_ERR "%s: couldn't allocate receive buffers\n", dev->name);
+		kfree(lp);
 		return -ENOMEM;
 	}
 
@@ -635,19 +636,14 @@ int __init mac_nubus_sonic_probe(struct net_device* dev)
 }
 
 #ifdef MODULE
-static char namespace[16] = "";
 static struct net_device dev_macsonic;
 
 MODULE_PARM(sonic_debug, "i");
 MODULE_PARM_DESC(sonic_debug, "macsonic debug level (1-4)");
-MODULE_LICENSE("GPL");
-
-EXPORT_NO_SYMBOLS;
 
 int
 init_module(void)
 {
-        dev_macsonic.name = namespace;
         dev_macsonic.init = macsonic_probe;
 
         if (register_netdev(&dev_macsonic) != 0) {

@@ -23,6 +23,7 @@
 #define PIRQ_VERSION 0x0100
 
 int broken_hp_bios_irq9;
+int acer_tm360_irqrouting;
 
 static struct irq_routing_table *pirq_table;
 
@@ -214,6 +215,24 @@ static int pirq_via_set(struct pci_dev *router, struct pci_dev *dev, int pirq, i
 }
 
 /*
+ * The VIA pirq rules are nibble-based, like ALI,
+ * but without the ugly irq number munging.
+ * However, for 82C586, nibble map is different .
+ */
+static int pirq_via586_get(struct pci_dev *router, struct pci_dev *dev, int pirq)
+{
+	static unsigned int pirqmap[4] = { 3, 2, 5, 1 };
+	return read_config_nybble(router, 0x55, pirqmap[pirq-1]);
+}
+
+static int pirq_via586_set(struct pci_dev *router, struct pci_dev *dev, int pirq, int irq)
+{
+	static unsigned int pirqmap[4] = { 3, 2, 5, 1 };
+	write_config_nybble(router, 0x55, pirqmap[pirq-1], irq);
+	return 1;
+}
+
+/*
  * ITE 8330G pirq rules are nibble-based
  * FIXME: pirqmap may be { 1, 0, 3, 2 },
  * 	  2+3 are both mapped to irq 9 on my system
@@ -243,6 +262,44 @@ static int pirq_opti_get(struct pci_dev *router, struct pci_dev *dev, int pirq)
 static int pirq_opti_set(struct pci_dev *router, struct pci_dev *dev, int pirq, int irq)
 {
 	write_config_nybble(router, 0xb8, pirq >> 4, irq);
+	return 1;
+}
+
+/*
+ * OPTI Viper-M/N+: Bit field with 3 bits per entry.
+ * Due to the lack of a specification the information about this chipset
+ * was taken from the NetBSD source code.
+ */
+static int pirq_viper_get(struct pci_dev *router, struct pci_dev *dev, int pirq)
+{
+	static const int viper_irq_decode[] = { 0, 5, 9, 10, 11, 12, 14, 15 };
+	u32 irq;
+
+	pci_read_config_dword(router, 0x40, &irq);
+	irq >>= (pirq-1)*3;
+	irq &= 7;
+
+	return viper_irq_decode[irq];
+}
+
+static int pirq_viper_set(struct pci_dev *router, struct pci_dev *dev, int pirq, int irq)
+{
+	static const int viper_irq_map[] = { -1, -1, -1, -1, -1, 1, -1, -1, -1, 2, 3, 4, 5, -1, 6, 7 };
+	int newval = viper_irq_map[irq];
+	u32 val;
+	u32 mask = 7 << (3*(pirq-1));
+#if 0
+	mask |= 0x10000UL << (pirq-1);	/* edge triggered */
+#endif
+
+	if ( newval == -1 )
+		return 0;
+	
+	pci_read_config_dword(router, 0x40, &val);
+	val &= ~mask;
+	val |= newval << (3*(pirq-1));
+	pci_write_config_dword(router, 0x40, val);
+
 	return 1;
 }
 
@@ -607,12 +664,41 @@ static __init int intel_router_probe(struct irq_router *r, struct pci_dev *route
 static __init int via_router_probe(struct irq_router *r, struct pci_dev *router, u16 device)
 {
 	/* FIXME: We should move some of the quirk fixup stuff here */
+
+	/*
+	 * work arounds for some buggy BIOSes
+	 */
+	if (device == PCI_DEVICE_ID_VIA_82C586_0) {
+		switch(router->device)
+		{
+			case PCI_DEVICE_ID_VIA_82C686:
+				/*
+				 * Asus k7m bios wrongly reports 82C686A 
+				 * as 586-compatible 
+				 */
+				device = PCI_DEVICE_ID_VIA_82C686;
+				break;
+			case PCI_DEVICE_ID_VIA_8235:
+				/**
+				 * Asus a7v-x bios wrongly reports 8235
+				 * as 586-compatible
+				 */
+				device = PCI_DEVICE_ID_VIA_8235;
+				break;
+		}	
+	}
+
 	switch(device)
 	{
 		case PCI_DEVICE_ID_VIA_82C586_0:
+			r->name = "VIA";
+			r->get = pirq_via586_get;
+			r->set = pirq_via586_set;
+			return 1;
 		case PCI_DEVICE_ID_VIA_82C596:
 		case PCI_DEVICE_ID_VIA_82C686:
 		case PCI_DEVICE_ID_VIA_8231:
+		case PCI_DEVICE_ID_VIA_8235:
 		/* FIXME: add new ones for 8233/5 */
 			r->name = "VIA";
 			r->get = pirq_via_get;
@@ -714,9 +800,16 @@ static __init int opti_router_probe(struct irq_router *r, struct pci_dev *router
 			r->name = "OPTI";
 			r->get = pirq_opti_get;
 			r->set = pirq_opti_set;
-			return 1;
+			break;
+		case PCI_DEVICE_ID_OPTI_82C558:
+			r->name = "OPTI VIPER";
+			r->get = pirq_viper_get;
+			r->set = pirq_viper_set;
+			break;
+		default:
+			return 0;
 	}
-	return 0;
+	return 1;
 }
 
 static __init int ite_router_probe(struct irq_router *r, struct pci_dev *router, u16 device)
@@ -894,6 +987,14 @@ static int pcibios_lookup_irq(struct pci_dev *dev, int assign)
 		r->set(pirq_router_dev, dev, pirq, 11);
 	}
 
+	/* same for Acer Travelmate 360, but with CB and irq 11 -> 10 */
+	if (acer_tm360_irqrouting && dev->irq == 11 && dev->vendor == PCI_VENDOR_ID_O2) {
+		pirq = 0x68;
+		mask = 0x400;
+		dev->irq = r->get(pirq_router_dev, dev, pirq);
+		pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq);
+ 	}
+
 	/*
 	 * Find the best IRQ to assign: use the one
 	 * reported by the device if possible.
@@ -1066,28 +1167,59 @@ void pcibios_penalize_isa_irq(int irq)
 void pcibios_enable_irq(struct pci_dev *dev)
 {
 	u8 pin;
-	extern int interrupt_line_quirk;
+	extern int via_interrupt_line_quirk;
+ 	struct pci_dev *temp_dev;
 	
 	pci_read_config_byte(dev, PCI_INTERRUPT_PIN, &pin);
 	if (pin && !pcibios_lookup_irq(dev, 1) && !dev->irq) {
 		char *msg;
 
+		pin--;		/* interrupt pins are numbered starting from 1 */
+
 		/* With IDE legacy devices the IRQ lookup failure is not a problem.. */
 		if (dev->class >> 8 == PCI_CLASS_STORAGE_IDE && !(dev->class & 0x5))
 			return;
 
-		if (io_apic_assign_pci_irqs)
-			msg = " Probably buggy MP table.";
-		else if (pci_probe & PCI_BIOS_IRQ_SCAN)
+		if (io_apic_assign_pci_irqs) {
+			int irq;
+
+			irq = IO_APIC_get_PCI_irq_vector(dev->bus->number, PCI_SLOT(dev->devfn), pin);
+			/*
+			 * Busses behind bridges are typically not listed in the MP-table.
+			 * In this case we have to look up the IRQ based on the parent bus,
+			 * parent slot, and pin number. The SMP code detects such bridged
+			 * busses itself so we should get into this branch reliably.
+			 */
+			temp_dev = dev;
+			while (irq < 0 && dev->bus->parent) { /* go back to the bridge */
+				struct pci_dev * bridge = dev->bus->self;
+
+				pin = (pin + PCI_SLOT(dev->devfn)) % 4;
+				irq = IO_APIC_get_PCI_irq_vector(bridge->bus->number, 
+						PCI_SLOT(bridge->devfn), pin);
+				if (irq >= 0)
+					printk(KERN_WARNING "PCI: using PPB(B%d,I%d,P%d) to get irq %d\n", 
+						bridge->bus->number, PCI_SLOT(bridge->devfn), pin, irq);
+				dev = bridge;
+			}
+			dev = temp_dev;
+			if (irq >= 0) {
+				printk(KERN_INFO "PCI->APIC IRQ transform: (B%d,I%d,P%d) -> %d\n",
+					dev->bus->number, PCI_SLOT(dev->devfn), pin, irq);
+				dev->irq = irq;
+				return;
+			} else
+				msg = " Probably buggy MP table.";
+		} else if (pci_probe & PCI_BIOS_IRQ_SCAN)
 			msg = "";
 		else
 			msg = " Please try using pci=biosirq.";
 		printk(KERN_WARNING "PCI: No IRQ known for interrupt pin %c of device %s.%s\n",
-		       'A' + pin - 1, dev->slot_name, msg);
+		       'A' + pin, dev->slot_name, msg);
 	}
 	/* VIA bridges use interrupt line for apic/pci steering across
 	   the V-Link */
-	else if (interrupt_line_quirk)
-		pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq);
+	else if (via_interrupt_line_quirk)
+		pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq & 15);
 		
 }

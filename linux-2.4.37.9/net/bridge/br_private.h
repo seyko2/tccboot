@@ -79,7 +79,6 @@ struct net_bridge_port
 
 struct net_bridge
 {
-	struct net_bridge		*next;
 	rwlock_t			lock;
 	struct net_bridge_port		*port_list;
 	struct net_device		dev;
@@ -169,7 +168,6 @@ extern void br_get_port_ifindices(struct net_bridge *br,
 extern void br_handle_frame(struct sk_buff *skb);
 
 /* br_ioctl.c */
-extern void br_call_ioctl_atomic(void (*fn)(void));
 extern int br_ioctl(struct net_bridge *br,
 	     unsigned int cmd,
 	     unsigned long arg0,

@@ -70,7 +70,7 @@ struct bluez_sock_list l2cap_sk_list = {
 
 static int l2cap_conn_del(struct hci_conn *conn, int err);
 
-static inline void l2cap_chan_add(struct l2cap_conn *conn, struct sock *sk, struct sock *parent);
+static void __l2cap_chan_add(struct l2cap_conn *conn, struct sock *sk, struct sock *parent);
 static void l2cap_chan_del(struct sock *sk, int err);
 static int  l2cap_chan_send(struct sock *sk, struct msghdr *msg, int len);
 
@@ -420,6 +420,14 @@ done:
 	return err;
 }
 
+static inline void l2cap_chan_add(struct l2cap_conn *conn, struct sock *sk, struct sock *parent)
+{
+	struct l2cap_chan_list *l = &conn->chan_list;
+	write_lock(&l->lock);
+	__l2cap_chan_add(conn, sk, parent);
+	write_unlock(&l->lock);
+}
+
 static int l2cap_do_connect(struct sock *sk)
 {
 	bdaddr_t *src = &bluez_pi(sk)->src;
@@ -677,6 +685,10 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname, ch
 
 	switch (optname) {
 	case L2CAP_OPTIONS:
+		opts.imtu     = l2cap_pi(sk)->imtu;
+		opts.omtu     = l2cap_pi(sk)->omtu;
+		opts.flush_to = l2cap_pi(sk)->flush_to;
+
 		len = MIN(sizeof(opts), optlen);
 		if (copy_from_user((char *)&opts, optval, len)) {
 			err = -EFAULT;
@@ -895,14 +907,6 @@ static void __l2cap_chan_add(struct l2cap_conn *conn, struct sock *sk, struct so
 
 	if (parent)
 		bluez_accept_enqueue(parent, sk);
-}
-
-static inline void l2cap_chan_add(struct l2cap_conn *conn, struct sock *sk, struct sock *parent)
-{
-	struct l2cap_chan_list *l = &conn->chan_list;
-	write_lock(&l->lock);
-	__l2cap_chan_add(conn, sk, parent);
-	write_unlock(&l->lock);
 }
 
 /* Delete channel. 
@@ -1642,6 +1646,35 @@ static inline int l2cap_disconnect_rsp(struct l2cap_conn *conn, l2cap_cmd_hdr *c
 	return 0;
 }
 
+static inline int l2cap_information_req(struct l2cap_conn *conn, l2cap_cmd_hdr *cmd, u8 *data)
+{
+	l2cap_info_req *req = (l2cap_info_req *) data;
+	l2cap_info_rsp rsp;
+	u16 type;
+
+	type = __le16_to_cpu(req->type);
+
+	BT_DBG("type 0x%4.4x", type);
+
+	rsp.type   = __cpu_to_le16(type);
+	rsp.result = __cpu_to_le16(L2CAP_IR_NOTSUPP);
+	l2cap_send_rsp(conn, cmd->ident, L2CAP_INFO_RSP, sizeof(rsp), &rsp);
+	return 0;
+}
+
+static inline int l2cap_information_rsp(struct l2cap_conn *conn, l2cap_cmd_hdr *cmd, u8 *data)
+{
+	l2cap_info_rsp *rsp = (l2cap_info_rsp *) data;
+	u16 type, result;
+
+	type   = __le16_to_cpu(rsp->type);
+	result = __le16_to_cpu(rsp->result);
+
+	BT_DBG("type 0x%4.4x result 0x%2.2x", type, result);
+
+	return 0;
+}
+
 static inline void l2cap_sig_channel(struct l2cap_conn *conn, struct sk_buff *skb)
 {
 	__u8 *data = skb->data;
@@ -1666,6 +1699,10 @@ static inline void l2cap_sig_channel(struct l2cap_conn *conn, struct sk_buff *sk
 		}
 
 		switch (cmd.code) {
+		case L2CAP_COMMAND_REJ:
+			/* FIXME: We should process this */
+			break;
+
 		case L2CAP_CONN_REQ:
 			err = l2cap_connect_req(conn, &cmd, data);
 			break;
@@ -1690,17 +1727,19 @@ static inline void l2cap_sig_channel(struct l2cap_conn *conn, struct sk_buff *sk
 			err = l2cap_disconnect_rsp(conn, &cmd, data);
 			break;
 
-		case L2CAP_COMMAND_REJ:
-			/* FIXME: We should process this */
-			break;
-
 		case L2CAP_ECHO_REQ:
 			l2cap_send_rsp(conn, cmd.ident, L2CAP_ECHO_RSP, cmd.len, data);
 			break;
 
 		case L2CAP_ECHO_RSP:
+			break;
+
 		case L2CAP_INFO_REQ:
+			err = l2cap_information_req(conn, &cmd, data);
+			break;
+
 		case L2CAP_INFO_RSP:
+			err = l2cap_information_rsp(conn, &cmd, data);
 			break;
 
 		default:
@@ -1713,7 +1752,7 @@ static inline void l2cap_sig_channel(struct l2cap_conn *conn, struct sk_buff *sk
 			l2cap_cmd_rej rej;
 			BT_DBG("error %d", err);
 
-			/* FIXME: Map err to a valid reason. */
+			/* FIXME: Map err to a valid reason */
 			rej.reason = __cpu_to_le16(0);
 			l2cap_send_rsp(conn, cmd.ident, L2CAP_COMMAND_REJ, L2CAP_CMD_REJ_SIZE, &rej);
 		}

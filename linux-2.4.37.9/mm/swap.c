@@ -44,7 +44,7 @@ static inline void activate_page_nolock(struct page * page)
 	}
 }
 
-void activate_page(struct page * page)
+void fastcall activate_page(struct page * page)
 {
 	spin_lock(&pagemap_lru_lock);
 	activate_page_nolock(page);
@@ -55,7 +55,7 @@ void activate_page(struct page * page)
  * lru_cache_add: add a page to the page lists
  * @page: the page to add
  */
-void lru_cache_add(struct page * page)
+void fastcall lru_cache_add(struct page * page)
 {
 	if (!PageLRU(page)) {
 		spin_lock(&pagemap_lru_lock);
@@ -72,7 +72,7 @@ void lru_cache_add(struct page * page)
  * This function is for when the caller already holds
  * the pagemap_lru_lock.
  */
-void __lru_cache_del(struct page * page)
+void fastcall __lru_cache_del(struct page * page)
 {
 	if (TestClearPageLRU(page)) {
 		if (PageActive(page)) {
@@ -87,7 +87,7 @@ void __lru_cache_del(struct page * page)
  * lru_cache_del: remove a page from the page lists
  * @page: the page to remove
  */
-void lru_cache_del(struct page * page)
+void fastcall lru_cache_del(struct page * page)
 {
 	spin_lock(&pagemap_lru_lock);
 	__lru_cache_del(page);

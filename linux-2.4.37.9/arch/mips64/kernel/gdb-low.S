@@ -283,7 +283,7 @@
 		ld	v0,GDB_FR_HI(sp)
 		ld	v1,GDB_FR_LO(sp)
 		mthi	v0
-		mtlo	v0
+		mtlo	v1
 		ld	ra,GDB_FR_REG31(sp)
 		ld	fp,GDB_FR_REG30(sp)
 		ld	gp,GDB_FR_REG28(sp)

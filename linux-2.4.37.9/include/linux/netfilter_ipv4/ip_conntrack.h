@@ -103,7 +103,7 @@ union ip_conntrack_nat_help {
 #include <linux/types.h>
 #include <linux/skbuff.h>
 
-#ifdef CONFIG_NF_DEBUG
+#ifdef CONFIG_NETFILTER_DEBUG
 #define IP_NF_ASSERT(x)							\
 do {									\
 	if (!(x))							\
@@ -229,7 +229,7 @@ extern struct ip_conntrack *
 ip_conntrack_get(struct sk_buff *skb, enum ip_conntrack_info *ctinfo);
 
 /* decrement reference count on a conntrack */
-extern inline void ip_conntrack_put(struct ip_conntrack *ct);
+extern void ip_conntrack_put(struct ip_conntrack *ct);
 
 /* find unconfirmed expectation based on tuple */
 struct ip_conntrack_expect *
@@ -251,12 +251,12 @@ extern void (*ip_conntrack_destroyed)(struct ip_conntrack *conntrack);
 
 /* Returns new sk_buff, or NULL */
 struct sk_buff *
-ip_ct_gather_frags(struct sk_buff *skb);
+ip_ct_gather_frags(struct sk_buff *skb, u_int32_t user);
 
-/* Delete all conntracks which match. */
+/* Iterate over all conntracks: if iter returns true, it's deleted. */
 extern void
-ip_ct_selective_cleanup(int (*kill)(const struct ip_conntrack *i, void *data),
-			void *data);
+ip_ct_iterate_cleanup(int (*iter)(struct ip_conntrack *i, void *data),
+                      void *data);
 
 /* It's confirmed if it is, or has been in the hash table. */
 static inline int is_confirmed(struct ip_conntrack *ct)

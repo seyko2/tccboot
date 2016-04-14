@@ -1109,7 +1109,7 @@ void NS8390_init(struct net_device *dev, int startp)
 	for(i = 0; i < 6; i++) 
 	{
 		outb_p(dev->dev_addr[i], e8390_base + EN1_PHYS_SHIFT(i));
-		if(inb_p(e8390_base + EN1_PHYS_SHIFT(i))!=dev->dev_addr[i])
+		if (ei_debug > 1 && inb_p(e8390_base + EN1_PHYS_SHIFT(i))!=dev->dev_addr[i])
 			printk(KERN_ERR "Hw. address read/write mismap %d\n",i);
 	}
 
@@ -1143,7 +1143,7 @@ static void NS8390_trigger_send(struct net_device *dev, unsigned int length,
    
 	outb_p(E8390_NODMA+E8390_PAGE0, e8390_base+E8390_CMD);
     
-	if (inb_p(e8390_base) & E8390_TRANS) 
+	if (inb_p(e8390_base+E8390_CMD) & E8390_TRANS) 
 	{
 		printk(KERN_WARNING "%s: trigger_send() called with the transmitter busy.\n",
 			dev->name);

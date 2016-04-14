@@ -2,11 +2,11 @@
  *  Copyright (c) 2000-2003 LSI Logic Corporation.
  *
  *
- *           Name:  MPI_TARG.H
+ *           Name:  mpi_targ.h
  *          Title:  MPI Target mode messages and structures
  *  Creation Date:  June 22, 2000
  *
- *    MPI_TARG.H Version:  01.02.09
+ *    mpi_targ.h Version:  01.05.xx
  *
  *  Version History
  *  ---------------

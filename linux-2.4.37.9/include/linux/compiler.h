@@ -14,7 +14,7 @@
 #define unlikely(x)	__builtin_expect((x),0)
 
 #if __GNUC__ > 3
-#define __attribute_used__	__attribute((__used__))
+#define __attribute_used__	__attribute__((__used__))
 #elif __GNUC__ == 3
 #if  __GNUC_MINOR__ >= 3
 # define __attribute_used__	__attribute__((__used__))
@@ -26,5 +26,33 @@
 #else
 #define __attribute_used__	/* not implemented */
 #endif /* __GNUC__ */
+
+#if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 96)
+#define __attribute_const__	__attribute__((__const__))
+#else
+#define __attribute_const__	/* unimplemented */
+#endif
+
+#if __GNUC__ == 3
+#if __GNUC_MINOR__ >= 1
+# define inline         __inline__ __attribute__((always_inline))
+# define __inline__     __inline__ __attribute__((always_inline))
+# define __inline       __inline__ __attribute__((always_inline))
+#endif
+#endif
+
+#ifdef __KERNEL__
+#if __GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__ >= 2
+#error "GCC >= 4.2 miscompiles kernel 2.4, do not use it!"
+#error "While the resulting kernel may boot, you will encounter random bugs"
+#error "at runtime. Only versions 2.95.3 to 4.1 are known to work reliably."
+#error "To build with another version, for instance 3.3, please do"
+#error "   make bzImage CC=gcc-3.3 "
+#endif
+#endif
+
+/* no checker support, so we unconditionally define this as (null) */
+#define __user
+#define __iomem
 
 #endif /* __LINUX_COMPILER_H */

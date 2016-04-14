@@ -1,7 +1,7 @@
 /*
  * Twofish for CryptoAPI
  *
- * Originaly Twofish for GPG
+ * Originally Twofish for GPG
  * By Matthew Skala <mskala@ansuz.sooke.bc.ca>, July 26, 1998
  * 256-bit key length added March 20, 1999
  * Some modifications to reduce the text size by Werner Koch, April, 1998
@@ -514,7 +514,7 @@ static const u8 calc_sb_tbl[512] = {
  * preprocessed through q0 and q1 respectively; for longer keys they are the
  * output of previous stages.  j is the index of the first key byte to use.
  * CALC_K computes a pair of subkeys for 128-bit Twofish, by calling CALC_K_2
- * twice, doing the Psuedo-Hadamard Transform, and doing the necessary
+ * twice, doing the Pseudo-Hadamard Transform, and doing the necessary
  * rotations.  Its parameters are: a, the array to write the results into,
  * j, the index of the first output entry, k and l, the preprocessed indices
  * for index 2i, and m and n, the preprocessed indices for index 2i+1.
@@ -663,7 +663,10 @@ static int twofish_setkey(void *cx, const u8 *key,
 
 	/* Check key length. */
 	if (key_len != 16 && key_len != 24 && key_len != 32)
+	{
+		*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
 		return -EINVAL; /* unsupported key length */
+	}
 
 	/* Compute the first two words of the S vector.  The magic numbers are
 	 * the entries of the RS matrix, preprocessed through poly_to_exp. The

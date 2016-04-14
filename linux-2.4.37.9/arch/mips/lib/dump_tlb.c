@@ -11,13 +11,13 @@
 #include <linux/string.h>
 
 #include <asm/bootinfo.h>
-#include <asm/cpu.h>
 #include <asm/cachectl.h>
+#include <asm/cpu.h>
 #include <asm/mipsregs.h>
 #include <asm/page.h>
 #include <asm/pgtable.h>
 
-static inline const char *msg2str(unsigned int mask)
+static inline const char *msk2str(unsigned int mask)
 {
 	switch (mask) {
 	case PM_4K:	return "4kb";
@@ -36,15 +36,15 @@ static inline const char *msg2str(unsigned int mask)
 
 void dump_tlb(int first, int last)
 {
-	int	i;
 	unsigned int pagemask, c0, c1, asid;
 	unsigned long long entrylo0, entrylo1;
 	unsigned long entryhi;
+	int	i;
 
 	asid = read_c0_entryhi() & 0xff;
 
 	printk("\n");
-	for(i=first;i<=last;i++) {
+	for (i = first; i <= last; i++) {
 		write_c0_index(i);
 		__asm__ __volatile__(
 			".set\tmips3\n\t"
@@ -65,7 +65,7 @@ void dump_tlb(int first, int last)
 			/*
 			 * Only print entries in use
 			 */
-			printk("Index: %2d pgmask=%s ", i, msg2str(pagemask));
+			printk("Index: %2d pgmask=%s ", i, msk2str(pagemask));
 
 			c0 = (entrylo0 >> 3) & 7;
 			c1 = (entrylo1 >> 3) & 7;
@@ -109,8 +109,7 @@ void dump_tlb_wired(void)
 		"nop;nop;nop;nop;nop;nop;nop\n\t"	\
 		".set\treorder");
 
-void
-dump_tlb_addr(unsigned long addr)
+void dump_tlb_addr(unsigned long addr)
 {
 	unsigned long flags, oldpid;
 	int index;
@@ -135,14 +134,12 @@ dump_tlb_addr(unsigned long addr)
 	dump_tlb(index, index);
 }
 
-void
-dump_tlb_nonwired(void)
+void dump_tlb_nonwired(void)
 {
 	dump_tlb(read_c0_wired(), current_cpu_data.tlbsize - 1);
 }
 
-void
-dump_list_process(struct task_struct *t, void *address)
+void dump_list_process(struct task_struct *t, void *address)
 {
 	pgd_t	*page_dir, *pgd;
 	pmd_t	*pmd;
@@ -194,14 +191,12 @@ dump_list_process(struct task_struct *t, void *address)
 	printk("\n");
 }
 
-void
-dump_list_current(void *address)
+void dump_list_current(void *address)
 {
 	dump_list_process(current, address);
 }
 
-unsigned int
-vtop(void *address)
+unsigned int vtop(void *address)
 {
 	pgd_t	*pgd;
 	pmd_t	*pmd;
@@ -218,14 +213,14 @@ vtop(void *address)
 	return paddr;
 }
 
-void
-dump16(unsigned long *p)
+void dump16(unsigned long *p)
 {
 	int i;
 
-	for(i=0;i<8;i++)
-	{
-		printk("*%8p = %08lx, ", p, *p); p++;
-		printk("*%8p = %08lx\n", p, *p); p++;
+	for (i = 0; i < 8; i++) {
+		printk("*%08lx == %08lx, ", (unsigned long)p, *p);
+		p++;
+		printk("*%08lx == %08lx\n", (unsigned long)p, *p);
+		p++;
 	}
 }

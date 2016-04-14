@@ -112,12 +112,47 @@ void acpi_pci_unregister_driver(struct acpi_pci_driver *driver)
 	}
 }
 
+static acpi_status
+get_root_bridge_busnr_callback (struct acpi_resource *resource, void *data)
+{
+	int *busnr = (int *)data;
+	struct acpi_resource_address64 address;
+
+	if (resource->id != ACPI_RSTYPE_ADDRESS16 &&
+	    resource->id != ACPI_RSTYPE_ADDRESS32 &&
+	    resource->id != ACPI_RSTYPE_ADDRESS64)
+		return AE_OK;
+
+	acpi_resource_to_address64(resource, &address);
+	if ((address.address_length > 0) && 
+	   (address.resource_type == ACPI_BUS_NUMBER_RANGE))
+		*busnr = address.min_address_range;
+
+	return AE_OK;
+}
+
+static acpi_status 
+try_get_root_bridge_busnr(acpi_handle handle, int *busnum)
+{
+	acpi_status status;
+
+	*busnum = -1;
+	status = acpi_walk_resources(handle, METHOD_NAME__CRS, get_root_bridge_busnr_callback, busnum);
+	if (ACPI_FAILURE(status))
+		return status;
+	/* Check if we really get a bus number from _CRS */
+	if (*busnum == -1)
+		return AE_ERROR;
+	return AE_OK;
+}
+
 static int
 acpi_pci_root_add (
 	struct acpi_device	*device)
 {
 	int			result = 0;
 	struct acpi_pci_root	*root = NULL;
+	struct acpi_pci_root	*tmp;
 	acpi_status		status = AE_OK;
 	unsigned long		value = 0;
 	acpi_handle		handle = NULL;
@@ -152,8 +187,6 @@ acpi_pci_root_add (
 	switch (status) {
 	case AE_OK:
 		root->id.segment = (u16) value;
-		printk("_SEG exists! Unsupported. Abort.\n");
-		BUG();
 		break;
 	case AE_NOT_FOUND:
 		ACPI_DEBUG_PRINT((ACPI_DB_INFO, 
@@ -187,6 +220,27 @@ acpi_pci_root_add (
 		goto end;
 	}
 
+	/* Some systems have wrong _BBN */
+	list_for_each_entry(tmp, &acpi_pci_roots, node) {
+		if ((tmp->id.segment == root->id.segment)
+				&& (tmp->id.bus == root->id.bus)) {
+			int bus = 0;
+			acpi_status status;
+
+			ACPI_DEBUG_PRINT((ACPI_DB_ERROR, 
+				"Wrong _BBN value, please reboot and using option 'pci=noacpi'\n"));
+
+			status = try_get_root_bridge_busnr(root->handle, &bus);
+			if (ACPI_FAILURE(status))
+				break;
+			if (bus != root->id.bus) {
+				printk(KERN_INFO PREFIX "PCI _CRS %d overrides _BBN 0\n", bus);
+				root->id.bus = bus;
+			}
+			break;
+		}
+	}
+
 	/*
 	 * Device & Function
 	 * -----------------
@@ -213,7 +267,12 @@ acpi_pci_root_add (
 	 * PCI namespace does not get created until this call is made (and 
 	 * thus the root bridge's pci_dev does not exist).
 	 */
+#ifdef CONFIG_X86
 	root->bus = pcibios_scan_root(root->id.bus);
+#else
+	root->bus = pcibios_scan_root(root->handle,
+				      root->id.segment, root->id.bus);
+#endif
 	if (!root->bus) {
 		ACPI_DEBUG_PRINT((ACPI_DB_ERROR, 
 			"Bus %02x:%02x not present in PCI namespace\n", 

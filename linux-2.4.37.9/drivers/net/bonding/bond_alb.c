@@ -37,6 +37,9 @@
  *
  * 2004/01/14 - Shmulik Hen <shmulik.hen at intel dot com>
  *	- Add capability to tag self generated packets in ALB/TLB modes.
+ *
+ * 2005/12/02 - Michael O'Donnell <Michael.ODonnell at stratus dot com>
+ *	- Stratus88746: tlb_clear_slave() must tlb_init_slave() while locked.
  */
 
 //#define BONDING_DEBUG 1
@@ -180,16 +183,18 @@ static void tlb_clear_slave(struct bonding *bond, struct slave *slave, int save_
 	/* clear slave from tx_hashtbl */
 	tx_hash_table = BOND_ALB_INFO(bond).tx_hashtbl;
 
-	index = SLAVE_TLB_INFO(slave).head;
-	while (index != TLB_NULL_INDEX) {
-		u32 next_index = tx_hash_table[index].next;
-		tlb_init_table_entry(&tx_hash_table[index], save_load);
-		index = next_index;
+	if (tx_hash_table) {
+		index = SLAVE_TLB_INFO(slave).head;
+		while (index != TLB_NULL_INDEX) {
+			u32 next_index = tx_hash_table[index].next;
+			tlb_init_table_entry(&tx_hash_table[index], save_load);
+			index = next_index;
+		}
 	}
 
-	_unlock_tx_hashtbl(bond);
+	tlb_init_slave(slave); /* Stratus88746: do this before unlocking */
 
-	tlb_init_slave(slave);
+	_unlock_tx_hashtbl(bond);
 }
 
 /* Must be called before starting the monitor timer */
@@ -1275,7 +1280,7 @@ void bond_alb_deinitialize(struct bonding *bond)
 int bond_alb_xmit(struct sk_buff *skb, struct net_device *bond_dev)
 {
 	struct bonding *bond = bond_dev->priv;
-	struct ethhdr *eth_data = (struct ethhdr *)skb->mac.raw = skb->data;
+	struct ethhdr *eth_data = (struct ethhdr *)(skb->mac.raw = skb->data);
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct slave *tx_slave = NULL;
 	static u32 ip_bcast = 0xffffffff;

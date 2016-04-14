@@ -63,11 +63,6 @@
         }
 #endif
 
-#if defined(CONFIG_PROC_FS) && \
-    defined(CONFIG_SOUND_VIA82CXXX_PROCFS)
-#define VIA_PROC_FS 1
-#endif
-
 #define VIA_SUPPORT_MMAP 1 /* buggy, for now... */
 
 #define MAX_CARDS	1
@@ -367,7 +362,7 @@ static void via_chan_clear (struct via_info *card, struct via_channel *chan);
 static void via_chan_pcm_fmt (struct via_channel *chan, int reset);
 static void via_chan_buffer_free (struct via_info *card, struct via_channel *chan);
 
-#ifdef VIA_PROC_FS
+#ifdef CONFIG_PROC_FS
 static int via_init_proc (void);
 static void via_cleanup_proc (void);
 static int via_card_init_proc (struct via_info *card);
@@ -2116,6 +2111,7 @@ static struct page * via_mm_nopage (struct vm_area_struct * vma,
 {
 	struct via_info *card = vma->vm_private_data;
 	struct via_channel *chan = &card->ch_out;
+	unsigned long max_bufs;
 	struct page *dmapage;
 	unsigned long pgoff;
 	int rd, wr;
@@ -2140,14 +2136,11 @@ static struct page * via_mm_nopage (struct vm_area_struct * vma,
 	rd = card->ch_in.is_mapped;
 	wr = card->ch_out.is_mapped;
 
-#ifndef VIA_NDEBUG
-	{
-	unsigned long max_bufs = chan->frag_number;
-	if (rd && wr) max_bufs *= 2;
-	/* via_dsp_mmap() should ensure this */
-	assert (pgoff < max_bufs);
-	}
-#endif
+	max_bufs = chan->frag_number;
+	if (rd && wr)
+		max_bufs *= 2;
+	if (pgoff >= max_bufs)
+		return NOPAGE_SIGBUS;
 
 	/* if full-duplex (read+write) and we have two sets of bufs,
 	 * then the playback buffers come first, sez soundcard.c */
@@ -3655,7 +3648,7 @@ EXPORT_NO_SYMBOLS;
 
 
 
-#ifdef VIA_PROC_FS
+#ifdef CONFIG_PROC_FS
 
 /****************************************************************
  *
@@ -3831,4 +3824,4 @@ static void via_card_cleanup_proc (struct via_info *card)
 	DPRINTK ("EXIT\n");
 }
 
-#endif /* VIA_PROC_FS */
+#endif /* CONFIG_PROC_FS */

@@ -96,6 +96,8 @@ struct cpuinfo_mips {
 #define cpu_has_dc_aliases	(cpu_data[0].dcache.flags & MIPS_CACHE_ALIASES)
 #define cpu_has_ic_fills_f_dc	(cpu_data[0].dcache.flags & MIPS_CACHE_IC_F_DC)
 #define cpu_has_64bits		(cpu_data[0].isa_level & MIPS_CPU_ISA_64BIT)
+#define cpu_has_64bit_zero_reg	(cpu_data[0].isa_level & MIPS_CPU_ISA_64BIT)
+#define cpu_has_64bit_gp_regs	0
 #define cpu_has_64bit_addresses	0
 #define cpu_has_subset_pcaches	(cpu_data[0].options & MIPS_CPU_SUBSET_CACHES)
 

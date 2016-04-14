@@ -569,6 +569,19 @@ CONFIG_BLK_DEV_UMEM
   The umem driver has been allocated block major number 116.
   See Documentation/devices.txt for recommended device naming.
 
+Promise SATA SX8 support
+CONFIG_BLK_DEV_SX8
+   Saying Y or M here will enable support for the 
+   Promise SATA SX8 controllers.
+
+  If you want to compile this driver as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want),
+  say M here and read Documentation/modules.txt. The module will be
+  called sx8.o.
+
+  The sx8 driver has been allocated block major numbers 160, 161.
+  See Documentation/devices.txt for recommended device naming.
+
 Network block device support
 CONFIG_BLK_DEV_NBD
   Saying Y here will allow your computer to be a client for network
@@ -604,6 +617,8 @@ CONFIG_BLK_STATS
 
   This is required for the full functionality of sar(8) and interesting
   if you want to do performance tuning, by tweaking the elevator, e.g.
+  On the other hand, it will cause random and mysterious failures for
+  fdisk, mount and other programs reading /proc/partitions.
 
   If unsure, say N.
 
@@ -683,6 +698,24 @@ CONFIG_BLK_DEV_IDE
   could say N here, and select the "Old hard disk driver" below
   instead to save about 13 KB of memory in the kernel.
 
+Support for SATA (deprecated; conflicts with libata SATA driver)
+CONFIG_BLK_DEV_IDE_SATA
+  There are two drivers for Serial ATA controllers.
+
+  The main driver, "libata", exists inside the SCSI subsystem
+  and supports most modern SATA controllers.
+
+  The IDE driver (which you are currently configuring) supports
+  a few first-generation SATA controllers.
+
+  In order to eliminate conflicts between the two subsystems,
+  this config option enables the IDE driver's SATA support.
+  Normally this is disabled, as it is preferred that libata
+  supports SATA controllers, and this (IDE) driver supports
+  PATA controllers.
+
+  If unsure, say N.
+
 Old hard disk (MFM/RLL/IDE) driver
 CONFIG_BLK_DEV_HD_ONLY
   There are two drivers for MFM/RLL/IDE hard disks. Most people use
@@ -749,6 +782,13 @@ CONFIG_BLK_DEV_IDECS
   If you want to compile it as a module, say M here and read
   <file:Documentation/modules.txt>. The module will be called
   ide-cs.o
+
+Cardbus IDE support (Delkin/ASKA/Workbit)
+CONFIG_BLK_DEV_DELKIN
+  Support for Delkin/ASKA/Workbit cardbus CompactFlash Adapters.
+  This may also work for similar SD and XD adapters.  If you want
+  to be able to use one of these, then say M here.  The module will
+  be called delkin_cb.o
 
 Include IDE/ATAPI CD-ROM support
 CONFIG_BLK_DEV_IDECD
@@ -1279,28 +1319,15 @@ CONFIG_BLK_DEV_PIIX
 
   Please read the comments at the top of <file:drivers/ide/pci/piix.c>.
 
-  If you say Y here, you should also say Y to "PIIXn Tuning support",
-  below.
-
   If unsure, say N.
 
-PIIXn Tuning support
-CONFIG_PIIX_TUNING
-  This driver extension adds DMA mode setting and tuning for all PIIX
-  IDE controllers by Intel. Since the BIOS can sometimes improperly
-  set up the device/adapter combination and speed limits, it has
-  become a necessity to back/forward speed devices as needed.
-
-  Case 430HX/440FX PIIX3 need speed limits to reduce UDMA to DMA mode
-  2 if the BIOS can not perform this task at initialization.
-
-  If unsure, say N.
-
-PROMISE PDC20246/PDC20262/PDC20265/PDC20267/PDC20268 support
+Promise PDC202{46|62|65|67} support
 CONFIG_BLK_DEV_PDC202XX_OLD
-  Promise Ultra33 or PDC20246
-  Promise Ultra66 or PDC20262
-  Promise Ultra100 or PDC20265/PDC20267/PDC20268
+  Promise Ultra 33 [PDC20246]
+  Promise Ultra 66 [PDC20262]
+  Promise FastTrak 66 [PDC20263]
+  Promise MB Ultra 100 [PDC20265]
+  Promise Ultra 100 [PDC20267]
 
   This driver adds up to 4 more EIDE devices sharing a single
   interrupt. This add-on card is a bootable PCI UDMA controller. Since
@@ -1309,7 +1336,7 @@ CONFIG_BLK_DEV_PDC202XX_OLD
   not match, the driver attempts to do dynamic tuning of the chipset
   at boot-time for max-speed.  Ultra33 BIOS 1.25 or newer is required
   for more than one card. This card may require that you say Y to
-  "Special UDMA Feature".
+  "Force (U)DMA burst transfers" (old name: "Special UDMA Feature").
 
   If you say Y here, you need to say Y to "Use DMA by default when
   available" as well.
@@ -1319,7 +1346,7 @@ CONFIG_BLK_DEV_PDC202XX_OLD
 
   If unsure, say N.
 
-PROMISE PDC202{68|69|70|71|75|76|77} support
+Promise PDC202{68|69|70|71|75|76|77} support
 CONFIG_BLK_DEV_PDC202XX_NEW
   Promise Ultra 100 TX2 [PDC20268]
   Promise Ultra 133 PTX2 [PDC20269]
@@ -1334,17 +1361,16 @@ CONFIG_BLK_DEV_PDC202XX_NEW
   multiple cards can be installed and there are BIOS ROM problems that
   happen if the BIOS revisions of all installed cards (max of five) do
   not match, the driver attempts to do dynamic tuning of the chipset
-  at boot-time for max speed.  Ultra33 BIOS 1.25 or newer is required
-  for more than one card.
+  at boot-time for max speed.
 
   If you say Y here, you need to say Y to "Use DMA by default when
   available" as well.
 
   If unsure, say N.
 
-Special UDMA Feature
+Force (U)DMA burst transfers
 CONFIG_PDC202XX_BURST
-  This option causes the pdc202xx driver to enable UDMA modes on the
+  This option causes the pdc202xx_old driver to enable UDMA modes on the
   PDC202xx even when the PDC202xx BIOS has not done so.
 
   It was originally designed for the PDC20246/Ultra33, whose BIOS will
@@ -1357,9 +1383,17 @@ CONFIG_PDC202XX_BURST
 
   If unsure, say N.
 
-Special FastTrak Feature
+Ignore BIOS port disabled setting on FastTrak
 CONFIG_PDC202XX_FORCE
-  For FastTrak enable overriding BIOS.
+  Chipsets affected:
+
+  PDC202{46|62|63|65|67}
+  (pdc202xx_old driver)
+
+  PDC202{70|76}
+  (pdc202xx_new driver)
+
+  Say Y unless you want to use Promise proprietary driver.
 
 SiS5513 chipset support
 CONFIG_BLK_DEV_SIS5513
@@ -2510,9 +2544,9 @@ CONFIG_PCMCIA_FDOMAIN
 
 # Choice: mipstype
 CPU type
-CONFIG_CPU_R3000
+CONFIG_CPU_MIPS32
   Please make sure to pick the right CPU type. Linux/MIPS is not
-  designed to be generic, i.e. Kernels compiled for R3000 CPUs will
+  designed to be generic, i.e. kernels compiled for R3000 CPUs will
   *not* work on R4000 machines and vice versa.  However, since most
   of the supported machines have an R4000 (or similar) CPU, R4x00
   might be a safe bet.  If the resulting kernel does not work,
@@ -2635,6 +2669,19 @@ CONFIG_CPU_HAS_WB
   Say N here for slightly better performance.  You must say Y here for
   machines which require flushing of write buffers in software.  Saying
   Y is the safe option; N may result in kernel malfunction and crashes.
+
+Use 64-bit ELF format for building
+CONFIG_BUILD_ELF64
+  A 64-bit kernel is usually built using the 64-bit ELF binary object
+  format as it's one that allows arbitrary 64-bit constructs.  For
+  kernels that are loaded within the KSEG compatibility segments the
+  32-bit ELF format can optionally be used resulting in a somewhat
+  smaller binary, but this option is not explicitly supported by the
+  toolchain and since binutils 2.14 it does not even work at all.
+
+  Say Y to use the 64-bit format or N to use the 32-bit one.
+
+  If unsure say Y.
 
 Support for large 64-bit configurations
 CONFIG_MIPS_INSANE_LARGE
@@ -2995,19 +3042,6 @@ CONFIG_IP_NF_TARGET_MIRROR
   If you want to compile it as a module, say M here and read
   <file:Documentation/modules.txt>.  If unsure, say `N'.
 
-Local NAT support
-CONFIG_IP_NF_NAT_LOCAL
-  This option enables support for NAT of locally originated connections. 
-  Enable this if you need to use destination NAT on connections
-  originating from local processes on the nat box itself.
-
-  Please note that you will need a recent version (>= 1.2.6a)
-  of the iptables userspace program in order to use this feature.
-  See <http://www.iptables.org/> for download instructions.
-
-  If unsure, say 'N'.
-
-
 Full NAT (Network Address Translation)
 CONFIG_IP_NF_NAT
   The Full NAT option allows masquerading, port forwarding and other
@@ -3174,6 +3208,17 @@ CONFIG_IP_NF_TARGET_LOG
 
   If you want to compile it as a module, say M here and read
   <file:Documentation/modules.txt>.  If unsure, say `N'.
+
+CLASSIFY target support
+CONFIG_IP_NF_TARGET_CLASSIFY
+  This option adds a `CLASSIFY' target, which enables the user to set
+  the priority of a packet. Some qdiscs can use this value for classification,
+  among these are:
+
+  atm, cbq, dsmark, pfifo_fast, htb, prio
+
+  If you want to compile it as a module, say M here and read
+  Documentation/modules.txt.  If unsure, say `N'.
 
 ipchains (2.2-style) support
 CONFIG_IP_NF_COMPAT_IPCHAINS
@@ -4286,6 +4331,46 @@ CONFIG_HOTPLUG_PCI_ACPI
   inserted in and removed from the running kernel whenever you want).
   The module will be called acpiphp.o. If you want to compile it
   as a module, say M here and read <file:Documentation/modules.txt>.
+ 
+CONFIG_HOTPLUG_PCI_SHPC
+  Say Y here if you have a motherboard with a SHPC PCI Hotplug
+  controller.
+
+  This code is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  The module will be called shpchp.o. If you want to compile it
+  as a module, say M here and read <file:Documentation/modules.txt>.
+
+  When in doubt, say N.
+
+CONFIG_HOTPLUG_PCI_SHPC_POLL_EVENT_MODE
+  Say Y here if you want to use the polling mechanism for hot-plug 
+  events for early platform testing.
+
+  When in doubt, say N.
+
+CONFIG_HOTPLUG_PCI_SHPC_PHPRM_LEGACY
+  Say Y here for AMD SHPC. You have to select this option if you are 
+  using this driver on platform with AMD SHPC.
+
+  When in doubt, say N.
+
+CONFIG_HOTPLUG_PCI_PCIE
+  Say Y here if you have a motherboard that supports PCI Express Native
+  Hotplug
+
+  This code is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  The module will be called pciehp.o. If you want to compile it
+  as a module, say M here and read <file:Documentation/modules.txt>.
+
+  When in doubt, say N.
+
+CONFIG_HOTPLUG_PCI_PCIE_POLL_EVENT_MODE
+  Say Y here if you want to use the polling mechanism for hot-plug 
+  events for early platform testing.
+
+  When in doubt, say N.
 
 MCA support
 CONFIG_MCA
@@ -4616,12 +4701,6 @@ CONFIG_BINFMT_ELF
   ld.so (check the file <file:Documentation/Changes> for location and
   latest version).
 
-  If you want to compile this as a module ( = code which can be
-  inserted in and removed from the running kernel whenever you want),
-  say M here and read <file:Documentation/modules.txt>.  The module
-  will be called binfmt_elf.o. Saying M or N here is dangerous because
-  some crucial programs on your system might be in ELF format.
-
 Kernel support for a.out binaries
 CONFIG_BINFMT_AOUT
   A.out (Assembler.OUTput) is a set of formats for libraries and
@@ -4752,6 +4831,7 @@ CONFIG_M386
    - "Winchip-2A" for IDT Winchips with 3dNow! capabilities.
    - "CyrixIII" for VIA Cyrix III or VIA C3.
    - "VIA C3-2 for VIA C3-2 "Nehemiah" (model 9 and above).
+   - "Geode GX/LX" for AMD/NSC Geode GX and AMD Geode LX.
 
   If you don't know what to do, choose "386".
 
@@ -5133,10 +5213,17 @@ CONFIG_FB_CT65550
   This is the frame buffer device driver for the Chips & Technologies
   65550 graphics chip in PowerBooks.
 
-TGA frame buffer support
+TGA/SFB+ frame buffer support
 CONFIG_FB_TGA
-  This is the frame buffer device driver for generic TGA graphic
-  cards. Say Y if you have one of those.
+  This is the frame buffer device driver for generic TGA and SFB+
+  graphic cards.  These include DEC ZLXp-E1, E2 and E3 PCI cards,
+  also known as PBXGA-A, B and C, and DEC ZLX-E2 and E3 TURBOchannel
+  cards, also known as PMAGD-B and C.  The DEC ZLX-E1 or PMAGD-A card
+  is currently unsupported.  Due to hardware limitations ZLX-E2 and
+  E3 cards are only supported for DECstation 5000/1xx and Personal
+  DECstation 5000/xx systems.
+
+  Say Y if you have one of those.
 
 VESA VGA graphics console
 CONFIG_FB_VESA
@@ -5543,14 +5630,15 @@ CONFIG_FB_SIS
 SIS 300 series support
 CONFIG_FB_SIS_300
   This enables support for SiS 300 series chipsets (300/305, 540, 630,
-  730).  Documentation available at the maintainer's website at
-   <http://www.winischhofer.net/linuxsisvga.shtml>.
+  630S, 730S). Documentation available at the maintainer's website at
+  <http://www.winischhofer.net/linuxsisvga.shtml>.
 
 SIS 315/330 series support
 CONFIG_FB_SIS_315
-  This enables support for SiS 315/330 series chipsets (315, 550, 650,
-  M650, 651, 661FX, M661FX, 740, 741, 330). Documentation available at
-  the maintainer's site <http://www.winischhofer.net/linuxsisvga.shtml>.
+  This enables support for SiS 315/330 series chipsets (315, 315PRO, 
+  55x, (M)650, 651, (M)661FX, 661MX, 740, (M)741(GX), (M)760, 330).
+  Documentation available at the maintainer's website at
+  <http://www.winischhofer.net/linuxsisvga.shtml>.
 
 IMS Twin Turbo display support
 CONFIG_FB_IMSTT
@@ -5983,11 +6071,11 @@ CONFIG_IP_ADVANCED_ROUTER
   asymmetric routing (packets from you to a host take a different path
   than packets from that host to you) or if you operate a non-routing
   host which has several IP addresses on different interfaces. To turn
-  rp_filter off use:
+  rp_filter on use:
 
-        echo 0 > /proc/sys/net/ipv4/conf/<device>/rp_filter
-  or
-        echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter
+        echo 1 > /proc/sys/net/ipv4/conf/<device>/rp_filter
+  and
+        echo 1 > /proc/sys/net/ipv4/conf/all/rp_filter
 
   If unsure, say N here.
 
@@ -6109,8 +6197,7 @@ CONFIG_NET_IPIP
   can be useful if you want to make your (or some other) machine
   appear on a different network than it physically is, or to use
   mobile-IP facilities (allowing laptops to seamlessly move between
-  networks without changing their IP addresses; check out
-  <http://anchor.cs.binghamton.edu/~mobileip/LJ/index.html>).
+  networks without changing their IP addresses).
 
   Saying Y to this option will produce two modules ( = code which can
   be inserted in and removed from the running kernel whenever you
@@ -7521,6 +7608,11 @@ CONFIG_ATM_FORE200E_SBA_FW
   not have to supply an alternative one. They just say Y to "Use
   default SBA-200E firmware", above.
 
+CONFIG_ATM_FORE200E_USE_TASKLET
+  This defers work to be done by the interrupt handler to a
+  tasklet instead of handling everything at interrupt time.  This
+  may improve the responsiveness of the host.
+
 Maximum number of tx retries
 CONFIG_ATM_FORE200E_TX_RETRY
   Specifies the number of times the driver attempts to transmit
@@ -7653,7 +7745,7 @@ CONFIG_FUSION_CTL
   of MPT adapters via system ioctl calls.  Use of ioctl calls to
   the MPT driver requires that you create and use a misc device
   node ala:
-    mknod /dev/mptctl c 10 240
+    mknod /dev/mptctl c 10 220
 
   One use of this ioctl interface is to perform an upgrade (reflash)
   of the MPT adapter firmware.  Refer to readme file(s) distributed
@@ -7886,7 +7978,7 @@ CONFIG_SCSI_LOGGING
 QDIO base support for IBM S/390 and zSeries
 CONFIG_QDIO
   This driver provides the Queued Direct I/O base support for the
-  IBM S/390 (G5 and G6) and eServer zSeries (z800 and z900).
+  IBM S/390 (G5 and G6) and eServer zSeries (z800, z900 and z990).
 
   For details please refer to the documentation provided by IBM at
   <http://www10.software.ibm.com/developerworks/opensource/linux390>
@@ -7903,6 +7995,37 @@ CONFIG_QDIO_PERF_STATS
   Say Y here to get performance statistics in /proc/qdio_perf
 
   If unsure, say N.
+
+IBM S/390 and zSeries OSA-Express and HiperSockets device driver
+CONFIG_QETH
+  This driver supports the IBM S/390 and zSeries OSA Express adapters
+  in QDIO mode (all media types), HiperSockets interfaces and VM GuestLAN
+  interfaces in QDIO and HIPER mode.
+
+  For details please refer to the documentation provided by IBM at
+  <http://www10.software.ibm.com/developerworks/opensource/linux390>
+
+  This driver is also available as a module (code which can be
+  inserted in and removed from the running kernel whenever you
+  want). If you want to compile it as a module, say 'M' here and
+  read file Documentation/modules.txt.
+
+IPv6 support for qeth
+CONFIG_QETH_IPV6
+  If CONFIG_QETH is switched on, this option will include IPv6
+  support in the qeth device driver.
+
+IEEE 802.1q VLAN support for qeth
+CONFIG_QETH_VLAN
+  If CONFIG_QETH is switched on, this option will include IEEE
+  802.1q VLAN support in the qeth device driver.
+
+Performance statistics for the qeth drivers
+CONFIG_QETH_PERF_STATS
+  When switched on, this option will add a file in the proc-fs
+  (/proc/qeth_perf_stats) containing performance statistics. It
+  may slightly impact performance, so this is only recommended for
+  internal tuning of the device driver.
 
 SGI WD93C93 SCSI Driver
 CONFIG_SCSI_SGIWD93
@@ -8037,7 +8160,7 @@ CONFIG_AIC7XXX_DEBUG_ENABLE
 Debug code enable mask (2048 for all debugging)
 CONFIG_AIC7XXX_DEBUG_MASK
   Bit mask of debug options that is only valid if the
-  CONFIG_AIC7XXX_DEBUG_ENBLE option is enabled.  The bits in this mask
+  CONFIG_AIC7XXX_DEBUG_ENABLE option is enabled.  The bits in this mask
   are defined in the drivers/scsi/aic7xxx/aic7xxx.h - search for the
   variable ahc_debug in that file to find them.
 
@@ -8211,7 +8334,7 @@ CONFIG_AIC79XX_DEBUG_ENABLE
 
 CONFIG_AIC79XX_DEBUG_MASK
   Bit mask of debug options that is only valid if the
-  CONFIG_AIC79XX_DEBUG_ENBLE option is enabled.  The bits in this mask
+  CONFIG_AIC79XX_DEBUG_ENABLE option is enabled.  The bits in this mask
   are defined in the drivers/scsi/aic7xxx/aic79xx.h - search for the
   variable ahd_debug in that file to find them.
 
@@ -9202,6 +9325,73 @@ CONFIG_SCSI_MEGARAID2
   say M here and read <file:Documentation/modules.txt>.  The module
   will be called megaraid2.o.
 
+CONFIG_SCSI_SATA
+  This driver family supports Serial ATA host controllers
+  and devices.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_AHCI
+  This option enables support for AHCI Serial ATA.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_SVW
+  This option enables support for Broadcom/Serverworks/Apple K2
+  SATA support.
+
+  If unsure, say N.
+
+CONFIG_SCSI_ATA_PIIX
+  This option enables support for ICH5 Serial ATA.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_NV
+  This option enables support for NVIDIA Serial ATA.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_PROMISE
+  This option enables support for Promise Serial ATA TX2/TX4.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_QSTOR
+  This option enables support for Pacific Digital Serial ATA QStor.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_SX4
+  This option enables support for Promise Serial ATA SX4.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_SIL
+  This option enables support for Silicon Image Serial ATA.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_SIS
+  This option enables support for SiS Serial ATA 964/180.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_ULI
+  This option enables support for ULi Electronics SATA.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_VIA
+  This option enables support for VIA Serial ATA.
+
+  If unsure, say N.
+
+CONFIG_SCSI_SATA_VITESSE
+  This option enables support for Vitesse VSC7174 Serial ATA.
+
+  If unsure, say N.
+
 Intel/ICP (former GDT SCSI Disk Array) RAID Controller support
 CONFIG_SCSI_GDTH
   Formerly called GDT SCSI Disk Array Controller Support.
@@ -9800,9 +9990,7 @@ PPP over Ethernet
 CONFIG_PPPOE
   Support for PPP over Ethernet.
 
-  This driver requires the current pppd from the "ppp" CVS repository
-  on cvs.samba.org.  The required support will be present in the next
-  ppp release (2.4.2).
+  This driver requires a ppp release >= 2.4.2.
 
 Wireless LAN (non-hamradio)
 CONFIG_NET_RADIO
@@ -9967,6 +10155,49 @@ CONFIG_AIRONET4500_CS
   The module will be called aironet4500_cs.o. If you want to
   compile it as a module, say M here and read
   <file:Documentation/modules.txt>.
+
+Intersil 802.11(a/b/g) Prism GT/Duette/Indigo support
+CONFIG_PRISM54
+  Enable PCI and Cardbus support for the following chipset based cards:
+
+  ISL3880 - Prism GT		802.11 b/g
+  ISL3877 - Prism Indigo	802.11 a
+  ISL3890 - Prism Duette	802.11 a/b/g
+  
+  For a complete list of supported cards visit <http://prism54.org>.
+  Here is the latest confirmed list of supported cards:
+
+  3com OfficeConnect 11g Cardbus Card aka 3CRWE154G72
+  Allnet ALL0271 PCI Card
+  Compex WL54G Cardbus Card
+  Corega CG-WLCB54GT Cardbus Card
+  D-Link Air Plus Xtreme G A1 Cardbus Card aka DWL-g650
+  I-O Data WN-G54/CB Cardbus Card
+  Kobishi XG-300 aka Z-Com Cardbus Card
+  Netgear WG511 Cardbus Card
+  Ovislink WL-5400PCI PCI Card
+  Peabird WLG-PCI PCI Card
+  Sitecom WL-100i Cardbus Card
+  Sitecom WL-110i PCI Card
+  SMC2802W - EZ Connect g 2.4GHz 54 Mbps Wireless PCI Card
+  SMC2835W - EZ Connect g 2.4GHz 54 Mbps Wireless Cardbus Card
+  Z-Com XG-900 PCI Card
+  Zyxel G-100 Cardbus Card
+
+  If you enable this, you require a firmware file as well.
+  You will need to copy this to /usr/lib/hotplug/firmware/isl3890.
+  You can get this non-GPL'd firmware file from the Prism54 project page:
+  <http://prism54.org>.
+  You will also need the /etc/hotplug/firmware.agent script from
+  a current hotplug package.
+
+
+  Note: You need a motherboard with DMA support to use any of these cards 
+  
+  If you want to compile the driver as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want),
+  say M here and read <file:Documentation/modules.txt>.  The module
+  will be called prism54.o.
 
 Aironet 4500/4800 PROC interface
 CONFIG_AIRONET4500_PROC
@@ -10840,13 +11071,15 @@ CONFIG_NET_SCH_TBF
   whenever you want). If you want to compile it as a module, say M
   here and read <file:Documentation/modules.txt>.
 
-Network delay simualtor  
-CONFIG_NET_SCH_DELAY
-  Say Y if you want to delay packets by a fixed amount of
-  time. This is often useful to simulate network delay when
+CONFIG_NET_SCH_NETEM
+  Say Y if you want to emulate network delay, loss, and packet
+  re-ordering. This is often useful to simulate networks when
   testing applications or protocols.
-  
-  This code is also available as a module called sch_delay.o
+
+  To compile this driver as a module, choose M here: the module
+  will be called sch_netem.
+
+  If unsure, say N.
 
 Ingress Qdisc
 CONFIG_NET_SCH_INGRESS
@@ -11919,6 +12152,37 @@ CONFIG_SK98LIN
   say M here and read Documentation/modules.txt. This is recommended.
   The module will be called sk98lin.o.
 
+Marvell Yukon Gigabit Ethernet Adapter family support
+CONFIG_SKGE
+  This is an alternate driver for the Marvell Yukon Gigabit Ethernet
+  family. It is a backport of version 1.6 for kernel 2.6. The vendor's
+  one is normally recommended (sk98lin), but under some circumstances, it
+  is known to have trouble (eg: sending UDP only on old chips). This driver
+  is not very fast an may lead to higher CPU loads than the original one
+  since it does not support NAPI yet, but at least it is reported to work
+  and is maintained in 2.6. Linking it with the kernel is not recommended
+  since it may conflict with sk98lin.
+
+  If you want to compile this driver as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want),
+  say M here and read Documentation/modules.txt. This is recommended.
+  The module will be called skge.o.
+
+Marvell Yukon 2 Gigabit Ethernet Adapter family support
+CONFIG_SKY2
+  This is an alternate driver for the Marvell Yukon 2 Gigabit Ethernet
+  family. It is a backport of version 1.5 for kernel 2.6. The vendor's
+  one is normally recommended (sk98lin), but under some circumstances, it
+  is known to have trouble (eg: sending UDP only on old chips). This driver
+  is not very fast an may lead to higher CPU loads than the original one
+  since it does not support NAPI yet, but at least it is reported to work
+  and is maintained in 2.6. Linking it with the kernel is not recommended
+  since it may conflict with sk98lin.
+
+  If you want to compile this driver as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want),
+  say M here and read Documentation/modules.txt. This is recommended.
+  The module will be called sky2.o.
 
 Sun GEM support
 CONFIG_SUNGEM
@@ -11985,65 +12249,16 @@ CONFIG_DL2K
 
 EtherExpress Pro/100 support (e100, Alternate Intel driver)
 CONFIG_E100
-  This driver supports Intel(R) PRO/100 family of adapters, which
-  includes:
-
-     Controller  Adapter Name                       Board IDs
-     ----------  ------------                       ---------
-
-     82558       PRO/100+ PCI Adapter               668081-xxx,
-                                                    689661-xxx
-     82558       PRO/100+ Management Adapter        691334-xxx,
-                                                    701738-xxx,
-                                                    721383-xxx
-     82558       PRO/100+ Dual Port Server Adapter  714303-xxx,
-                                                    711269-xxx,
-                                                    A28276-xxx
-     82558       PRO/100+ PCI Server Adapter        710550-xxx
-     82550       PRO/100 S Server Adapter           752438-xxx
-     82559                                          A56831-xxx,
-                                                    A10563-xxx,
-                                                    A12171-xxx,
-                                                    A12321-xxx,
-                                                    A12320-xxx,
-                                                    A12170-xxx
-                                                    748568-xxx
-                                                    748565-xxx
-     82550       PRO/100 S Desktop Adapter          751767-xxx
-     82559                                          748592-xxx,
-                                                    A12167-xxx,
-                                                    A12318-xxx,
-                                                    A12317-xxx,
-                                                    A12165-xxx,
-                                                    748569-xxx
-     82559       PRO/100+ Server Adapter            729757-xxx
-     82559       PRO/100 S Management Adapter       748566-xxx,
-                                                    748564-xxx
-     82550       PRO/100 S Dual Port Server Adapter A56831-xxx
-     82551       PRO/100 M Desktop Adapter          A80897-xxx
-                 PRO/100 S Advanced Management Adapter
-                                                    747842-xxx,
-                                                    745171-xxx
-     CNR         PRO/100 VE Desktop Adapter         A10386-xxx,
-                                                    A10725-xxx,
-                                                    A23801-xxx,
-                                                    A19716-xxx
-                 PRO/100 VM Desktop Adapter         A14323-xxx,
-                                                    A19725-xxx,
-                                                    A23801-xxx,
-                                                    A22220-xxx,
-                                                    A23796-xxx
-
-
+  This driver supports Intel(R) PRO/100 family of adapters.
   To verify that your adapter is supported, find the board ID number
   on the adapter. Look for a label that has a barcode and a number
-  in the format 123456-001 (six digits hyphen three digits). Match
-  this to the list of numbers above.
+  in the format 123456-001 (six digits hyphen three digits).
 
-  For more information on how to identify your adapter, go to the
-  Adapter & Driver ID Guide at:
+  Use the above information and the Adapter & Driver ID Guide at:
 
-    http://support.intel.com/support/network/adapter/pro100/21397.htm
+  http://support.intel.com/support/network/adapter/pro100/21397.htm
+
+  to identify the adapter.
 
   For the latest Intel PRO/100 network driver for Linux, see:
 
@@ -12061,28 +12276,7 @@ CONFIG_E100
 Intel(R) PRO/1000 Gigabit Ethernet support
 CONFIG_E1000
   This driver supports Intel(R) PRO/1000 gigabit ethernet family of
-  adapters, which includes:
-
-     Controller  Adapter Name                         Board IDs
-     ----------  ------------                         ---------
-     82542       PRO/1000 Gigabit Server Adapter      700262-xxx,
-                                                      717037-xxx
-     82543       PRO/1000 F Server Adapter            738640-xxx,
-                                                      A38888-xxx
-     82543       PRO/1000 T Server Adapter            A19845-xxx,
-                                                      A33948-xxx
-     82544       PRO/1000 XT Server Adapter           A51580-xxx
-     82544       PRO/1000 XF Server Adapter           A50484-xxx
-     82544       PRO/1000 T Desktop Adapter           A62947-xxx
-     82540       PRO/1000 MT Desktop Adapter          A78408-xxx
-     82541       PRO/1000 MT Desktop Adapter          C91016-xxx
-     82545       PRO/1000 MT Server Adapter           A92165-xxx
-     82546       PRO/1000 MT Dual Port Server Adapter A92111-xxx
-     82545       PRO/1000 MF Server Adapter           A91622-xxx
-     82545       PRO/1000 MF Server Adapter(LX)       A91624-xxx
-     82546       PRO/1000 MF Dual Port Server Adapter A91620-xxx 
-
-  For more information on how to identify your adapter, go to the
+  adapters. For more information on how to identify your adapter, go to the
   Adapter & Driver ID Guide at:
 
    <http://support.intel.com/support/network/adapter/pro100/21397.htm>
@@ -12100,6 +12294,20 @@ CONFIG_E1000
   The module will be called e1000.o.  If you want to compile it as a
   module, say M here and read <file:Documentation/modules.txt> as well
   as <file:Documentation/networking/net-modules.txt>.
+
+CONFIG_E1000_NAPI
+  NAPI is a new driver API designed to reduce CPU and interrupt load
+  when the driver is receiving lots of packets from the card. It is
+  still somewhat experimental and thus not yet enabled by default.
+
+  If your estimated Rx load is 10kpps or more, or if the card will be
+  deployed on potentially unfriendly networks (e.g. in a firewall),
+  then say Y here.
+
+  See <file:Documentation/networking/NAPI_HOWTO.txt> for more
+  information.
+
+  If in doubt, say N.
 
 AMD LANCE and PCnet (AT1500 and NE2100) support
 CONFIG_LANCE
@@ -13355,10 +13563,11 @@ CONFIG_FDDI
   then also Y to the driver for your FDDI card, below). Most people
   will say N.
 
-Digital DEFEA and DEFPA adapter support
+Digital DEFTA/DEFEA/DEFPA adapter support
 CONFIG_DEFXX
-  This is support for the DIGITAL series of EISA (DEFEA) and PCI
-  (DEFPA) controllers which can connect you to a local FDDI network.
+  This is support for the DIGITAL series of TURBOchannel (DEFTA), EISA
+  (DEFEA) and PCI (DEFPA) controllers which can connect you to a local
+  FDDI network.
 
   If you want to compile the driver as a module ( = code which can be
   inserted in and removed from the running kernel whenever you want),
@@ -13406,6 +13615,16 @@ CONFIG_HIPPI
   and have a HIPPI network card in your computer that you want to use
   under Linux, say Y here (you must also remember to enable the driver
   for your HIPPI card below). Most people will say N here.
+
+IBM PowerPC Virtual Ethernet driver support
+CONFIG_IBMVETH
+  This driver supports virtual ethernet adapters on newer IBM iSeries
+  and pSeries systems.
+
+  If you want to compile the driver as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want),
+  say M here and read <file:Documentation/modules.txt>.  The module
+  will be called ibmveth.o.
 
 Essential RoadRunner HIPPI PCI adapter support
 CONFIG_ROADRUNNER
@@ -15064,6 +15283,24 @@ CONFIG_INPUT_JOYDEV
   The module will be called joydev.o. If you want to compile it as a
   module, say M here and read <file:Documentation/modules.txt>.
 
+Dummy keyboard driver
+CONFIG_DUMMY_KEYB
+  What is this for?
+
+  Not all systems have keyboards.  Some don't even have a keyboard
+  port.  However, some of those systems have video support and can
+  use the virtual terminal support for display.  However, the virtual
+  terminal code expects a keyboard of some kind.  This driver keeps
+  the virtual terminal code happy by providing it a "keyboard", albeit
+  a very quiet one.
+
+  If you want to use the virtual terminal support but your system
+  does not support a keyboard, define CONFIG_DUMMY_KEYB along with
+  CONFIG_VT.
+
+  This can also be selected lonesome without any VT support (i.e. no
+  monitor or keyboard attached) - just define CONFIG_DUMMY_KEYB.
+
 Event interface support
 CONFIG_INPUT_EVDEV
   Say Y here if you want your USB or ADB HID device events be
@@ -16093,6 +16330,27 @@ CONFIG_USB_ETH
    Say "y" to link the driver statically, or "m" to build a
    dynamically linked module called "g_ether".
 
+CONFIG_USB_ETH_RNDIS
+  Microsoft Windows XP bundles the "Remote NDIS" (RNDIS) protocol,
+  and Microsoft provides redistributable binary RNDIS drivers for
+  older versions of Windows.
+
+  If you say "y" here, the Ethernet gadget driver will try to provide
+  a second device configuration, supporting RNDIS to talk to such
+  Microsoft USB hosts.
+
+CONFIG_USB_FILE_STORAGE
+  The File-backed Storage Gadget acts as a USB Mass Storage
+  disk drive.  As its storage repository it can use a regular
+  file or a block device (in much the same way as the "loop"
+  device driver), specified as a module parameter.
+
+CONFIG_USB_FILE_STORAGE_TEST
+  Say "y" to generate the larger testing version of the
+  File-backed Storage Gadget, useful for probing the
+  behavior of USB Mass Storage hosts.  Not needed for
+  normal operation.
+
 Always do synchronous disk IO for UBD
 CONFIG_BLK_DEV_UBD_SYNC
   The User-Mode Linux port includes a driver called UBD which will let
@@ -17055,10 +17313,11 @@ CONFIG_NFSD_V3
   If you would like to include the NFSv3 server as well as the NFSv2
   server, say Y here.  If unsure, say Y.
 
-Provide NFS over TCP server support EXPERIMENTAL
+Provide NFS over TCP server support
 CONFIG_NFSD_TCP
-  Enable NFS service over TCP connections.  This the officially
-  still experimental, but seems to work well.
+  If you want your NFS server to support TCP connections, say Y here.
+  TCP connections usually perform better than the default UDP when
+  the network is lossy or congested.  If unsure, say Y.
 
 OS/2 HPFS file system support
 CONFIG_HPFS_FS
@@ -17269,7 +17528,7 @@ CONFIG_AUTOFS4_FS
   automounter (amd), which is a pure user space daemon.
 
   To use the automounter you need the user-space tools from
-  <ftp://ftp.kernel.org/pub/linux/daemons/autofs/testing-v4/>; you also
+  <ftp://ftp.kernel.org/pub/linux/daemons/autofs/v4/>; you also
   want to answer Y to "NFS file system support", below.
 
   If you want to compile this as a module ( = code which can be
@@ -17427,12 +17686,9 @@ Tracing support (EXPERIMENTAL)
 CONFIG_XFS_TRACE
   Say Y here to get an XFS build with activity tracing enabled.
   Enabling this option will attach historical information to XFS
-  inodes, pagebufs, certain locks, the log, the IO path, and a
+  inodes, buffers, certain locks, the log, the IO path, and a
   few other key areas within XFS.  These traces can be examined
   using a kernel debugger.
-
-  Note that for the pagebuf traces, you will also have to enable
-  the sysctl in /proc/sys/vm/pagebuf/debug for this to work.
 
   Say N unless you are an XFS developer.
 
@@ -19945,6 +20201,22 @@ CONFIG_HW_RANDOM
 
   If unsure, say N.
 
+AMD Geode LX HW Random Number Generator support
+CONFIG_GEODE_RNG
+  This driver provides kernel-side support for the Random Number
+  Generator hardware found on the AMD Geode LX.
+
+  It runs a timer function which automatically adds entropy directly
+  into the kernel pool. You may need this driver if your system runs
+  headless and has no other source of entropy.
+
+  To compile this driver as a module ( = code which can be inserted in
+  and removed from the running kernel whenever you want), say M here
+  and read <file:Documentation/modules.txt>. The module will be called
+  hw_random.
+
+  If unsure, say N.
+
 Power Management support
 CONFIG_PM
   "Power Management" means that parts of your computer are shut
@@ -20284,6 +20556,13 @@ CONFIG_WDTPCI
   say M here and read <file:Documentation/modules.txt>.  The module
   will be called wdt_pci.o.
 
+W83627HF/F/HG/G Watchdog
+CONFIG_WDT_W83627
+  This is a driver for the hardware watchdog on the W83627HF chipset.
+  To compile this driver as a module say M here. The module will be
+  named wdt83627.o
+  Most people will say N.
+
 WDT501 features
 CONFIG_WDT_501
   Saying Y here and creating a character special file /dev/temperature
@@ -20407,6 +20686,22 @@ CONFIG_SC1200_WDT
   This driver is also available as a module ( = code which can be
   inserted in and removed from the running kernel whenever you want).
   The module is called sc1200wdt.o.  If you want to compile it as a
+  module, say M here and read <file:Documentation/modules.txt>.  Most
+  people will say N.
+
+AMD/NSC Geode Hardware Watchdog
+CONFIG_GEODE_WDT
+  This driver enables a watchdog capability built into the
+  CS5535/CS5536 companion chips for the AMD Geode GX and LX
+  processors.  This watchdog watches your kernel to make sure
+  it doesn't freeze, and if it does, it reboots your computer after
+  a certain amount of time.
+
+  This driver depends on CONFIG_MGEODE_LX.
+
+  This driver is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  The module is called geodewdt.o.  If you want to compile it as a
   module, say M here and read <file:Documentation/modules.txt>.  Most
   people will say N.
 
@@ -23001,22 +23296,20 @@ CONFIG_BLUEZ
 
   Linux Bluetooth subsystem consist of several layers:
                BlueZ Core (HCI device and connection manager, scheduler)
-               HCI Device drivers (interface to the hardware)
-               L2CAP Module (L2CAP protocol)
-               SCO Module (SCO links)
-               RFCOMM Module (RFCOMM protocol)
-               BNEP Module (BNEP protocol)
-               CMTP Module (CMTP protocol)
+               HCI Device drivers (Interface to the hardware)
+               SCO Module (SCO audio links)
+               L2CAP Module (Logical Link Control and Adaptation Protocol)
+               RFCOMM Module (RFCOMM Protocol)
+               BNEP Module (Bluetooth Network Encapsulation Protocol)
+               CMTP Module (CAPI Message Transport Protocol)
 
-  Say Y here to enable Linux Bluetooth support and to build BlueZ Core
-  layer.
+  Say Y here to compile Bluetooth support into the kernel or say M to
+  compile it as module (bluez.o).
 
   To use Linux Bluetooth subsystem, you will need several user-space
   utilities like hciconfig and hcid.  These utilities and updates to
   Bluetooth kernel modules are provided in the BlueZ package.
-  For more information, see <http://bluez.sourceforge.net/>.
-
-  If you want to compile BlueZ Core as module (bluez.o) say M here.
+  For more information, see <http://www.bluez.org/>.
 
 L2CAP protocol support
 CONFIG_BLUEZ_L2CAP
@@ -23029,7 +23322,7 @@ CONFIG_BLUEZ_L2CAP
 
 SCO links support
 CONFIG_BLUEZ_SCO
-  SCO link provides voice transport over Bluetooth. SCO support is
+  SCO link provides voice transport over Bluetooth.  SCO support is
   required for voice applications like Headset and Audio.
 
   Say Y here to compile SCO support into the kernel or say M to
@@ -23037,7 +23330,7 @@ CONFIG_BLUEZ_SCO
 
 RFCOMM protocol support
 CONFIG_BLUEZ_RFCOMM
-  RFCOMM provides connection oriented stream transport. RFCOMM
+  RFCOMM provides connection oriented stream transport.  RFCOMM
   support is required for Dialup Networking, OBEX and other Bluetooth
   applications.
 
@@ -23051,24 +23344,11 @@ CONFIG_BLUEZ_RFCOMM_TTY
 BNEP protocol support
 CONFIG_BLUEZ_BNEP
   BNEP (Bluetooth Network Encapsulation Protocol) is Ethernet
-  emulation layer on top of Bluetooth. BNEP is required for Bluetooth
-  PAN (Personal Area Network).
-
-  To use BNEP, you will need user-space utilities provided in the 
-  BlueZ-PAN package.
-  For more information, see <http://bluez.sourceforge.net>.
+  emulation layer on top of Bluetooth.  BNEP is required for
+  Bluetooth PAN (Personal Area Network).
 
   Say Y here to compile BNEP support into the kernel or say M to
   compile it as module (bnep.o).
-
-CMTP protocol support
-CONFIG_BLUEZ_CMTP
-  CMTP (CAPI Message Transport Protocol) is a transport layer
-  for CAPI messages. CMTP is required for the Bluetooth Common
-  ISDN Access Profile.
-
-  Say Y here to compile CMTP support into the kernel or say M to
-  compile it as module (cmtp.o).
 
 BNEP multicast filter support
 CONFIG_BLUEZ_BNEP_MC_FILTER
@@ -23077,6 +23357,15 @@ CONFIG_BLUEZ_BNEP_MC_FILTER
 BNEP protocol filter support
 CONFIG_BLUEZ_BNEP_PROTO_FILTER
   This option enables the protocol filter support for BNEP.
+
+CMTP protocol support
+CONFIG_BLUEZ_CMTP
+  CMTP (CAPI Message Transport Protocol) is a transport layer
+  for CAPI messages.  CMTP is required for the Bluetooth Common
+  ISDN Access Profile.
+
+  Say Y here to compile CMTP support into the kernel or say M to
+  compile it as module (cmtp.o).
 
 HCI UART driver
 CONFIG_BLUEZ_HCIUART
@@ -23166,9 +23455,6 @@ CONFIG_BLUEZ_HCIBT3C
   3Com BT3C interface:
      3Com Bluetooth Card (3CRWB6096)
      HP Bluetooth Card
-
-  The HCI BT3C driver uses external firmware loader program provided in
-  the BlueFW package. For more information, see <http://bluez.sf.net>.
 
   Say Y here to compile support for HCI BT3C devices into the
   kernel or say M to compile it as module (bt3c_cs.o).
@@ -25200,13 +25486,13 @@ CONFIG_S390_PARTITION
 Support for DASD hard disks
 CONFIG_DASD
   Enable this option if you want to access DASDs directly utilizing
-  S/390s channel subsystem commands. This is necessary for running
+  S/390's or zSeries' channel subsystem commands. This is necessary for running
   natively on a single image or an LPAR.
 
 Support for ECKD hard disks
 CONFIG_DASD_ECKD
   ECKD (Extended Count Key Data) devices are the most commonly used 
-  devices on S/390s. You should enable this option unless you are 
+  devices on zSeries and S/390. You should enable this option unless you are
   very sure you have no ECKD device.
 
 ECKD demand loading
@@ -28566,6 +28852,7 @@ CONFIG_SCx200_I2C_SDA
 NatSemi SCx200 ACCESS.bus
 CONFIG_SCx200_ACB
   Enable the use of the ACCESS.bus controllers of a SCx200 processor.
+  It also enables the I2C controller found on Geode GX/LX processors.
 
   If you don't know what to do here, say N.
 
@@ -28720,6 +29007,15 @@ CONFIG_CRYPTO_SHA512
   This code also includes SHA-384, a 384 bit hash with 192 bits
   of security against collision attacks.
 
+CONFIG_CRYPTO_WP512
+  Whirlpool hash algorithm 512, 384 and 256-bit hashes
+
+  Whirlpool-512 is part of the NESSIE cryptographic primitives.
+  Whirlpool will be part of the ISO/IEC 10118-3:2003(E) standard
+
+  See also:
+  http://planeta.terra.com.br/informatica/paulobarreto/WhirlpoolPage.html
+
 CONFIG_CRYPTO_DES
   DES cipher algorithm (FIPS 46-2), and Triple DES EDE (FIPS 46-3).
 
@@ -28747,7 +29043,8 @@ CONFIG_CRYPTO_SERPENT
   Serpent cipher algorithm, by Anderson, Biham & Knudsen.
 
   Keys are allowed to be from 0 to 256 bits in length, in steps
-  of 8 bits.
+  of 8 bits. Also includes the 'Tnepres' algorithm, a reversed
+  variant of Serpent for compatibility with old kerneli code.
 
   See also:
   http://www.cl.cam.ac.uk/~rja14/serpent.html
@@ -28781,18 +29078,60 @@ CONFIG_CRYPTO_CAST6
   The CAST6 encryption algorithm (synonymous with CAST-256) is
   described in RFC2612.
 
+CONFIG_CRYPTO_TEA
+  TEA cipher algorithm.
+
+  Tiny Encryption Algorithm is a simple cipher that uses
+  many rounds for security.  It is very fast and uses
+  little memory.
+
+  Xtendend Tiny Encryption Algorithm is a modification to
+  the TEA algorithm to address a potential key weakness
+  in the TEA algorithm.
+
+  Xtendend Encryption Tiny Algorithm is a mis-implementation
+  of the XTEA algorithm for compatibility purposes.
+
 CONFIG_CRYPTO_ARC4
   ARC4 cipher algorithm.
   
-  This is a stream cipher using keys ranging from 8 bits to 2048
-  bits in length.  ARC4 is commonly used in protocols such as WEP 
-  and SSL.
+  ARC4 is a stream cipher using keys ranging from 8 bits to 2048
+  bits in length.  This algorithm is required for driver-based 
+  WEP, but it should not be for other purposes because of the
+  weakness of the algorithm.
+
+CONFIG_CRYPTO_KHAZAD
+  Khazad cipher algorithm.
+
+  Khazad was a finalist in the initial NESSIE competition.  It is
+  an algorithm optimized for 64-bit processors with good performance
+  on 32-bit processors.  Khazad uses an 128 bit key size.
+
+  See also:
+  http://planeta.terra.com.br/informatica/paulobarreto/KhazadPage.html
+
+CONFIG_CRYPTO_ANUBIS
+  Anubis cipher algorithm.
+
+  Anubis is a variable key length cipher which can use keys from 
+  128 bits to 320 bits in length.  It was evaluated as a entrant
+  in the NESSIE competition.
+	  
+  See also:
+  https://www.cosic.esat.kuleuven.ac.be/nessie/reports/
+  http://planeta.terra.com.br/informatica/paulobarreto/AnubisPage.html
 
 CONFIG_CRYPTO_DEFLATE
   This is the Deflate algorithm (RFC1951), specified for use in
   IPSec with the IPCOMP protocol (RFC3173, RFC2394).
 
   You will most probably want this if using IPSec.
+
+CONFIG_CRYPTO_MICHAEL_MIC
+  Michael MIC is used for message integrity protection in TKIP
+  (IEEE 802.11i). This algorithm is required for TKIP, but it
+  should not be used for other purposes because of the weakness
+  of the algorithm.
 
 CONFIG_CRYPTO_TEST
   Quick & dirty crypto test module.

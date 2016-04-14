@@ -1,7 +1,7 @@
 /*
  *  drivers/s390/s390io.c
  *   S/390 common I/O routines
- *   $Revision: 1.258 $
+ *   $Revision: 1.247.4.4 $
  *
  *  S390 version
  *    Copyright (C) 1999, 2000 IBM Deutschland Entwicklung GmbH,
@@ -3043,7 +3043,16 @@ s390_process_IRQ (unsigned int irq)
 		if (!ioinfo[irq]->ui.flags.ready)
 			return (ending_status);
 
-		memcpy (udp, &(ioinfo[irq]->devstat), sdevstat);
+		/*
+		 * Special case: We got a deferred cc 3 on a basic sense.
+		 * We have to notify the device driver of the former unit
+		 * check, but must not confuse it by calling it with the status
+		 * for the failed basic sense.
+		 */
+		if (ioinfo[irq]->ui.flags.w4sense)
+			ioinfo[irq]->ui.flags.w4sense = 0;
+		else
+			memcpy (udp, &(ioinfo[irq]->devstat), sdevstat);
 
 		ioinfo[irq]->devstat.intparm = 0;
 
@@ -8328,14 +8337,15 @@ chan_subch_read (struct file *file, char *user_buf, size_t user_len,
 {
 	loff_t len;
 	tempinfo_t *p_info = (tempinfo_t *) file->private_data;
+	loff_t pos = *offset;
 
-	if (*offset >= p_info->len) {
+	if (pos < 0 || pos >= p_info->len) {
 		return 0;
 	} else {
-		len = MIN (user_len, (p_info->len - *offset));
-		if (copy_to_user (user_buf, &(p_info->data[*offset]), len))
+		len = MIN (user_len, (p_info->len - pos));
+		if (copy_to_user (user_buf, &(p_info->data[pos]), len))
 			return -EFAULT;
-		(*offset) += len;
+		*offset = pos + len;
 		return len;
 	}
 }
@@ -8410,14 +8420,15 @@ cio_device_entry_read (struct file *file, char *user_buf, size_t user_len,
 {
 	loff_t len;
 	tempinfo_t *p_info = (tempinfo_t *) file->private_data;
+	loff_t pos = *offset;
 
-	if (*offset >= p_info->len) {
+	if (pos < 0 || pos >= p_info->len) {
 		return 0;
 	} else {
-		len = MIN (user_len, (p_info->len - *offset));
-		if (copy_to_user (user_buf, &(p_info->data[*offset]), len))
+		len = MIN (user_len, (p_info->len - pos));
+		if (copy_to_user (user_buf, &(p_info->data[pos]), len))
 			return -EFAULT;
-		(*offset) += len;
+		*offset = pos + len;
 		return len;
 	}
 }
@@ -8874,14 +8885,15 @@ cio_ignore_proc_read (struct file *file, char *user_buf, size_t user_len,
 {
 	loff_t len;
 	tempinfo_t *p_info = (tempinfo_t *) file->private_data;
+	loff_t pos = *offset;
 
-	if (*offset >= p_info->len) {
+	if (pos < 0 || pos >= p_info->len) {
 		return 0;
 	} else {
 		len = MIN (user_len, (p_info->len - *offset));
 		if (copy_to_user (user_buf, &(p_info->data[*offset]), len))
 			return -EFAULT;
-		(*offset) += len;
+		(*offset) = pos + len;
 		return len;
 	}
 }
@@ -8994,14 +9006,15 @@ cio_irq_proc_read (struct file *file, char *user_buf, size_t user_len,
 {
 	loff_t len;
 	tempinfo_t *p_info = (tempinfo_t *) file->private_data;
+	loff_t pos = *offset;
 
-	if (*offset >= p_info->len) {
+	if (pos < 0 || pos >= p_info->len) {
 		return 0;
 	} else {
 		len = MIN (user_len, (p_info->len - *offset));
 		if (copy_to_user (user_buf, &(p_info->data[*offset]), len))
 			return -EFAULT;
-		(*offset) += len;
+		(*offset) = pos + len;
 		return len;
 	}
 }
@@ -9123,14 +9136,15 @@ cio_chpids_proc_read( struct file *file, char *user_buf, size_t user_len, loff_t
 {
      loff_t len;
      tempinfo_t *p_info = (tempinfo_t *) file->private_data;
+     loff_t pos = *offset;
      
-     if ( *offset>=p_info->len) {
+     if (pos < 0 || pos >= p_info->len) {
 	  return 0;
      } else {
-	  len = MIN(user_len, (p_info->len - *offset));
-	  if (copy_to_user( user_buf, &(p_info->data[*offset]), len))
+	  len = MIN(user_len, (p_info->len - pos));
+	  if (copy_to_user( user_buf, &(p_info->data[pos]), len))
 	       return -EFAULT; 
-	  (* offset) += len;
+	  *offset = pos + len;
 	  return len;
      }
 }

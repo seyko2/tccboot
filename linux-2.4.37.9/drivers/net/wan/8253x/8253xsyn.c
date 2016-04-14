@@ -1108,10 +1108,7 @@ void sab8253x_closeS(struct tty_struct *tty, struct file * filp)
 	{
 		tty->driver.flush_buffer(tty);
 	}
-	if (tty->ldisc.flush_buffer)
-	{
-		tty->ldisc.flush_buffer(tty);
-	}
+	tty_ldisc_flush(tty);
 	tty->closing = 0;
 	port->event = 0;
 	port->tty = 0;

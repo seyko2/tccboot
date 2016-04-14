@@ -50,6 +50,12 @@ struct address_space_operations vxfs_aops = {
 	.sync_page =		block_sync_page,
 };
 
+__inline__ void
+vxfs_put_page(struct page *pp)
+{
+	kunmap(pp);
+	page_cache_release(pp);
+}
 
 /**
  * vxfs_get_page - read a page into memory.
@@ -86,13 +92,6 @@ vxfs_get_page(struct address_space *mapping, u_long n)
 fail:
 	vxfs_put_page(pp);
 	return ERR_PTR(-EIO);
-}
-
-__inline__ void
-vxfs_put_page(struct page *pp)
-{
-	kunmap(pp);
-	page_cache_release(pp);
 }
 
 /**

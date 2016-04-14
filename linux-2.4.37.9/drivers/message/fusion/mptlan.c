@@ -23,7 +23,7 @@
  *
  *      (see also mptbase.c)
  *
- *  Copyright (c) 2000-2002 LSI Logic Corporation
+ *  Copyright (c) 2000-2004 LSI Logic Corporation
  *  Originally By: Noah Romer
  *
  *  $Id: mptlan.c,v 1.55 2003/05/07 14:08:32 pdelaney Exp $

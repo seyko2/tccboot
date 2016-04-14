@@ -410,7 +410,6 @@ fi
 
 if [ "$CONFIG_ALL_PPC" = "y" ]; then
   bool 'Support for Open Firmware device tree in /proc' CONFIG_PROC_DEVICETREE
-  bool 'Support for RTAS (RunTime Abstraction Services) in /proc' CONFIG_PPC_RTAS
   bool 'Support for PReP Residual Data' CONFIG_PREP_RESIDUAL
   dep_bool '  Support for reading of PReP Residual Data in /proc' CONFIG_PROC_PREPRESIDUAL $CONFIG_PREP_RESIDUAL
   define_bool CONFIG_PPCBUG_NVRAM y

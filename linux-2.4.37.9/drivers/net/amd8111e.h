@@ -1,6 +1,6 @@
 /*
  * Advanced  Micro Devices Inc. AMD8111E Linux Network Driver 
- * Copyright (C) 2003 Advanced Micro Devices 
+ * Copyright (C) 2004 Advanced Micro Devices 
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -790,6 +790,7 @@ struct amd8111e_priv{
 #endif	
 	char opened;
 	struct net_device_stats stats;
+	unsigned int drv_rx_errors;
 	struct dev_mc_list* mc_list;
 	struct amd8111e_coalesce_conf coal_conf;
 

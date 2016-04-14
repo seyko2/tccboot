@@ -39,7 +39,7 @@
 
 MODULE_LICENSE("GPL");
 
-static int kill_proto(const struct ip_conntrack *i, void *data)
+static int kill_proto(struct ip_conntrack *i, void *data)
 {
 	return (i->tuplehash[IP_CT_DIR_ORIGINAL].tuple.dst.protonum == 
 			*((u_int8_t *) data));
@@ -131,8 +131,11 @@ conntrack_iterate(const struct ip_conntrack_tuple_hash *hash,
 		return 0;
 
 	newlen = print_conntrack(buffer + *len, hash->ctrack);
-	if (*len + newlen > maxlen)
+
+	if (*len + newlen > maxlen) {
+		(*upto)--;
 		return 1;
+	}
 	else *len += newlen;
 
 	return 0;
@@ -349,7 +352,7 @@ static int init_or_cleanup(int init)
 	if (ret < 0)
 		goto cleanup_nothing;
 
-	proc = proc_net_create("ip_conntrack",0,list_conntracks);
+	proc = proc_net_create("ip_conntrack", 0440, list_conntracks);
 	if (!proc) goto cleanup_init;
 	proc->owner = THIS_MODULE;
 
@@ -440,7 +443,7 @@ void ip_conntrack_protocol_unregister(struct ip_conntrack_protocol *proto)
 	br_write_unlock_bh(BR_NETPROTO_LOCK);
 
 	/* Remove all contrack entries for this protocol */
-	ip_ct_selective_cleanup(kill_proto, &proto->proto);
+	ip_ct_iterate_cleanup(kill_proto, &proto->proto);
 
 	MOD_DEC_USE_COUNT;
 }
@@ -461,12 +464,13 @@ module_exit(fini);
 EXPORT_SYMBOL(ip_conntrack_protocol_register);
 EXPORT_SYMBOL(ip_conntrack_protocol_unregister);
 EXPORT_SYMBOL(invert_tuplepr);
+EXPORT_SYMBOL(ip_ct_get_tuple);
 EXPORT_SYMBOL(ip_conntrack_alter_reply);
 EXPORT_SYMBOL(ip_conntrack_destroyed);
 EXPORT_SYMBOL(ip_conntrack_get);
 EXPORT_SYMBOL(ip_conntrack_helper_register);
 EXPORT_SYMBOL(ip_conntrack_helper_unregister);
-EXPORT_SYMBOL(ip_ct_selective_cleanup);
+EXPORT_SYMBOL(ip_ct_iterate_cleanup);
 EXPORT_SYMBOL(ip_ct_refresh);
 EXPORT_SYMBOL(ip_ct_find_proto);
 EXPORT_SYMBOL(__ip_ct_find_proto);

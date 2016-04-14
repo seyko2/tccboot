@@ -387,22 +387,31 @@ static char *usb_dump_desc(char *start, char *end, struct usb_device *dev)
 
 	if (start > end)
 		return start;
-		
+
+	/*
+	 * Grab device's exclusive_access mutex to prevent its driver or
+	 * devio from using this device while we are accessing it.
+	 */
+	usb_excl_lock(dev, 3, 0);
+
 	start = usb_dump_device_descriptor(start, end, &dev->descriptor);
 
 	if (start > end)
-		return start;
-	
+		goto out;
+
 	start = usb_dump_device_strings (start, end, dev);
 	
 	for (i = 0; i < dev->descriptor.bNumConfigurations; i++) {
 		if (start > end)
-			return start;
+			goto out;
 		start = usb_dump_config(dev->speed,
 				start, end, dev->config + i,
 				/* active ? */
 				(dev->config + i) == dev->actconfig);
 	}
+
+out:
+	usb_excl_unlock(dev, 3);
 	return start;
 }
 
@@ -543,9 +552,13 @@ static ssize_t usb_device_dump(char **buffer, size_t *nbytes, loff_t *skip_bytes
 	
 	/* Now look at all of this device's children. */
 	for (chix = 0; chix < usbdev->maxchild; chix++) {
-		if (usbdev->children[chix]) {
-			ret = usb_device_dump(buffer, nbytes, skip_bytes, file_offset, usbdev->children[chix],
+		struct usb_device *childdev = usbdev->children[chix];
+		if (childdev) {
+			usb_inc_dev_use(childdev);
+			ret = usb_device_dump(buffer, nbytes, skip_bytes,
+					file_offset, childdev,
 					bus, level + 1, chix, ++cnt);
+			usb_dec_dev_use(childdev);
 			if (ret == -EFAULT)
 				return total_written;
 			total_written += ret;

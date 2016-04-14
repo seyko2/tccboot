@@ -570,6 +570,7 @@ static int ext3_alloc_branch(handle_t *handle, struct inode *inode,
 
 	branch[0].key = cpu_to_le32(parent);
 	if (parent) {
+		keys = 1;
 		for (n = 1; n < num; n++) {
 			struct buffer_head *bh;
 			/* Allocate the next block */
@@ -800,6 +801,7 @@ out:
 	if (err == -EAGAIN)
 		goto changed;
 
+	goal = 0;
 	if (ext3_find_goal(inode, iblock, chain, partial, &goal) < 0)
 		goto changed;
 

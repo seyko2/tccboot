@@ -1,9 +1,9 @@
 /*
- * printer.c  Version 0.11
+ * printer.c  Version 0.13
  *
  * Copyright (c) 1999 Michael Gee	<michael@linuxspecific.com>
  * Copyright (c) 1999 Pavel Machek	<pavel@suse.cz>
- * Copyright (c) 2000 Randy Dunlap	<randy.dunlap@intel.com>
+ * Copyright (c) 2000 Randy Dunlap	<rddunlap@osdl.org>
  * Copyright (c) 2000 Vojtech Pavlik	<vojtech@suse.cz>
  # Copyright (c) 2001 Pete Zaitcev	<zaitcev@redhat.com>
  # Copyright (c) 2001 David Paschal	<paschal@rcsis.com>
@@ -222,6 +222,7 @@ static int usblp_select_alts(struct usblp *usblp);
 static int usblp_set_protocol(struct usblp *usblp, int protocol);
 static int usblp_cache_device_id_string(struct usblp *usblp);
 
+static DECLARE_MUTEX(usblp_sem);	/* locks the existence of usblp's. */
 
 /*
  * Functions for usblp control messages.
@@ -229,11 +230,21 @@ static int usblp_cache_device_id_string(struct usblp *usblp);
 
 static int usblp_ctrl_msg(struct usblp *usblp, int request, int type, int dir, int recip, int value, void *buf, int len)
 {
-	int retval = usb_control_msg(usblp->dev,
+	int retval;
+	int index = usblp->ifnum;
+
+	/* High byte has the interface index.
+	   Low byte has the alternate setting.
+	 */
+	if ((request == USBLP_REQ_GET_ID) && (type == USB_TYPE_CLASS)) {
+	  index = (usblp->ifnum<<8)|usblp->protocol[usblp->current_protocol].alt_setting;
+	}
+
+	retval = usb_control_msg(usblp->dev,
 		dir ? usb_rcvctrlpipe(usblp->dev, 0) : usb_sndctrlpipe(usblp->dev, 0),
-		request, type | dir | recip, value, usblp->ifnum, buf, len, USBLP_WRITE_TIMEOUT);
-	dbg("usblp_control_msg: rq: 0x%02x dir: %d recip: %d value: %d len: %#x result: %d",
-		request, !!dir, recip, value, len, retval);
+		request, type | dir | recip, value, index, buf, len, USBLP_WRITE_TIMEOUT);
+	dbg("usblp_control_msg: rq: 0x%02x dir: %d recip: %d value: %d idx: %d len: %#x result: %d",
+		request, !!dir, recip, value, index, len, retval);
 	return retval < 0 ? retval : 0;
 }
 
@@ -332,7 +343,7 @@ static int usblp_open(struct inode *inode, struct file *file)
 	if (minor < 0 || minor >= USBLP_MINORS)
 		return -ENODEV;
 
-	lock_kernel();
+	down (&usblp_sem);
 	usblp  = usblp_table[minor];
 
 	retval = -ENODEV;
@@ -374,7 +385,7 @@ static int usblp_open(struct inode *inode, struct file *file)
 		}
 	}
 out:
-	unlock_kernel();
+	up (&usblp_sem);
 	return retval;
 }
 
@@ -404,15 +415,13 @@ static int usblp_release(struct inode *inode, struct file *file)
 {
 	struct usblp *usblp = file->private_data;
 
-	down (&usblp->sem);
-	lock_kernel();
+	down (&usblp_sem);
 	usblp->used = 0;
 	if (usblp->present) {
 		usblp_unlink_urbs(usblp);
-		up(&usblp->sem);
 	} else 		/* finish cleanup from disconnect */
 		usblp_cleanup (usblp);
-	unlock_kernel();
+	up (&usblp_sem);
 	return 0;
 }
 
@@ -683,6 +692,7 @@ static ssize_t usblp_write(struct file *file, const char *buffer, size_t count, 
 		usblp->wcomplete = 0;
 		err = usb_submit_urb(usblp->writeurb);
 		if (err) {
+			usblp->wcomplete = 1;
 			if (err != -ENOMEM)
 				count = -EIO;
 			else
@@ -731,6 +741,7 @@ static ssize_t usblp_read(struct file *file, char *buffer, size_t count, loff_t 
 				schedule();
 			} else {
 				set_current_state(TASK_RUNNING);
+				down (&usblp->sem);
 				break;
 			}
 			down (&usblp->sem);
@@ -748,6 +759,7 @@ static ssize_t usblp_read(struct file *file, char *buffer, size_t count, loff_t 
 			usblp->minor, usblp->readurb->status);
 		usblp->readurb->dev = usblp->dev;
  		usblp->readcount = 0;
+		usblp->rcomplete = 0;
 		if (usb_submit_urb(usblp->readurb) < 0)
 			dbg("error submitting urb");
 		count = -EIO;
@@ -1112,17 +1124,16 @@ static void usblp_disconnect(struct usb_device *dev, void *ptr)
 		BUG ();
 	}
 
+	down (&usblp_sem);
 	down (&usblp->sem);
-	lock_kernel();
 	usblp->present = 0;
 
 	usblp_unlink_urbs(usblp);
+	up (&usblp->sem);
 
 	if (!usblp->used)
 		usblp_cleanup (usblp);
-	else 	/* cleanup later, on release */
-		up (&usblp->sem);
-	unlock_kernel();
+	up (&usblp_sem);
 }
 
 static struct usb_device_id usblp_ids [] = {

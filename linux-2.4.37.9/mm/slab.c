@@ -1735,7 +1735,7 @@ static void enable_all_cpucaches (void)
  *
  * Called from do_try_to_free_pages() and __alloc_pages()
  */
-int kmem_cache_reap (int gfp_mask)
+int fastcall kmem_cache_reap (int gfp_mask)
 {
 	slab_t *slabp;
 	kmem_cache_t *searchp;

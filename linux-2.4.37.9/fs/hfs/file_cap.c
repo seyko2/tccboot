@@ -191,7 +191,7 @@ static hfs_rwret_t cap_info_write(struct file *filp, const char *buf,
 				  hfs_rwarg_t count, loff_t *ppos)
 {
         struct inode *inode = filp->f_dentry->d_inode;
-	hfs_u32 pos;
+	hfs_u32 pos, last;
 
 	if (!S_ISREG(inode->i_mode)) {
 		hfs_warn("hfs_file_write: mode = %07o\n", inode->i_mode);
@@ -207,14 +207,14 @@ static hfs_rwret_t cap_info_write(struct file *filp, const char *buf,
 		return 0;
 	}
 
-	*ppos += count;
-	if (*ppos > HFS_FORK_MAX) {
-		*ppos = HFS_FORK_MAX;
+	last = pos + count;
+	if (last > HFS_FORK_MAX) {
+		last = HFS_FORK_MAX;
 		count = HFS_FORK_MAX - pos;
 	}
 
-	if (*ppos > inode->i_size)
-	        inode->i_size = *ppos;
+	if (last > inode->i_size)
+	        inode->i_size = last;
 
 	/* Only deal with the part we store in memory */
 	if (pos < sizeof(struct hfs_cap_info)) {
@@ -272,6 +272,7 @@ static hfs_rwret_t cap_info_write(struct file *filp, const char *buf,
 		}
 	}
 
+	*ppos = last;
 	inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 	mark_inode_dirty(inode);
 	return count;

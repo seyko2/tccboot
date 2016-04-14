@@ -17,6 +17,8 @@
 #include <asm/signal.h>
 #include <asm/ia32.h>
 
+#include "elfcore32.h"
+
 #define CONFIG_BINFMT_ELF32
 
 /* Override some function names */
@@ -93,7 +95,11 @@ ia64_elf32_init (struct pt_regs *regs)
 		vma->vm_private_data = NULL;
 		down_write(&current->mm->mmap_sem);
 		{
-			insert_vm_struct(current->mm, vma);
+			if (insert_vm_struct(current->mm, vma)) {
+				kmem_cache_free(vm_area_cachep, vma);
+				up_write(&current->mm->mmap_sem);
+				return;
+			}
 		}
 		up_write(&current->mm->mmap_sem);
 	}
@@ -115,7 +121,11 @@ ia64_elf32_init (struct pt_regs *regs)
 		vma->vm_private_data = NULL;
 		down_write(&current->mm->mmap_sem);
 		{
-			insert_vm_struct(current->mm, vma);
+			if (insert_vm_struct(current->mm, vma)) {
+				kmem_cache_free(vm_area_cachep, vma);
+				up_write(&current->mm->mmap_sem);
+				return;
+			}
 		}
 		up_write(&current->mm->mmap_sem);
 	}
@@ -162,7 +172,7 @@ ia32_setup_arg_pages (struct linux_binprm *bprm)
 {
 	unsigned long stack_base;
 	struct vm_area_struct *mpnt;
-	int i;
+	int i, ret;
 
 	stack_base = IA32_STACK_TOP - MAX_ARG_PAGES*PAGE_SIZE;
 
@@ -186,7 +196,11 @@ ia32_setup_arg_pages (struct linux_binprm *bprm)
 		mpnt->vm_pgoff = 0;
 		mpnt->vm_file = NULL;
 		mpnt->vm_private_data = 0;
-		insert_vm_struct(current->mm, mpnt);
+		if ((ret = insert_vm_struct(current->mm, mpnt))) {
+			up_write(&current->mm->mmap_sem);
+			kmem_cache_free(vm_area_cachep, mpnt);
+			return ret;
+		}
 		current->mm->total_vm = (mpnt->vm_end - mpnt->vm_start) >> PAGE_SHIFT;
 	}
 

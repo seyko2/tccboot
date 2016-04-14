@@ -566,8 +566,7 @@ static void ircomm_tty_close(struct tty_struct *tty, struct file *filp)
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 
 	tty->closing = 0;
 	self->tty = 0;
@@ -662,12 +661,7 @@ static void ircomm_tty_do_softint(void *private_)
 		ircomm_tty_do_event(self, IRCOMM_TTY_DATA_REQUEST, skb, NULL);
 		
 	/* Check if user (still) wants to be waken up */
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) && 
-	    tty->ldisc.write_wakeup)
-	{
-		(tty->ldisc.write_wakeup)(tty);
-	}
-	wake_up_interruptible(&tty->write_wait);
+	tty_wakeup(tty);
 }
 
 /*

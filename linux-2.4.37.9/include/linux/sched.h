@@ -273,9 +273,9 @@ struct user_struct {
 };
 
 #define get_current_user() ({ 				\
-	struct user_struct *__user = current->user;	\
-	atomic_inc(&__user->__count);			\
-	__user; })
+	struct user_struct *__tmp_user = current->user;	\
+	atomic_inc(&__tmp_user->__count);		\
+	__tmp_user; })
 
 extern struct user_struct root_user;
 #define INIT_USER (&root_user)
@@ -415,6 +415,8 @@ struct task_struct {
 
 /* journalling filesystem info */
 	void *journal_info;
+
+	struct list_head *scm_work_list;
 };
 
 /*
@@ -763,7 +765,7 @@ extern struct mm_struct * start_lazy_tlb(void);
 extern void end_lazy_tlb(struct mm_struct *mm);
 
 /* mmdrop drops the mm and the page tables */
-extern inline void FASTCALL(__mmdrop(struct mm_struct *));
+extern void FASTCALL(__mmdrop(struct mm_struct *));
 static inline void mmdrop(struct mm_struct * mm)
 {
 	if (atomic_dec_and_test(&mm->mm_count))
@@ -799,6 +801,9 @@ extern void daemonize(void);
 
 extern int do_execve(char *, char **, char **, struct pt_regs *);
 extern int do_fork(unsigned long, unsigned long, struct pt_regs *, unsigned long);
+
+extern void set_task_comm(struct task_struct *tsk, char *from);
+extern void get_task_comm(char *to, struct task_struct *tsk);
 
 extern void FASTCALL(add_wait_queue(wait_queue_head_t *q, wait_queue_t * wait));
 extern void FASTCALL(add_wait_queue_exclusive(wait_queue_head_t *q, wait_queue_t * wait));

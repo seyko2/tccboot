@@ -550,7 +550,8 @@ static int ea_get(struct inode *inode, struct ea_buffer *ea_buf, int min_size)
 	}
 	ea_buf->flag = EA_EXTENT;
 	ea_buf->mp = read_metapage(inode, addressDXD(&ji->ea),
-				   lengthDXD(&ji->ea), 1);
+				   lengthDXD(&ji->ea) << sb->s_blocksize_bits,
+				   1);
 	if (ea_buf->mp == NULL)
 		return -EIO;
 	ea_buf->xattr = ea_buf->mp->data;
@@ -819,6 +820,8 @@ int jfs_setxattr(struct dentry *dentry, const char *name, void *value,
 
 static inline int can_get_xattr(struct inode *inode, const char *name)
 {
+	if(strncmp(name, XATTR_SYSTEM_PREFIX, XATTR_SYSTEM_PREFIX_LEN) == 0)
+		return 0;
 	return permission(inode, MAY_READ);
 }
 

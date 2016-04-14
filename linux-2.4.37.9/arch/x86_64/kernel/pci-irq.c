@@ -742,7 +742,7 @@ void pcibios_penalize_isa_irq(int irq)
 void pcibios_enable_irq(struct pci_dev *dev)
 {
 		u8 pin;
-	extern int interrupt_line_quirk;
+	extern int via_interrupt_line_quirk;
 
 		pci_read_config_byte(dev, PCI_INTERRUPT_PIN, &pin);
 	if (pin && !pcibios_lookup_irq(dev, 1) && !dev->irq) {
@@ -762,6 +762,6 @@ void pcibios_enable_irq(struct pci_dev *dev)
 	}
 	/* VIA bridges use interrupt line for apic/pci steering across
 	   the V-Link */
-	else if (interrupt_line_quirk)
+	else if (via_interrupt_line_quirk)
 		pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq);
 }

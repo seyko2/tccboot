@@ -211,6 +211,18 @@ struct agp_bridge_data {
 #ifndef PCI_DEVICE_ID_INTEL_865_G_1
 #define PCI_DEVICE_ID_INTEL_865_G_1	0x2572
 #endif
+#ifndef PCI_DEVICE_ID_INTEL_915_G_0
+#define PCI_DEVICE_ID_INTEL_915_G_0	0x2580
+#endif
+#ifndef PCI_DEVICE_ID_INTEL_915_G_1
+#define PCI_DEVICE_ID_INTEL_915_G_1	0x2582
+#endif
+#ifndef PCI_DEVICE_ID_INTEL_915_GM_0
+#define PCI_DEVICE_ID_INTEL_915_GM_0	0x2590
+#endif
+#ifndef PCI_DEVICE_ID_INTEL_915_GM_1
+#define PCI_DEVICE_ID_INTEL_915_GM_1	0x2592
+#endif
 #ifndef PCI_DEVICE_ID_INTEL_820_0
 #define PCI_DEVICE_ID_INTEL_820_0       0x2500
 #endif
@@ -315,6 +327,9 @@ struct agp_bridge_data {
 #endif
 #ifndef PCI_DEVICE_ID_ATI_RS200
 #define PCI_DEVICE_ID_ATI_RS200		0xcab2
+#endif
+#ifndef PCI_DEVICE_ID_ATI_RS200_REV2
+#define PCI_DEVICE_ID_ATI_RS200_REV2	0xcbb2
 #endif
 #ifndef PCI_DEVICE_ID_ATI_RS250
 #define PCI_DEVICE_ID_ATI_RS250		0xcab3
@@ -438,6 +453,12 @@ struct agp_bridge_data {
 #define I810_DRAM_ROW_0        0x00000001
 #define I810_DRAM_ROW_0_SDRAM  0x00000001
 
+/* intel I915 registers */
+#define I915_GMADDR 0x18
+#define I915_MMADDR 0x10
+#define I915_PTEADDR 0x1C
+#define I915_GMCH_GMS_STOLEN_48M    (0x6 << 4)
+#define I915_GMCH_GMS_STOLEN_64M    (0x7 << 4)
 
 
 /* VIA register */

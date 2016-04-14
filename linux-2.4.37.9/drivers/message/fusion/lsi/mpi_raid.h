@@ -2,11 +2,11 @@
  *  Copyright (c) 2001-2003 LSI Logic Corporation.
  *
  *
- *           Name:  MPI_RAID.H
+ *           Name:  mpi_raid.h
  *          Title:  MPI RAID message and structures
  *  Creation Date:  February 27, 2001
  *
- *    MPI_RAID.H Version:  01.02.09
+ *    mpi_raid.h Version:  01.05.xx
  *
  *  Version History
  *  ---------------
@@ -43,7 +43,7 @@
 
 
 /****************************************************************************/
-/* RAID Volume Request                                                      */
+/* RAID Action Request                                                      */
 /****************************************************************************/
 
 typedef struct _MSG_RAID_ACTION

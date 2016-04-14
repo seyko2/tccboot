@@ -1065,12 +1065,15 @@ static ssize_t mem_read(struct file *file, char *buffer, size_t count,
         ssize_t retval;
         void *membase;
 
-        if ((off + count) > PCILYNX_MAX_MEMORY+1) {
-                count = PCILYNX_MAX_MEMORY+1 - off;
-        }
-        if (count == 0 || off > PCILYNX_MAX_MEMORY) {
+	if (!count)
+		return 0;
+	if (off < 0)
+		return -EINVAL;
+	if (off > PCILYNX_MAX_MEMORY)
                 return -ENOSPC;
-        }
+
+	if (count > PCILYNX_MAX_MEMORY + 1 - off)
+		count = PCILYNX_MAX_MEMORY + 1 - off;
 
         switch (md->type) {
         case rom:
@@ -1091,6 +1094,7 @@ static ssize_t mem_read(struct file *file, char *buffer, size_t count,
 
         if (count < mem_mindma) {
                 memcpy_fromio(md->lynx->mem_dma_buffer, membase+off, count);
+		off += count;
                 goto out;
         }
 
@@ -1121,6 +1125,7 @@ static ssize_t mem_read(struct file *file, char *buffer, size_t count,
         if (bcount) {
                 memcpy_fromio(md->lynx->mem_dma_buffer + count - bcount,
                               membase+off, bcount);
+		off += bcount;
         }
 
  out:
@@ -1128,7 +1133,7 @@ static ssize_t mem_read(struct file *file, char *buffer, size_t count,
         up(&md->lynx->mem_dma_mutex);
 
 	if (retval) return -EFAULT;
-        *offset += count;
+        *offset = off;
         return count;
 }
 
@@ -1137,32 +1142,36 @@ static ssize_t mem_write(struct file *file, const char *buffer, size_t count,
                          loff_t *offset)
 {
         struct memdata *md = (struct memdata *)file->private_data;
+	loff_t off = *offset;
 
-        if (((*offset) + count) > PCILYNX_MAX_MEMORY+1) {
-                count = PCILYNX_MAX_MEMORY+1 - *offset;
-        }
-        if (count == 0 || *offset > PCILYNX_MAX_MEMORY) {
-                return -ENOSPC;
-        }
+	if (!count)
+		return 0;
+	if (off < 0)
+		return -EINVAL;
+	if (off > PCILYNX_MAX_MEMORY)
+		return -ENOSPC;
+
+	if (count > PCILYNX_MAX_MEMORY + 1 - off)
+		count = PCILYNX_MAX_MEMORY + 1 - off;
 
         /* FIXME: dereferencing pointers to PCI mem doesn't work everywhere */
         switch (md->type) {
         case aux:
-		if (copy_from_user(md->lynx->aux_port+(*offset), buffer, count))
+		if (copy_from_user(md->lynx->aux_port+off, buffer, count))
 			return -EFAULT;
                 break;
         case ram:
-		if (copy_from_user(md->lynx->local_ram+(*offset), buffer, count))
+		if (copy_from_user(md->lynx->local_ram+off, buffer, count))
 			return -EFAULT;
                 break;
         case rom:
                 /* the ROM may be writeable */
-		if (copy_from_user(md->lynx->local_rom+(*offset), buffer, count))
+		if (copy_from_user(md->lynx->local_rom+off, buffer, count))
 			return -EFAULT;
                 break;
         }
 
-        file->f_pos += count;
+	*offset = off + count;
         return count;
 }
 #endif /* CONFIG_IEEE1394_PCILYNX_PORTS */
@@ -1464,7 +1473,7 @@ static void remove_card(struct pci_dev *dev)
                 reg_write(lynx, PCI_INT_ENABLE, 0);
                 free_irq(lynx->dev->irq, lynx);
 
-		/* Disable IRM Contender */
+		/* Disable IRM Contender and LCtrl */
 		if (lynx->phyic.reg_1394a)
 			set_phy_reg(lynx, 4, ~0xc0 & get_phy_reg(lynx, 4));
 
@@ -1792,12 +1801,12 @@ static int __devinit add_card(struct pci_dev *dev,
                 reg_set_bits(lynx, GPIO_CTRL_A, 0x1);
                 reg_write(lynx, GPIO_DATA_BASE + 0x3c, 0x1); 
         } else {
-                /* set the contender bit in the extended PHY register
+                /* set the contender and LCtrl bit in the extended PHY register
                  * set. (Should check that bis 0,1,2 (=0xE0) is set
                  * in register 2?)
                  */
                 i = get_phy_reg(lynx, 4);
-                if (i != -1) set_phy_reg(lynx, 4, i | 0x40);
+                if (i != -1) set_phy_reg(lynx, 4, i | 0xc0);
         }
 
 

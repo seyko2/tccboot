@@ -499,9 +499,11 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm, unsigned long 
 				/* FIXME: call the correct function,
 				 * depending on the type of the found page
 				 */
-				if (!pages[i])
-					goto bad_page;
-				page_cache_get(pages[i]);
+				if (!pages[i] || PageReserved(pages[i])) {
+					if (pages[i] != ZERO_PAGE(start))
+						goto bad_page;
+				} else
+					page_cache_get(pages[i]);
 			}
 			if (vmas)
 				vmas[i] = vma;
@@ -748,7 +750,7 @@ int unlock_kiovec(int nr, struct kiobuf *iovec[])
 	return 0;
 }
 
-static inline void zeromap_pte_range(pte_t * pte, unsigned long address,
+static inline int zeromap_pte_range(pte_t * pte, unsigned long address,
                                      unsigned long size, pgprot_t prot)
 {
 	unsigned long end;
@@ -759,12 +761,13 @@ static inline void zeromap_pte_range(pte_t * pte, unsigned long address,
 		end = PMD_SIZE;
 	do {
 		pte_t zero_pte = pte_wrprotect(mk_pte(ZERO_PAGE(address), prot));
-		pte_t oldpage = ptep_get_and_clear(pte);
+		if (!pte_none(*pte))
+			return -EEXIST;
 		set_pte(pte, zero_pte);
-		forget_pte(oldpage);
 		address += PAGE_SIZE;
 		pte++;
 	} while (address && (address < end));
+	return 0;
 }
 
 static inline int zeromap_pmd_range(struct mm_struct *mm, pmd_t * pmd, unsigned long address,
@@ -780,7 +783,8 @@ static inline int zeromap_pmd_range(struct mm_struct *mm, pmd_t * pmd, unsigned 
 		pte_t * pte = pte_alloc(mm, pmd, address);
 		if (!pte)
 			return -ENOMEM;
-		zeromap_pte_range(pte, address, end - address, prot);
+		if (zeromap_pte_range(pte, address, end - address, prot))
+			return -EEXIST;
 		address = (address + PMD_SIZE) & PMD_MASK;
 		pmd++;
 	} while (address && (address < end));
@@ -984,7 +988,8 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 		if (PageReserved(old_page))
 			++mm->rss;
 		break_cow(vma, new_page, address, page_table);
-		lru_cache_add(new_page);
+		if (vm_anon_lru)
+			lru_cache_add(new_page);
 
 		/* Free the old page.. */
 		new_page = old_page;
@@ -1215,7 +1220,8 @@ static int do_anonymous_page(struct mm_struct * mm, struct vm_area_struct * vma,
 		mm->rss++;
 		flush_page_to_ram(page);
 		entry = pte_mkwrite(pte_mkdirty(mk_pte(page, vma->vm_page_prot)));
-		lru_cache_add(page);
+		if (vm_anon_lru)
+			lru_cache_add(page);
 		mark_page_accessed(page);
 	}
 
@@ -1270,7 +1276,8 @@ static int do_no_page(struct mm_struct * mm, struct vm_area_struct * vma,
 		}
 		copy_user_highpage(page, new_page, address);
 		page_cache_release(new_page);
-		lru_cache_add(page);
+		if (vm_anon_lru)
+			lru_cache_add(page);
 		new_page = page;
 	}
 
@@ -1396,7 +1403,7 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct * vma,
  * On a two-level page table, this ends up actually being entirely
  * optimized away.
  */
-pmd_t *__pmd_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
+pmd_t fastcall *__pmd_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
 {
 	pmd_t *new;
 
@@ -1430,7 +1437,7 @@ out:
  * We've already handled the fast-path in-line, and we own the
  * page table lock.
  */
-pte_t *pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long address)
+pte_t fastcall *pte_alloc(struct mm_struct *mm, pmd_t *pmd, unsigned long address)
 {
 	if (pmd_none(*pmd)) {
 		pte_t *new;

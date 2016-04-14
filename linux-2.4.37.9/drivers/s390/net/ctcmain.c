@@ -2934,6 +2934,7 @@ static int ctc_ctrl_open(struct inode *inode, struct file *file)
 	file->private_data = kmalloc(CTRL_BUFSIZE, GFP_KERNEL);
 	if (file->private_data == NULL)
 		return -ENOMEM;
+	*(char *)file->private_data = '\0';
 	MOD_INC_USE_COUNT;
 	return 0;
 }
@@ -2999,6 +3000,7 @@ static ssize_t ctc_ctrl_read(struct file *file, char *buf, size_t count,
 	ctc_priv *privptr;
 	ssize_t ret = 0;
 	char *p = sbuf;
+	loff_t pos = *off;
 	int l;
 
 	if (!(dev = find_netdev_by_ino(ino)))
@@ -3008,19 +3010,19 @@ static ssize_t ctc_ctrl_read(struct file *file, char *buf, size_t count,
 
 	privptr = (ctc_priv *)dev->priv;
 
-	if (file->f_pos == 0)
+	if (!*sbuf || pos == 0)
 		sprintf(sbuf, "%d\n", privptr->channel[READ]->max_bufsize);
 
 	l = strlen(sbuf);
 	p = sbuf;
-	if (file->f_pos < l) {
-		p += file->f_pos;
+	if (pos == (unsigned)pos && pos < l) {
+		p += pos;
 		l = strlen(p);
 		ret = (count > l) ? l : count;
 		if (copy_to_user(buf, p, ret))
 			return -EFAULT;
+		*off = pos + ret;
 	}
-	file->f_pos += ret;
 	return ret;
 }
 
@@ -3084,6 +3086,7 @@ static ssize_t ctc_loglevel_read(struct file *file, char *buf, size_t count,
 	ctc_priv *privptr;
 	ssize_t ret = 0;
 	char *p = sbuf;
+	loff_t pos = *off;
 	int l;
 
 	if (!(dev = find_netdev_by_ino(ino)))
@@ -3093,19 +3096,19 @@ static ssize_t ctc_loglevel_read(struct file *file, char *buf, size_t count,
 
 	privptr = (ctc_priv *)dev->priv;
 
-	if (file->f_pos == 0)
+	if (!*sbuf || pos == 0)
 		sprintf(sbuf, "0x%02x\n", loglevel);
 
 	l = strlen(sbuf);
 	p = sbuf;
-	if (file->f_pos < l) {
-		p += file->f_pos;
+	if (pos == (unsigned)pos && pos < l) {
+		p += pos;
 		l = strlen(p);
 		ret = (count > l) ? l : count;
 		if (copy_to_user(buf, p, ret))
 			return -EFAULT;
+		*off = pos + ret;
 	}
-	file->f_pos += ret;
 	return ret;
 }
 
@@ -3116,6 +3119,7 @@ static int ctc_stat_open(struct inode *inode, struct file *file)
 	file->private_data = kmalloc(STATS_BUFSIZE, GFP_KERNEL);
 	if (file->private_data == NULL)
 		return -ENOMEM;
+	*(char *)file->private_data = '\0';
 	MOD_INC_USE_COUNT;
 	return 0;
 }
@@ -3155,6 +3159,7 @@ static ssize_t ctc_stat_read(struct file *file, char *buf, size_t count,
 	ctc_priv *privptr;
 	ssize_t ret = 0;
 	char *p = sbuf;
+	loff_t pos = *off;
 	int l;
 
 	if (!(dev = find_netdev_by_ino(ino)))
@@ -3164,7 +3169,7 @@ static ssize_t ctc_stat_read(struct file *file, char *buf, size_t count,
 
 	privptr = (ctc_priv *)dev->priv;
 
-	if (file->f_pos == 0) {
+	if (!*sbuf || pos == 0) {
 		p += sprintf(p, "Device FSM state: %s\n",
 			     fsm_getstate_str(privptr->fsm));
 		p += sprintf(p, "RX channel FSM state: %s\n",
@@ -3186,14 +3191,14 @@ static ssize_t ctc_stat_read(struct file *file, char *buf, size_t count,
 	}
 	l = strlen(sbuf);
 	p = sbuf;
-	if (file->f_pos < l) {
-		p += file->f_pos;
+	if (pos == (unsigned)pos && pos < l) {
+		p += pos;
 		l = strlen(p);
 		ret = (count > l) ? l : count;
 		if (copy_to_user(buf, p, ret))
 			return -EFAULT;
+		*off = pos + ret;
 	}
-	file->f_pos += ret;
 	return ret;
 }
 

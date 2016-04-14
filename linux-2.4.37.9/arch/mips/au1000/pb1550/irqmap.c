@@ -48,46 +48,35 @@
 #include <asm/au1000.h>
 
 au1xxx_irq_map_t au1xxx_irq_map[] = {
-	{ AU1550_UART0_INT, 	INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_PCI_INTA, 		INTC_INT_LOW_LEVEL, 0 },
-	{ AU1550_PCI_INTB, 		INTC_INT_LOW_LEVEL, 0 },
-	{ AU1550_DDMA_INT, 		INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_CRYPTO_INT, 	INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_PCI_INTC, 		INTC_INT_LOW_LEVEL, 0 },
-	{ AU1550_PCI_INTD, 		INTC_INT_LOW_LEVEL, 0 },
-	{ AU1550_PCI_RST_INT, 	INTC_INT_LOW_LEVEL, 0 },
-	{ AU1550_UART1_INT, 	INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_UART3_INT, 	INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_PSC0_INT, 		INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_PSC1_INT, 		INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_PSC2_INT, 		INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_PSC3_INT, 		INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_TOY_INT, 		INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_TOY_MATCH0_INT,INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_TOY_MATCH1_INT,INTC_INT_RISE_EDGE, 0 },
-	/* Careful if you change match 2 request!
-	 * The interrupt handler is called directly
-	 * from the low level dispatch code.
-	 */
-	{ AU1550_TOY_MATCH2_INT,INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_RTC_INT, 		INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_RTC_MATCH0_INT,INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_RTC_MATCH1_INT,INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_RTC_MATCH2_INT,INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_RTC_MATCH2_INT,INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_NAND_INT, 		INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_USB_DEV_REQ_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_USB_DEV_SUS_INT, INTC_INT_RISE_EDGE, 0 },
-	{ AU1550_USB_HOST_INT,  INTC_INT_LOW_LEVEL, 0 },
-	{ AU1550_MAC0_DMA_INT,  INTC_INT_HIGH_LEVEL, 0},
-	{ AU1550_MAC1_DMA_INT,  INTC_INT_HIGH_LEVEL, 0},
-
-
-	/*
-	 *  Need to define platform dependant GPIO ints here
-	 */
-	#warning PbAu1550 needs GPIO Interrupts defined
-
+	{ AU1000_GPIO_0, INTC_INT_LOW_LEVEL, 0 },
+	{ AU1000_GPIO_1, INTC_INT_LOW_LEVEL, 0 },
 };
 
 int au1xxx_nr_irqs = sizeof(au1xxx_irq_map)/sizeof(au1xxx_irq_map_t);
+
+
+#ifdef CONFIG_PCI
+
+#define INTA AU1550_PCI_INTA
+#define INTB AU1550_PCI_INTB
+#define INTC AU1550_PCI_INTC
+#define INTD AU1550_PCI_INTD
+#define INTX 0xFF /* invalid */
+
+int __init
+au1xxx_pci_irqmap(struct pci_dev *dev, unsigned char idsel, unsigned char pin)
+{
+	static char pci_irq_table[][4] =
+	/*
+	 *	PCI IDSEL/INTPIN->INTLINE
+	 *	A       B       C       D
+	 */
+    {
+		{INTB, INTC, INTD, INTA},   /* IDSEL 12 - PCI slot 2 (left)  */
+		{INTA, INTB, INTC, INTD},   /* IDSEL 13 - PCI slot 1 (right) */
+	};
+	const long min_idsel = 12, max_idsel = 13, irqs_per_slot = 4;
+	return PCI_IRQ_TABLE_LOOKUP;
+};
+#endif
+

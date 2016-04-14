@@ -321,10 +321,7 @@ isdn_tty_tint(modem_info * info)
 		info->send_outstanding++;
 		info->msr &= ~UART_MSR_CTS;
 		info->lsr &= ~UART_LSR_TEMT;
-		if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-		    tty->ldisc.write_wakeup)
-			(tty->ldisc.write_wakeup) (tty);
-		wake_up_interruptible(&tty->write_wait);
+		tty_wakeup(tty);
 		return;
 	}
 	if (slen < 0) {
@@ -1214,10 +1211,7 @@ isdn_tty_write(struct tty_struct *tty, int from_user, const u_char * buf, int co
 						/* If DLE decoding results in zero-transmit, but
 						 * c originally was non-zero, do a wakeup.
 						 */
-						if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-						 tty->ldisc.write_wakeup)
-							(tty->ldisc.write_wakeup) (tty);
-						wake_up_interruptible(&tty->write_wait);
+						tty_wakeup(tty);
 						info->msr |= UART_MSR_CTS;
 						info->lsr |= UART_LSR_TEMT;
 					}
@@ -1335,10 +1329,7 @@ isdn_tty_flush_buffer(struct tty_struct *tty)
 	isdn_tty_cleanup_xmit(info);
 	info->xmit_count = 0;
 	restore_flags(flags);
-	wake_up_interruptible(&tty->write_wait);
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup) (tty);
+	tty_wakeup(tty);
 }
 
 static void
@@ -1867,8 +1858,7 @@ isdn_tty_close(struct tty_struct *tty, struct file *filp)
 	isdn_tty_shutdown(info);
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 	info->tty = 0;
 	info->ncarrier = 0;
 	tty->closing = 0;
@@ -2791,8 +2781,7 @@ isdn_tty_modem_result(int code, modem_info * info)
 			restore_flags(flags);
 			return;
 		}
-		if (info->tty->ldisc.flush_buffer)
-			info->tty->ldisc.flush_buffer(info->tty);
+		tty_ldisc_flush(info->tty);
 		if ((info->flags & ISDN_ASYNC_CHECK_CD) &&
 		    (!((info->flags & ISDN_ASYNC_CALLOUT_ACTIVE) &&
 		       (info->flags & ISDN_ASYNC_CALLOUT_NOHUP)))) {

@@ -61,7 +61,9 @@ if [ "$CONFIG_IPX" != "n" ]; then
 fi
 
 tristate 'Appletalk protocol support' CONFIG_ATALK
-source drivers/net/appletalk/Config.in
+if [ "$CONFIG_ATALK" != "n" ]; then
+   source drivers/net/appletalk/Config.in
+fi
 
 tristate 'DECnet Support' CONFIG_DECNET
 if [ "$CONFIG_DECNET" != "n" ]; then
@@ -99,7 +101,7 @@ endmenu
 
 mainmenu_option next_comment
 comment 'Network testing'
-tristate 'Packet Generator (USE WITH CAUTION)' CONFIG_NET_PKTGEN
+dep_tristate 'Packet Generator (USE WITH CAUTION)' CONFIG_NET_PKTGEN $CONFIG_PROC_FS
 endmenu
 
 endmenu

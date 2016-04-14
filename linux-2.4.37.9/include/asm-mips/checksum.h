@@ -123,10 +123,6 @@ static inline unsigned short ip_fast_csum(unsigned char *iph, unsigned int ihl)
 	return csum_fold(csum);
 }
 
-/*
- * computes the checksum of the TCP/UDP pseudo-header
- * returns a 16-bit checksum, already complemented
- */
 static inline unsigned long csum_tcpudp_nofold(unsigned long saddr,
                                                unsigned long daddr,
                                                unsigned short len,

@@ -49,6 +49,7 @@ static int tcpdiag_fill(struct sk_buff *skb, struct sock *sk,
 	struct nlmsghdr  *nlh;
 	struct tcp_info  *info = NULL;
 	struct tcpdiag_meminfo  *minfo = NULL;
+	struct tcpvegas_info *vinfo = NULL;
 	unsigned char	 *b = skb->tail;
 
 	nlh = NLMSG_PUT(skb, pid, seq, TCPDIAG_GETSOCK, sizeof(*r));
@@ -58,6 +59,10 @@ static int tcpdiag_fill(struct sk_buff *skb, struct sock *sk,
 			minfo = TCPDIAG_PUT(skb, TCPDIAG_MEMINFO, sizeof(*minfo));
 		if (ext & (1<<(TCPDIAG_INFO-1)))
 			info = TCPDIAG_PUT(skb, TCPDIAG_INFO, sizeof(*info));
+
+		if ((tcp_is_westwood(tp) || tcp_is_vegas(tp))
+		    && (ext & (1<<(TCPDIAG_VEGASINFO-1))))
+			vinfo = TCPDIAG_PUT(skb, TCPDIAG_VEGASINFO, sizeof(*vinfo));
 	}
 	r->tcpdiag_family = sk->family;
 	r->tcpdiag_state = sk->state;
@@ -184,6 +189,20 @@ static int tcpdiag_fill(struct sk_buff *skb, struct sock *sk,
 		info->tcpi_snd_cwnd = tp->snd_cwnd;
 		info->tcpi_advmss = tp->advmss;
 		info->tcpi_reordering = tp->reordering;
+	}
+
+	if (vinfo) {
+		if (tcp_is_vegas(tp)) {
+			vinfo->tcpv_enabled = tp->vegas.doing_vegas_now;
+			vinfo->tcpv_rttcnt = tp->vegas.cntRTT;
+			vinfo->tcpv_rtt = (1000000*tp->vegas.baseRTT)/HZ;
+			vinfo->tcpv_minrtt = (1000000*tp->vegas.minRTT)/HZ;
+		} else {
+			vinfo->tcpv_enabled = 0;
+			vinfo->tcpv_rttcnt = 0;
+			vinfo->tcpv_rtt = (1000000*tp->westwood.rtt)/HZ;
+			vinfo->tcpv_minrtt = (1000000*tp->westwood.rtt_min)/HZ;
+		}
 	}
 
 	nlh->nlmsg_len = skb->tail - b;

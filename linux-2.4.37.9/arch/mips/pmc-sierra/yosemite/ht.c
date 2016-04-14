@@ -28,6 +28,8 @@
 #include <linux/pci.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
+#include <linux/version.h>
+#include <linux/delay.h>
 #include <asm/pci.h>
 #include <asm/io.h>
 
@@ -35,7 +37,6 @@
 #include <asm/titan_dep.h>
 
 #ifdef CONFIG_HYPERTRANSPORT
-
 
 /*
  * This function check if the Hypertransport Link Initialization completed. If
@@ -47,7 +48,6 @@ static __inline__ int check_titan_htlink(void)
 
         val = *(volatile u_int32_t *)(RM9000x2_HTLINK_REG);
         if (val & 0x00000020)
-                /* HT Link Initialization completed */
                 return 1;
         else
                 return 0;
@@ -57,25 +57,41 @@ static int titan_ht_config_read_dword(struct pci_dev *device,
                                              int offset, u32* val)
 {
         int dev, bus, func;
-        uint32_t address_reg, data_reg;
-        uint32_t address;
+        volatile uint32_t address;
+	unsigned long reg_data;
 
         bus = device->bus->number;
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	/* XXX Need to change the Bus # */
-        if (bus > 2)
-                address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
-                                                        0x80000000 | 0x1;
-        else
-                address = (dev << 11) | (func << 8) | (offset & 0xfc) | 0x80000000;
+	if (bus != 0)
+		address = (bus << 16) | (dev << 11) | (func << 8) | 
+				(offset & 0xfc) | 0x80000000 | 0x1;
+	else
+		address = (bus << 16) | (dev << 11) | (func << 8) |
+				(offset & 0xfc) | 0x80000000;
+	
+	/*
+	 * RM9000 HT Errata: Issue back to back HT config
+	 * transcations. Issue a BIU sync before and 
+	 * after the HT cycle
+	 */
 
-        address_reg = RM9000x2_OCD_HTCFGA;
-        data_reg =  RM9000x2_OCD_HTCFGD;
+	reg_data = *(volatile u_int32_t *)(0xfb0000f0);
+	reg_data |= 0x2;
+	*(volatile u_int32_t *)(0xfb0000f0) = reg_data;
 
-        RM9K_WRITE(address_reg, address);
-        RM9K_READ(data_reg, val);
+	udelay(30);
+
+	*(volatile u_int32_t *)(0xfb0006f8) = address;
+	*(val) = *(volatile u_int32_t *)(0xfb0006fc);
+
+	udelay(30);
+
+	reg_data = *(volatile u_int32_t *)(0xfb0000f0);
+        reg_data |= 0x2;
+        *(volatile u_int32_t *)(0xfb0000f0) = reg_data;
+
 
         return PCIBIOS_SUCCESSFUL;
 }
@@ -85,30 +101,25 @@ static int titan_ht_config_read_word(struct pci_dev *device,
                                              int offset, u16* val)
 {
         int dev, bus, func;
-        uint32_t address_reg, data_reg;
-        uint32_t address;
+        volatile uint32_t address_reg, data_reg;
+        uint32_t address, *val1 = kmalloc(sizeof(uint32_t), GFP_KERNEL);
 
         bus = device->bus->number;
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	/* XXX Need to change the Bus # */
-        if (bus > 2)
-                address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
-                                                0x80000000 | 0x1;
-        else
-                address = (dev << 11) | (func << 8) | (offset & 0xfc) | 0x80000000;
+	address =  (bus << 16) | (dev << 11) | (func << 8) | 
+			(offset & 0xfc) | 0x80000000;
 
         address_reg = RM9000x2_OCD_HTCFGA;
         data_reg =  RM9000x2_OCD_HTCFGD;
 
-        if ((offset & 0x3) == 0)
-                offset = 0x2;
-        else
-                offset = 0x0;
+	titan_ht_config_read_dword(device, offset, val1);
 
-        RM9K_WRITE(address_reg, address);
-        RM9K_READ_16(data_reg + offset, val);
+        if ((offset & 0x3) == 0)
+		*val = (*val1 & 0x0000ffff);
+        else
+		*val = (*val1 & 0xffff0000) >> 16;
 
         return PCIBIOS_SUCCESSFUL;
 }
@@ -131,99 +142,103 @@ static int titan_ht_config_read_byte(struct pci_dev *device,
                                              int offset, u8* val)
 {
         int dev, bus, func;
-        uint32_t address_reg, data_reg;
-        uint32_t address;
-        int offset1;
+        volatile uint32_t address_reg, data_reg;
+        uint32_t address, *val1 = kmalloc(sizeof(uint32_t), GFP_KERNEL);
 
         bus = device->bus->number;
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	/* XXX Need to change the Bus # */
-        if (bus > 2)
-                address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
-                                                        0x80000000 | 0x1;
-        else
-                address = (dev << 11) | (func << 8) | (offset & 0xfc) | 0x80000000;
+        address = (bus << 16) | (dev << 11) | (func << 8) | 
+			(offset & 0xfc) | 0x80000000;
 
         address_reg = RM9000x2_OCD_HTCFGA;
         data_reg =  RM9000x2_OCD_HTCFGD;
 
-        RM9K_WRITE(address_reg, address);
+	titan_ht_config_read_dword(device, offset, val1);
 
         if ((offset & 0x3) == 0) {
-                offset1 = 0x3;
+		*val = (*val1 & 0x000000ff);
         }
         if ((offset & 0x3) == 1) {
-                offset1 = 0x2;
+		*val = ((*val1 & 0x0000ff00) >> 8);
         }
         if ((offset & 0x3) == 2) {
-                offset1 = 0x1;
+		*val = ((*val1 & 0x00ff0000) >> 16);
         }
         if ((offset & 0x3) == 3) {
-                offset1 = 0x0;
-        }
-        RM9K_READ_8(data_reg + offset1, val);
+		*val = ((*val1 & 0xff000000) >> 24);
+        } 
 
         return PCIBIOS_SUCCESSFUL;
 }
 
 
 static int titan_ht_config_write_dword(struct pci_dev *device,
-                                             int offset, u8 val)
+                                             int offset, u32 val)
 {
         int dev, bus, func;
-        uint32_t address_reg, data_reg;
-        uint32_t address;
+        volatile uint32_t address;
+	unsigned long reg_data;
 
         bus = device->bus->number;
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	/* XXX Need to change the Bus # */
-        if (bus > 2)
-                address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
-                                                        0x80000000 | 0x1;
-        else
-              address = (dev << 11) | (func << 8) | (offset & 0xfc) | 0x80000000;
+	if (bus != 0)        
+		address = (bus << 16) | (dev << 11) | (func << 8) | 
+				(offset & 0xfc) | 0x80000000 | 0x1;
+	else
+		address = (bus << 16) | (dev << 11) | (func << 8) |
+				(offset & 0xfc) | 0x80000000;
 
-        address_reg = RM9000x2_OCD_HTCFGA;
-        data_reg =  RM9000x2_OCD_HTCFGD;
+	reg_data = *(volatile u_int32_t *)(0xfb0000f0);
+        reg_data |= 0x2;
+        *(volatile u_int32_t *)(0xfb0000f0) = reg_data;
+	
+	udelay(30);
 
-        RM9K_WRITE(address_reg, address);
-        RM9K_WRITE(data_reg, val);
+	*(volatile u_int32_t *)(0xfb0006f8) = address;
+        *(volatile u_int32_t *)(0xfb0006fc) = val;
+
+	udelay(30);
+
+	reg_data = *(volatile u_int32_t *)(0xfb0000f0);
+        reg_data |= 0x2;
+        *(volatile u_int32_t *)(0xfb0000f0) = reg_data;
 
         return PCIBIOS_SUCCESSFUL;
 }
 
 static int titan_ht_config_write_word(struct pci_dev *device,
-                                             int offset, u8 val)
+                                             int offset, u16 val)
 {
         int dev, bus, func;
-        uint32_t address_reg, data_reg;
-        uint32_t address;
+        volatile uint32_t address_reg, data_reg;
+        uint32_t address, val1, val2;
 
         bus = device->bus->number;
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	/* XXX Need to change the Bus # */
-        if (bus > 2)
-                address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
-                                0x80000000 | 0x1;
-        else
-                address = (dev << 11) | (func << 8) | (offset & 0xfc) | 0x80000000;
+        address = (bus << 16) | (dev << 11) | (func << 8) | 
+			(offset & 0xfc) | 0x80000000;
 
         address_reg = RM9000x2_OCD_HTCFGA;
         data_reg =  RM9000x2_OCD_HTCFGD;
 
-        if ((offset & 0x3) == 0)
-                offset = 0x2;
-        else
-                offset = 0x0;
+	titan_ht_config_read_dword(device, offset, &val2);
 
-        RM9K_WRITE(address_reg, address);
-        RM9K_WRITE_16(data_reg + offset, val);
+        if ((offset & 0x3) == 0) {
+		val2 = ( (val2 & ~(0x0000ffff)) | val);
+	}
+	else {
+		val1 = val;
+		val1 = (val1 << 16);
+		val2 = ( (val2 & ~(0xffff0000)) | val1);
+	}
+
+	titan_ht_config_write_dword(device, offset, val2);
 
         return PCIBIOS_SUCCESSFUL;
 }
@@ -232,44 +247,49 @@ static int titan_ht_config_write_byte(struct pci_dev *device,
                                              int offset, u8 val)
 {
         int dev, bus, func;
-        uint32_t address_reg, data_reg;
-        uint32_t address;
+        volatile uint32_t address_reg, data_reg;
+        uint32_t address, val1, val2;
         int offset1;
 
         bus = device->bus->number;
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	/* XXX Need to change the Bus # */
-        if (bus > 2)
-                address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
-                                0x80000000 | 0x1;
-        else
-                address = (dev << 11) | (func << 8) | (offset & 0xfc) | 0x80000000;
+        address = (bus << 16) | (dev << 11) | (func << 8) | 
+			(offset & 0xfc) | 0x80000000;
 
         address_reg = RM9000x2_OCD_HTCFGA;
         data_reg =  RM9000x2_OCD_HTCFGD;
 
-        RM9K_WRITE(address_reg, address);
+	titan_ht_config_read_dword(device, offset, &val2);
 
         if ((offset & 0x3) == 0) {
-             offset1 = 0x3;
+		val1 = val;
+		val2 = ( (val2 & ~(0x000000ff)) | val1);
         }
         if ((offset & 0x3) == 1) {
-             offset1 = 0x2;
+		val1 = val;
+		val1 = val1 << 8;
+		val2 = ( (val2 & ~(0x0000ff00)) | val1);
         }
         if ((offset & 0x3) == 2) {
-             offset1 = 0x1;
+		val1 = val;
+		val1 = val1 << 16;
+		val2 = ( (val2 & ~(0x00ff0000)) | val1);
         }
         if ((offset & 0x3) == 3) {
-            offset1 = 0x0;
+		val1 = val;
+		val1 = val1 << 24;
+		val2 = ( (val2 & ~(0xff000000)) | val1);
         }
 
-        RM9K_WRITE_8(data_reg + offset1, val);
+	titan_ht_config_write_dword(device, offset, val2);
         return PCIBIOS_SUCCESSFUL;
 }
 
-
+/*
+ * Bus mastering capabilities for the HT device
+ */
 static void titan_pcibios_set_master(struct pci_dev *dev)
 {
         u16 cmd;
@@ -289,6 +309,7 @@ int pcibios_enable_resources(struct pci_dev *dev)
 {
         u16 cmd, old_cmd;
         u8 tmp1;
+	u32 reg_data;
         int idx;
         struct resource *r;
         int bus = dev->bus->number;
@@ -300,10 +321,11 @@ int pcibios_enable_resources(struct pci_dev *dev)
         for (idx = 0; idx < 6; idx++) {
                 r = &dev->resource[idx];
                 if (!r->start && r->end) {
+			printk("%x    %x \n", r->start,  r->end);
                         printk(KERN_ERR
                                "PCI: Device %s not available because of "
                                "resource collisions\n", dev->slot_name);
-                        return -EINVAL;
+			return -EINVAL;
                 }
                 if (r->flags & IORESOURCE_IO)
                         cmd |= PCI_COMMAND_IO;
@@ -345,8 +367,6 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 {
         return pcibios_enable_resources(dev);
 }
-
-
 
 void pcibios_update_resource(struct pci_dev *dev, struct resource *root,
                              struct resource *res, int resource)
@@ -404,6 +424,9 @@ void pcibios_align_resource(void *data, struct resource *res,
         }
 }
 
+/*
+ * PCI structure
+ */
 struct pci_ops titan_pci_ops = {
         titan_ht_config_read_byte,
         titan_ht_config_read_word,
@@ -425,17 +448,20 @@ void __init pcibios_fixup_bus(struct pci_bus *c)
 
 void __init pcibios_init(void)
 {
+	/*
+	 * IO space accesses for the device
+	 */
+	set_io_port_base(KSEG1);
 
-        /* Reset PCI I/O and PCI MEM values */
-	/* XXX Need to add the proper values here */
-        ioport_resource.start = 0xe0000000;
-        ioport_resource.end   = 0xe0000000 + 0x20000000 - 1;
-        iomem_resource.start  = 0xc0000000;
-        iomem_resource.end    = 0xc0000000 + 0x20000000 - 1;
+	/* 
+	 * IO and MEM space values
+	 */
+	ioport_resource.start = 0xe0000000;
+        ioport_resource.end   = 0xe0000000 + 0x01000000 - 1;
+        iomem_resource.start  = 0xd0000000;
+        iomem_resource.end    = 0xd0000000 + 0x0f000000 - 1;
 
-	/* XXX Need to add bus values */
-        pci_scan_bus(2, &titan_pci_ops, NULL);
-        pci_scan_bus(3, &titan_pci_ops, NULL);
+        pci_scan_bus(0, &titan_pci_ops, NULL);
 }
 
 /*
@@ -444,15 +470,13 @@ void __init pcibios_init(void)
 char *pcibios_setup(char *str)
 {
         printk(KERN_INFO "rr: pcibios_setup\n");
-        /* Nothing to do for now.  */
 
         return str;
 }
 
 unsigned __init int pcibios_assign_all_busses(void)
 {
-        /* We want to use the PCI bus detection done by PMON */
-        return 0;
+        return 1;
 }
 
 #endif /* CONFIG_HYPERTRANSPORT */

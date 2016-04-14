@@ -68,6 +68,6 @@
 
 #define TB0219_RESET_REGS		KSEG1ADDR(0x0a00000e)
 
-extern void tanbac_tb0229_restart(char *command);
+extern void tanbac_tb0219_restart(char *command);
 
 #endif /* __TANBAC_TB0229_H */

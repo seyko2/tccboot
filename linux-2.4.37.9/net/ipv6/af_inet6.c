@@ -3,7 +3,7 @@
  *	Linux INET6 implementation 
  *
  *	Authors:
- *	Pedro Roque		<roque@di.fc.ul.pt>	
+ *	Pedro Roque		<pedro_m@yahoo.com>	
  *
  *	Adapted from linux/net/ipv4/af_inet.c
  *
@@ -497,6 +497,27 @@ struct proto_ops inet6_dgram_ops = {
 	socketpair:	sock_no_socketpair,		/* a do nothing	*/
 	accept:		sock_no_accept,			/* a do nothing	*/
 	getname:	inet6_getname, 
+	poll:		udp_poll,			/* ok		*/
+	ioctl:		inet6_ioctl,			/* must change  */
+	listen:		sock_no_listen,			/* ok		*/
+	shutdown:	inet_shutdown,			/* ok		*/
+	setsockopt:	inet_setsockopt,		/* ok		*/
+	getsockopt:	inet_getsockopt,		/* ok		*/
+	sendmsg:	inet_sendmsg,			/* ok		*/
+	recvmsg:	inet_recvmsg,			/* ok		*/
+	mmap:		sock_no_mmap,
+	sendpage:	sock_no_sendpage,
+};
+
+struct proto_ops inet6_sockraw_ops = {
+	family:		PF_INET6,
+
+	release:	inet6_release,
+	bind:		inet6_bind,
+	connect:	inet_dgram_connect,		/* ok		*/
+	socketpair:	sock_no_socketpair,		/* a do nothing	*/
+	accept:		sock_no_accept,			/* a do nothing	*/
+	getname:	inet6_getname, 
 	poll:		datagram_poll,			/* ok		*/
 	ioctl:		inet6_ioctl,			/* must change  */
 	listen:		sock_no_listen,			/* ok		*/
@@ -532,7 +553,7 @@ static struct inet_protosw rawv6_protosw = {
 	type:        SOCK_RAW,
 	protocol:    IPPROTO_IP,	/* wild card */
 	prot:        &rawv6_prot,
-	ops:         &inet6_dgram_ops,
+	ops:         &inet6_sockraw_ops,
 	capability:  CAP_NET_RAW,
 	no_check:    UDP_CSUM_DEFAULT,
 	flags:       INET_PROTOSW_REUSE,
@@ -550,7 +571,7 @@ inet6_register_protosw(struct inet_protosw *p)
 
 	br_write_lock_bh(BR_NETPROTO_LOCK);
 
-	if (p->type > SOCK_MAX)
+	if (p->type >= SOCK_MAX)
 		goto out_illegal;
 
 	/* If we are trying to override a permanent protocol, bail. */

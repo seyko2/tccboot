@@ -84,7 +84,7 @@ struct mpc_config_bus
 {
 	unsigned char mpc_type;
 	unsigned char mpc_busid;
-	unsigned char mpc_bustype[6] __attribute((packed));
+	unsigned char mpc_bustype[6];
 };
 
 /* List of Bus Type string values, Intel MP Spec. */
@@ -228,6 +228,7 @@ extern void mp_register_ioapic (u8 id, u32 address, u32 irq_base);
 extern void mp_override_legacy_irq (u8 bus_irq, u8 polarity, u8 trigger, u32 global_irq);
 extern void mp_config_acpi_legacy_irqs (void);
 extern void mp_parse_prt (void);
+extern int mp_irqs_alloc(void);
 #endif /*!CONFIG_X86_IO_APIC*/
 
 #endif /*CONFIG_ACPI_BOOT*/

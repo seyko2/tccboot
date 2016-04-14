@@ -9,7 +9,7 @@
  * Copyright (C) 1999 Silicon Graphics, Inc.
  * Kevin D. Kissell, kevink@mips.com and Carsten Langgaard, carstenl@mips.com
  * Copyright (C) 2000, 01 MIPS Technologies, Inc.
- * Copyright (C) 2002, 2003  Maciej W. Rozycki
+ * Copyright (C) 2002, 2003, 2004  Maciej W. Rozycki
  */
 #include <linux/config.h>
 #include <linux/init.h>
@@ -22,6 +22,7 @@
 
 #include <asm/bootinfo.h>
 #include <asm/branch.h>
+#include <asm/break.h>
 #include <asm/cpu.h>
 #include <asm/fpu.h>
 #include <asm/module.h>
@@ -362,7 +363,7 @@ asmlinkage void do_be(struct pt_regs *regs)
 	int action = MIPS_BE_FATAL;
 
 	if (data && !user_mode(regs))
-		fixup = search_dbe_table(regs->cp0_epc);
+		fixup = search_dbe_table(exception_epc(regs));
 
 	if (fixup)
 		action = MIPS_BE_FIXUP;
@@ -606,9 +607,12 @@ asmlinkage void do_bp(struct pt_regs *regs)
 	/*
 	 * There is the ancient bug in the MIPS assemblers that the break
 	 * code starts left to bit 16 instead to bit 6 in the opcode.
-	 * Gas is bug-compatible ...
+	 * Gas is bug-compatible, but not always, grrr...
+	 * We handle both cases with a simple heuristics.  --macro
 	 */
-	bcode = ((opcode >> 16) & ((1 << 20) - 1));
+	bcode = ((opcode >> 6) & ((1 << 20) - 1));
+	if (bcode < (1 << 10))
+		bcode <<= 10;
 
 	/*
 	 * (A short test says that IRIX 5.3 sends SIGTRAP for all break
@@ -617,9 +621,9 @@ asmlinkage void do_bp(struct pt_regs *regs)
 	 * But should we continue the brokenness???  --macro
 	 */
 	switch (bcode) {
-	case 6:
-	case 7:
-		if (bcode == 7)
+	case BRK_OVERFLOW << 10:
+	case BRK_DIVZERO << 10:
+		if (bcode == (BRK_DIVZERO << 10))
 			info.si_code = FPE_INTDIV;
 		else
 			info.si_code = FPE_INTOVF;
@@ -643,7 +647,7 @@ asmlinkage void do_tr(struct pt_regs *regs)
 
 	/* Immediate versions don't provide a code.  */
 	if (!(opcode & OPCODE))
-		tcode = ((opcode >> 6) & ((1 << 20) - 1));
+		tcode = ((opcode >> 6) & ((1 << 10) - 1));
 
 	/*
 	 * (A short test says that IRIX 5.3 sends SIGTRAP for all trap
@@ -652,9 +656,9 @@ asmlinkage void do_tr(struct pt_regs *regs)
 	 * But should we continue the brokenness???  --macro
 	 */
 	switch (tcode) {
-	case 6:
-	case 7:
-		if (tcode == 7)
+	case BRK_OVERFLOW:
+	case BRK_DIVZERO:
+		if (tcode == BRK_DIVZERO)
 			info.si_code = FPE_INTDIV;
 		else
 			info.si_code = FPE_INTOVF;
@@ -851,8 +855,7 @@ void __init trap_init(void)
 		set_except_vector(i, handle_reserved);
 
 	/*
-	 * Only some CPUs have the watch exceptions or a dedicated
-	 * interrupt vector.
+	 * Only some CPUs have the watch exceptions.
 	 */
 	if (cpu_has_watch)
 		set_except_vector(23, handle_watch);

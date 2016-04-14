@@ -5,7 +5,7 @@
  * Bugreports.to..: <Linux390@de.ibm.com>
  * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 2000, 2001
  *
- * $Revision: 1.52 $
+ * $Revision: 1.52.2.3 $
  *
  * History of changes:
  * 05/14/01 fixed PL030160GTO (BUG() in erp_action_5)
@@ -585,9 +585,8 @@ dasd_3990_erp_alternate_path (ccw_req_t *erp)
                              ioinfo[irq]->opm);
 
 		/* reset status to queued to handle the request again... */
-		check_then_set (&erp->status,
-                                CQR_STATUS_ERROR,
-                                CQR_STATUS_QUEUED);
+		if (erp->status > CQR_STATUS_QUEUED)
+                        erp->status = CQR_STATUS_QUEUED;
 
                 erp->retries = 1;
                 
@@ -598,12 +597,10 @@ dasd_3990_erp_alternate_path (ccw_req_t *erp)
                              "opm=%x) -> permanent error",
                              erp->dstat->lpum,
                              ioinfo[irq]->opm);
-                
-                /* post request with permanent error */
-                check_then_set (&erp->status,
-                                CQR_STATUS_ERROR,
-                                CQR_STATUS_FAILED);
 
+                /* post request with permanent error */
+		if (erp->status > CQR_STATUS_QUEUED)
+                        erp->status = CQR_STATUS_FAILED;
         }
         
 } /* end dasd_3990_erp_alternate_path */
@@ -768,7 +765,6 @@ dasd_3990_erp_action_4 (ccw_req_t *erp,
                                         CQR_STATUS_QUEUED);
                 }
         }
-
 	return erp;
 
 } /* end dasd_3990_erp_action_4 */
@@ -2386,7 +2382,7 @@ dasd_3990_erp_compound_code (ccw_req_t *erp,
                 switch (sense[28]) {
                 case 0x17:
                         /* issue a Diagnostic Control command with an 
-                                * Inhibit Write subcommand and controler modifier */
+                         * Inhibit Write subcommand and controler modifier */
                         erp = dasd_3990_erp_DCTL (erp,
                                                   0x20);
                         break;
@@ -2699,7 +2695,8 @@ dasd_3990_erp_add_erp (ccw_req_t *cqr)
 	if (!erp) {
                 if (cqr->retries <= 0) {
                         DEV_MESSAGE (KERN_ERR, device, "%s",
-                                     "Unable to allocate ERP request (NO retries left)");
+                                     "Unable to allocate ERP request "
+                                     "(NO retries left)");
                 
                         check_then_set (&cqr->status,
                                         CQR_STATUS_ERROR,
@@ -2709,7 +2706,8 @@ dasd_3990_erp_add_erp (ccw_req_t *cqr)
 
                 } else {
                         DEV_MESSAGE (KERN_ERR, device,
-                                     "Unable to allocate ERP request (%i retries left)",
+                                     "Unable to allocate ERP request "
+                                     "(%i retries left)",
                                      cqr->retries);
                 
                         if (!timer_pending(&device->timer)) {
@@ -3169,8 +3167,9 @@ dasd_3990_erp_action (ccw_req_t *cqr)
                 dasd_chanq_enq_head (&device->queue,
                                      erp);
         } else {
-                if ((erp->status == CQR_STATUS_FILLED ) || (erp != device->queue.head)) {
-                        /* something strange happened - log the error and panic */
+                if ((erp->status == CQR_STATUS_FILLED ) ||
+                    (erp != device->queue.head)) {
+                        /* something strange happened - log error and panic */
                         /* print current erp_chain */
                         DEV_MESSAGE (KERN_DEBUG, device, "%s",
                                      "ERP chain at END of ERP-ACTION");
@@ -3188,7 +3187,8 @@ dasd_3990_erp_action (ccw_req_t *cqr)
                                                      temp_erp->refers);
                                 }
                         }
-                        panic ("Problems with ERP chain!!! Please report to linux390@de.ibm.com");
+                        panic ("Problems with ERP chain!!! "
+                               "Please report to linux390@de.ibm.com");
                 }
 
         }

@@ -404,13 +404,14 @@ static __init unsigned int get_cpu_mhz(void)
 {
 	unsigned int count;
 	unsigned long __dummy;
-	
+	unsigned long ctc_val_init, ctc_val;
+
 	/*
 	** Regardless the toolchain, force the compiler to use the
 	** arbitrary register r3 as a clock tick counter.
 	** NOTE: r3 must be in accordance with rtc_interrupt()
 	*/
-	register unsigned long long  __clock_tick_count __asm__ ("r3");
+	register unsigned long long  __rtc_irq_flag __asm__ ("r3");
 
 	sti();
 	do {} while (ctrl_inb(R64CNT) != 0);
@@ -419,13 +420,17 @@ static __init unsigned int get_cpu_mhz(void)
 	/*
 	 * r3 is arbitrary. CDC does not support "=z".
 	 */
+	ctc_val_init = 0xffffffff;
+	ctc_val = ctc_val_init;
+
 	asm volatile("gettr	" __t0 ", %1\n\t"
+		     "putcon	%0, cr62\n\t"
 		     "and	%2, r63, %2\n\t"
 		     "_pta	4, " __t0 "\n\t"
-		     "addi	%0, 1, %0\n\t"
 		     "beq/l	%2, r63, " __t0 "\n\t"
 		     "ptabs	%1, " __t0 "\n\t"
-		: "=r"(count), "=r" (__dummy), "=r" (__clock_tick_count)
+		     "getcon	cr62, %0\n\t"
+		: "=r"(ctc_val), "=r" (__dummy), "=r" (__rtc_irq_flag)
 		: "0" (0));
 	cli();
 	/*
@@ -445,10 +450,12 @@ static __init unsigned int get_cpu_mhz(void)
          * ....
 	 *
 	 * SH-5:
-	 * CPU clock = 2 stages * loop
-         * ....
+	 * Use CTC register to count.  This approach returns the right value
+	 * even if the I-cache is disabled (e.g. whilst debugging.)
 	 *
 	 */
+
+	count = ctc_val_init - ctc_val; /* CTC counts down */
 
 #if defined (CONFIG_SH_SIMULATOR)
 	/*
@@ -457,18 +464,13 @@ static __init unsigned int get_cpu_mhz(void)
 	 * calibration within a reasonable time.
 	 */
 	return 5000000;
-#elif defined (CONFIG_ICACHE_DISABLED)
-	/*
-	 * Let's pretend we are a 300MHz SH-5.
-	 */
-	return 300000000;
 #else
 	/*
 	 * This really is count by the number of clock cycles
-         * per loop (2) by the ratio between a complete R64CNT
+         * by the ratio between a complete R64CNT
          * wrap-around (128) and CUI interrupt being raised (64).
 	 */
-	return count*2*2;
+	return count*2;
 #endif
 }
 

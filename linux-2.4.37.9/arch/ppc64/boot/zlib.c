@@ -1338,6 +1338,7 @@ z_stream *zs;           /* for zalloc function */
     if ((j = *p++) != 0)
       v[x[j]++] = i;
   } while (++i < n);
+  n = x[g];			/* set n to length of v */
 
 
   /* Generate the Huffman codes and for each, make the table entries */

@@ -117,7 +117,7 @@
 static void rivafb_blank(int blank, struct fb_info *info);
 
 extern void riva_setup_accel(struct rivafb_info *rinfo);
-extern inline void wait_for_idle(struct rivafb_info *rinfo);
+extern void wait_for_idle(struct rivafb_info *rinfo);
 
 
 
@@ -952,7 +952,7 @@ static void riva_load_video_mode(struct rivafb_info *rinfo,
 	newmode.crtc[0x12] = Set8Bits (vDisplay);
 	newmode.crtc[0x13] = ((width / 8) * ((bpp + 1) / 8)) & 0xFF;
 	newmode.crtc[0x15] = Set8Bits (vBlankStart);
-	newmode.crtc[0x16] = Set8Bits (vBlankEnd);
+	newmode.crtc[0x16] = Set8Bits (vBlankEnd + 1);
 
 	newmode.ext.bpp = bpp;
 	newmode.ext.width = width;
@@ -2221,7 +2221,6 @@ err_out_free_base1:
 	release_mem_region(rinfo->fb_base_phys, rinfo->base1_region_size);
 err_out_free_base0:
 	release_mem_region(rinfo->ctrl_base_phys, rinfo->base0_region_size);
-err_out_kfree:
 	kfree(rinfo);
 err_out:
 	return -ENODEV;

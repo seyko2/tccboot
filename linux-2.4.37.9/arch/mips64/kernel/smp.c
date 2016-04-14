@@ -52,6 +52,9 @@ int __cpu_number_map[NR_CPUS];
 int __cpu_logical_map[NR_CPUS];
 cycles_t cacheflush_time;
 
+EXPORT_SYMBOL(__cpu_number_map);
+EXPORT_SYMBOL(__cpu_logical_map);
+
 void __init smp_callin(void)
 {
 #if 0
@@ -110,6 +113,7 @@ int smp_call_function (void (*func) (void *info), void *info, int retry,
 
 	spin_lock(&smp_call_lock);
 	call_data = &data;
+	wmb();
 
 	/* Send a message to all other CPUs and wait for them to respond */
 	for (i = 0; i < smp_num_cpus; i++)
@@ -283,7 +287,6 @@ void flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 
 EXPORT_SYMBOL(smp_num_cpus);
 EXPORT_SYMBOL(flush_tlb_page);
-EXPORT_SYMBOL(cpu_data);
 EXPORT_SYMBOL(synchronize_irq);
 EXPORT_SYMBOL(kernel_flag);
 EXPORT_SYMBOL(__global_sti);

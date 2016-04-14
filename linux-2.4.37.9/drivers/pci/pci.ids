@@ -476,6 +476,7 @@
 	700f  PCI Bridge [IGP 320M]
 	7010  PCI Bridge [IGP 340M]
 	cab2  RS200/RS200M AGP Bridge [IGP 340M]
+	cbb2  RS200/RS200M AGP Bridge [IGP 345M]
 1003  ULSI Systems
 	0201  US201
 1004  VLSI Technology Inc
@@ -5542,13 +5543,21 @@
 	1649  NetXtreme BCM5704S Gigabit Ethernet
 	164d  NetXtreme BCM5702FE Gigabit Ethernet
 	1653  NetXtreme BCM5705 Gigabit Ethernet
-	1654  NetXtreme BCM5705 Gigabit Ethernet
+	1654  NetXtreme BCM5705_2 Gigabit Ethernet
+	1658  NetXtreme BCM5720 Gigabit Ethernet
+	1659  NetXtreme BCM5721 Gigabit Ethernet
 	165d  NetXtreme BCM5705M Gigabit Ethernet
-	165e  NetXtreme BCM5705M Gigabit Ethernet
+	165e  NetXtreme BCM5705M_2 Gigabit Ethernet
 	166e  NetXtreme BCM5705F Gigabit Ethernet
+	1676  NetXtreme BCM5750 Gigabit Ethernet
+	1677  NetXtreme BCM5751 Gigabit Ethernet
+	167c  NetXtreme BCM5750M Gigabit Ethernet
+	167d  NetXtreme BCM5751M Gigabit Ethernet
+	167e  NetXtreme BCM5751F Gigabit Ethernet
 	1696  NetXtreme BCM5782 Gigabit Ethernet
 		14e4 000d  NetXtreme BCM5782 1000Base-T
 	169c  NetXtreme BCM5788 Gigabit Ethernet
+	169d  NetXtreme BCM5789 Gigabit Ethernet
 	16a6  NetXtreme BCM5702 Gigabit Ethernet
 		0e11 00bb  NC7760 Gigabit Server Adapter (PCI-X, 10/100/1000-T)
 		1028 0126  BCM5702 1000Base-T
@@ -5571,7 +5580,7 @@
 		14e4 0009  NetXtreme BCM5703 1000Base-T
 		14e4 000a  NetXtreme BCM5703 1000Base-SX
 	170d  NetXtreme BCM5901 Gigabit Ethernet
-	170e  NetXtreme BCM5901 Gigabit Ethernet
+	170e  NetXtreme BCM5901_2 Gigabit Ethernet
 	4210  BCM4210 iLine10 HomePNA 2.0
 	4211  BCM4211 iLine10 HomePNA 2.0 + V.90 56k modem
 	4212  BCM4212 v.90 56k modem

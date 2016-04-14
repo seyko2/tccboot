@@ -153,8 +153,10 @@ static void fbcon_riva_writechr(struct vc_data *conp, struct display *p,
 		for (j = 0; j < cnt; j++) {
 			if (w <= 8) 
 				cdat2 = *cdat++;
-			else
-				cdat2 = *((u16*)cdat)++;
+			else {
+				cdat2 = *(u16*)cdat;
+				cdat += sizeof(u16);
+			}
 			fbcon_reverse_order(&cdat2);
 			d[j] = cdat2;
 		}
@@ -300,8 +302,8 @@ static void fbcon_riva16_clear(struct vc_data *conp, struct display *p, int sy,
 
 static inline void convert_bgcolor_16(u32 *col)
 {
-	*col = ((*col & 0x00007C00) << 9)
-             | ((*col & 0x000003E0) << 6)
+	*col = ((*col & 0x0000F800) << 8)
+             | ((*col & 0x000007E0) << 5)
              | ((*col & 0x0000001F) << 3)
              |          0xFF000000;
 }

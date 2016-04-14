@@ -48,7 +48,7 @@
 
 #define reg32(x)	(V320USC_BASE + (V320USC_##x))
 
-#define v320usc_inb(addr)			readb(reg08(addr)
+#define v320usc_inb(addr)			readb(reg08(addr))
 #define v320usc_outb(value, addr)	writeb(value, reg08(addr))
 #define v320usc_inw(addr)			readw(reg16(addr))
 #define v320usc_outw(value, addr)	writew(value, reg16(addr))

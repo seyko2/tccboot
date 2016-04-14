@@ -290,6 +290,8 @@ int /* __init */ init_intermezzo_sysctl(void)
 	 * happens once per reboot.
 	 */
 	for(i = 0; i < total_dev; i++) {
+		void *p;
+
 		/* entry for this /proc/sys/intermezzo/intermezzo"i" */
 		ctl_table *psdev = &presto_table[i + PRESTO_PRIMARY_CTLCNT];
 		/* entries for the individual "files" in this "directory" */
@@ -302,7 +304,8 @@ int /* __init */ init_intermezzo_sysctl(void)
 		/* the psdev has to point to psdev_entries, and fix the number */
 		psdev->ctl_name = psdev->ctl_name + i + 1; /* sorry */
 
-		PRESTO_ALLOC((void*)psdev->procname, PROCNAME_SIZE);
+		PRESTO_ALLOC(p, PROCNAME_SIZE);
+		psdev->procname = p;
 		if (!psdev->procname) {
 			PRESTO_FREE(dev_ctl_table,
 				    sizeof(ctl_table) * total_entries);

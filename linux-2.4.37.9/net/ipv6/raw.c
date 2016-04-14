@@ -3,7 +3,7 @@
  *	Linux INET6 implementation 
  *
  *	Authors:
- *	Pedro Roque		<roque@di.fc.ul.pt>	
+ *	Pedro Roque		<pedro_m@yahoo.com>	
  *
  *	Adapted from linux/net/ipv4/raw.c
  *
@@ -279,8 +279,11 @@ void rawv6_err(struct sock *sk, struct sk_buff *skb,
 
 static inline int rawv6_rcv_skb(struct sock * sk, struct sk_buff * skb)
 {
+	if ((sk->tp_pinfo.tp_raw.checksum
 #if defined(CONFIG_FILTER)
-	if (sk->filter && skb->ip_summed != CHECKSUM_UNNECESSARY) {
+	    || sk->filter 
+#endif
+	    ) && skb->ip_summed != CHECKSUM_UNNECESSARY) {
 		if ((unsigned short)csum_fold(skb_checksum(skb, 0, skb->len, skb->csum))) {
 			IP6_INC_STATS_BH(Ip6InDiscards);
 			kfree_skb(skb);
@@ -288,7 +291,6 @@ static inline int rawv6_rcv_skb(struct sock * sk, struct sk_buff * skb)
 		}
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 	}
-#endif
 	/* Charge it to the socket. */
 	if (sock_queue_rcv_skb(sk,skb)<0) {
 		IP6_INC_STATS_BH(Ip6InDiscards);
@@ -405,7 +407,10 @@ int rawv6_recvmsg(struct sock *sk, struct msghdr *msg, int len,
 
 	if (sk->net_pinfo.af_inet6.rxopt.all)
 		datagram_recv_ctl(sk, msg, skb);
+
 	err = copied;
+	if (flags & MSG_TRUNC)
+		err = skb->len;
 
 out_free:
 	skb_free_datagram(sk, skb);

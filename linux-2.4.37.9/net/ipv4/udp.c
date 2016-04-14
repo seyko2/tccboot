@@ -290,7 +290,7 @@ static inline struct sock *udp_v4_mcast_next(struct sock *sk,
 		    ipv6_only_sock(s)					||
 		    (s->bound_dev_if && s->bound_dev_if != dif))
 			continue;
-		if (!ip_mc_sf_allow(sk, loc_addr, rmt_addr, dif))
+		if (!ip_mc_sf_allow(s, loc_addr, rmt_addr, dif))
 			continue;
 		break;
   	}
@@ -371,7 +371,6 @@ out:
 	sock_put(sk);
 }
 
-
 static unsigned short udp_check(struct udphdr *uh, int len, unsigned long saddr, unsigned long daddr, unsigned long base)
 {
 	return(csum_tcpudp_magic(saddr, daddr, len, IPPROTO_UDP, base));
@@ -390,7 +389,8 @@ struct udpfakehdr
  *	Copy and checksum a UDP packet from user space into a buffer.
  */
  
-static int udp_getfrag(const void *p, char * to, unsigned int offset, unsigned int fraglen) 
+static int udp_getfrag(const void *p, char * to, unsigned int offset,
+                       unsigned int fraglen, struct sk_buff *skb)
 {
 	struct udpfakehdr *ufh = (struct udpfakehdr *)p;
 	if (offset==0) {
@@ -417,7 +417,8 @@ static int udp_getfrag(const void *p, char * to, unsigned int offset, unsigned i
  *	Copy a UDP packet from user space into a buffer without checksumming.
  */
  
-static int udp_getfrag_nosum(const void *p, char * to, unsigned int offset, unsigned int fraglen) 
+static int udp_getfrag_nosum(const void *p, char * to, unsigned int offset,
+                             unsigned int fraglen, struct sk_buff *skb) 
 {
 	struct udpfakehdr *ufh = (struct udpfakehdr *)p;
 
@@ -636,6 +637,55 @@ static __inline__ int udp_checksum_complete(struct sk_buff *skb)
 		__udp_checksum_complete(skb);
 }
 
+
+/**
+ * 	udp_poll - wait for a UDP event.
+ *	@file - file struct
+ *	@sock - socket
+ *	@wait - poll table
+ *
+ *	This is same as datagram poll, except for the special case of 
+ *	blocking sockets. If application is using a blocking fd
+ *	and a packet with checksum error is in the queue;
+ *	then it could get return from select indicating data available
+ *	but then block when reading it. Add special case code
+ *	to work around these arguably broken applications.
+ */
+unsigned int udp_poll(struct file *file, struct socket *sock, poll_table *wait)
+{
+	unsigned int mask = datagram_poll(file, sock, wait);
+	struct sock *sk = sock->sk;
+	
+	/* Check for false positives due to checksum errors */
+	if ( (mask & POLLRDNORM) &&
+	     !(file->f_flags & O_NONBLOCK) &&
+	     !(sk->shutdown & RCV_SHUTDOWN)){
+		struct sk_buff_head *rcvq = &sk->receive_queue;
+		struct sk_buff *skb;
+
+		spin_lock_irq(&rcvq->lock);
+		while ((skb = skb_peek(rcvq)) != NULL) {
+			if (udp_checksum_complete(skb)) {
+				UDP_INC_STATS_BH(UdpInErrors);
+				IP_INC_STATS_BH(IpInDiscards);
+				__skb_unlink(skb, rcvq);
+				kfree_skb(skb);
+			} else {
+				skb->ip_summed = CHECKSUM_UNNECESSARY;
+				break;
+			}
+		}
+		spin_unlock_irq(&rcvq->lock);
+
+		/* nothing to see, move along */
+		if (skb == NULL)
+			mask &= ~(POLLIN | POLLRDNORM);
+	}
+
+	return mask;
+	
+}
+
 /*
  * 	This should be easy, if there is something there we
  * 	return it, otherwise we block.
@@ -698,7 +748,10 @@ try_again:
   	}
 	if (sk->protinfo.af_inet.cmsg_flags)
 		ip_cmsg_recv(msg, skb);
+
 	err = copied;
+	if (flags & MSG_TRUNC)
+		err = skb->len - sizeof(struct udphdr);
   
 out_free:
   	skb_free_datagram(sk, skb);

@@ -137,6 +137,7 @@ struct drive_list_entry drive_blacklist [] = {
 	{ "CD-ROM Drive/F5A",	"ALL"		},
 	{ "RICOH CD-R/RW MP7083A",	"ALL"		},
 	{ "WPI CDD-820",		"ALL"		},
+	{ "SAMSUNG CD-ROM SC-140",	"ALL"		},
 	{ "SAMSUNG CD-ROM SC-148C",	"ALL"		},
 	{ "SAMSUNG CD-ROM SC-148F",	"ALL"		},
 	{ "SAMSUNG CD-ROM SC",	"ALL"		},
@@ -564,6 +565,18 @@ static int dma_timer_expiry (ide_drive_t *drive)
 
 	return 0;	/* Unknown status -- reset the bus */
 }
+
+/**
+ *	__ide_dma_no_op	- dummy DMA function.
+ *
+ *	This empty function prevents non-DMA controllers from causing an oops.
+ */
+
+static int __ide_dma_no_op (ide_drive_t *ignored)
+{
+	return 0;
+}
+
 
 /**
  *	__ide_dma_host_off	-	Generic DMA kill
@@ -1214,3 +1227,20 @@ void ide_setup_dma (ide_hwif_t *hwif, unsigned long dma_base, unsigned int num_p
 }
 
 EXPORT_SYMBOL_GPL(ide_setup_dma);
+
+/*
+ * For IDE interfaces that do not support DMA, we still need to
+ * initialize some pointers to dummy functions.
+ */
+void ide_setup_no_dma (ide_hwif_t *hwif)
+{
+	if (!hwif->ide_dma_off_quietly)
+		hwif->ide_dma_off_quietly = &__ide_dma_no_op;
+	if (!hwif->ide_dma_host_off)
+		hwif->ide_dma_host_off = &__ide_dma_no_op;
+	if (!hwif->ide_dma_host_on)
+		hwif->ide_dma_host_on = &__ide_dma_no_op;
+}
+
+EXPORT_SYMBOL_GPL(ide_setup_no_dma);
+

@@ -5,7 +5,7 @@
 #
 # Copyright (C) 1994, 1995, 1996 by Ralf Baechle
 # DECStation modifications by Paul M. Antoine, 1996
-# Copyright (C) 2002, 2003  Maciej W. Rozycki
+# Copyright (C) 2002, 2003, 2004  Maciej W. Rozycki
 #
 # This file is included by the global makefile so that you can add your own
 # architecture-specific flags and dependencies. Remember to do have actions
@@ -28,7 +28,7 @@ ifdef CONFIG_CROSSCOMPILE
 CROSS_COMPILE	= $(tool-prefix)
 endif
 
-check_gcc = $(shell if $(CC) $(1) -S -o /dev/null -xc /dev/null > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi)
+MAKEBOOT = $(MAKE) -C arch/$(ARCH)/boot
 
 #
 #
@@ -44,7 +44,7 @@ check_gcc = $(shell if $(CC) $(1) -S -o /dev/null -xc /dev/null > /dev/null 2>&1
 GCCFLAGS	:= -I $(TOPDIR)/include/asm/gcc
 GCCFLAGS	+= -G 0 -mno-abicalls -fno-pic -pipe
 GCCFLAGS	+= $(call check_gcc, -finline-limit=100000,)
-LINKFLAGS	+= -G 0 -static # -N
+LINKFLAGS	+= -G 0 -static -n
 MODFLAGS	+= -mlong-calls
 
 ifdef CONFIG_DEBUG_INFO
@@ -98,6 +98,11 @@ while :; do \
 	gas_abi=; gas_opt=; gas_cpu=; gas_isa=; \
 	break; \
 done; \
+if test "$$gcc_opt" = -march= && test -n "$$gcc_abi"; then \
+	$(CC) $$gcc_abi $$gcc_opt$$gcc_cpu -S -o /dev/null \
+		-xc /dev/null > /dev/null 2>&1 && \
+		gcc_isa=; \
+fi; \
 echo $$gcc_abi $$gcc_opt$$gcc_cpu $$gcc_isa $$gas_abi $$gas_opt$$gas_cpu $$gas_isa)
 
 #
@@ -168,7 +173,8 @@ endif
 
 AFLAGS		+= $(GCCFLAGS)
 CFLAGS		+= $(GCCFLAGS)
-LDFLAGS		+= -m $(ld-emul)
+
+LD		+= -m $(ld-emul)
 
 
 #
@@ -243,6 +249,13 @@ LOADADDR      += 0x80100000
 endif
 
 ifdef CONFIG_MIPS_DB1500
+LIBS          += arch/mips/au1000/db1x00/db1x00.o \
+                 arch/mips/au1000/common/au1000.o
+SUBDIRS       += arch/mips/au1000/db1x00 arch/mips/au1000/common
+LOADADDR      += 0x80100000
+endif
+
+ifdef CONFIG_MIPS_DB1550
 LIBS          += arch/mips/au1000/db1x00/db1x00.o \
                  arch/mips/au1000/common/au1000.o
 SUBDIRS       += arch/mips/au1000/db1x00 arch/mips/au1000/common
@@ -461,6 +474,18 @@ ifdef CONFIG_MOMENCO_OCELOT_C
 CORE_FILES	+= arch/mips/momentum/ocelot_c/ocelot_c.o
 SUBDIRS		+= arch/mips/momentum/ocelot_c
 LOADADDR	:= 0x80100000
+endif
+
+ifdef CONFIG_PMC_BIG_SUR
+CORE_FILES	+= arch/mips/pmc-sierra/big_sur/big_sur.o
+SUBDIRS		+= arch/mips/pmc-sierra/big_sur
+LOADADDR	:= 0x80100000
+endif
+
+ifdef CONFIG_PMC_STRETCH
+CORE_FILES	+= arch/mips/pmc-sierra/stretch/stretch.o
+SUBDIRS		+= arch/mips/pmc-sierra/stretch
+LOADADDR	:= 0x80200000
 endif
 
 ifdef CONFIG_MOMENCO_JAGUAR_ATX
@@ -723,7 +748,10 @@ rom.bin rom.sw: vmlinux
 	$(MAKE) -C arch/$(ARCH)/lasat/image $@
 endif
 
-MAKEBOOT = $(MAKE) -C arch/$(ARCH)/boot
+boot: mips-boot
+
+mips-boot: vmlinux
+	@$(MAKEBOOT) boot
 
 vmlinux.ecoff: vmlinux
 	@$(MAKEBOOT) $@

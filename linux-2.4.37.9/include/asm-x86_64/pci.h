@@ -65,8 +65,9 @@ extern void *pci_alloc_consistent(struct pci_dev *hwdev, size_t size,
 extern void pci_free_consistent(struct pci_dev *hwdev, size_t size,
 				void *vaddr, dma_addr_t dma_handle);
 
-#ifdef CONFIG_SWIOTLB
 extern int swiotlb; 
+
+#ifdef CONFIG_SWIOTLB
 extern dma_addr_t swiotlb_map_single (struct pci_dev *hwdev, void *ptr, size_t size, 
                                      int dir);
 extern void swiotlb_unmap_single (struct pci_dev *hwdev, dma_addr_t dev_addr,

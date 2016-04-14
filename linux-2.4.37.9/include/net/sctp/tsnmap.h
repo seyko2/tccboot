@@ -1,7 +1,7 @@
 /* SCTP kernel reference Implementation
+ * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (c) 1999-2000 Cisco, Inc.
  * Copyright (c) 1999-2001 Motorola, Inc.
- * Copyright (c) 2001-2003 International Business Machines, Corp.
  * Copyright (c) 2001 Intel Corp.
  *
  * This file is part of the SCTP kernel reference Implementation
@@ -37,6 +37,7 @@
  *   Jon Grimm             <jgrimm@us.ibm.com>
  *   La Monte H.P. Yarroll <piggy@acm.org>
  *   Karl Knutson          <karl@athena.chicago.il.us>
+ *   Sridhar Samudrala     <sri@us.ibm.com>
  *
  * Any bugs reported given to us we will try to fix... any fixes shared will
  * be incorporated into the next SCTP release.
@@ -119,12 +120,6 @@ struct sctp_tsnmap_iter {
 	__u32 start;
 };
 
-/* Create a new tsnmap.  */
-struct sctp_tsnmap *sctp_tsnmap_new(__u16 len, __u32 init_tsn, int gfp);
-
-/* Dispose of a tsnmap.  */
-void sctp_tsnmap_free(struct sctp_tsnmap *);
-
 /* This macro assists in creation of external storage for variable length
  * internal buffers.  We double allocate so the overflow map works.
  */
@@ -144,6 +139,9 @@ int sctp_tsnmap_check(const struct sctp_tsnmap *, __u32 tsn);
 
 /* Mark this TSN as seen.  */
 void sctp_tsnmap_mark(struct sctp_tsnmap *, __u32 tsn);
+
+/* Mark this TSN and all lower as seen. */
+void sctp_tsnmap_skip(struct sctp_tsnmap *map, __u32 tsn);
 
 /* Retrieve the Cumulative TSN ACK Point.  */
 static inline __u32 sctp_tsnmap_get_ctsn(const struct sctp_tsnmap *map)
@@ -205,15 +203,5 @@ void sctp_tsnmap_renege(struct sctp_tsnmap *, __u32 tsn);
 
 /* Is there a gap in the TSN map? */
 int sctp_tsnmap_has_gap(const struct sctp_tsnmap *);
-
-/* Initialize a gap ack block interator from user-provided memory.  */
-void sctp_tsnmap_iter_init(const struct sctp_tsnmap *,
-			   struct sctp_tsnmap_iter *);
-
-/* Get the next gap ack blocks.  We return 0 if there are no more
- * gap ack blocks.
- */
-int sctp_tsnmap_next_gap_ack(const struct sctp_tsnmap *,
-	struct sctp_tsnmap_iter *,__u16 *start, __u16 *end);
 
 #endif /* __sctp_tsnmap_h__ */

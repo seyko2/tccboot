@@ -19,6 +19,7 @@
 #include <linux/config.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/linkage.h>
 #include <linux/mm.h>
 #include <linux/blk.h>
 #include <linux/bootmem.h>
@@ -64,33 +65,43 @@ extern unsigned char __rd_start;
 extern unsigned char __rd_end;
 #endif
 
-#ifdef CONFIG_SMP
-static int reboot_smp = 0;
-#endif
-
 #ifdef CONFIG_KGDB
 extern int kgdb_port;
 #endif
 
-static void cfe_linux_exit(void)
+static void ATTRIB_NORET cfe_linux_exit(void *arg)
 {
-#ifdef CONFIG_SMP
+	int warm = *(int *)arg;
+
 	if (smp_processor_id()) {
-		if (reboot_smp) {
-			/* Don't repeat the process from another CPU */
-			for (;;);
-		} else {
+		static int reboot_smp;
+
+		/* Don't repeat the process from another CPU */
+		if (!reboot_smp) {
 			/* Get CPU 0 to do the cfe_exit */
 			reboot_smp = 1;
-			smp_call_function((void *)_machine_restart, NULL, 1, 0);
-			for (;;);
+			smp_call_function(cfe_linux_exit, arg, 1, 0);
 		}
+	} else {
+		printk("Passing control back to CFE...\n");
+		cfe_exit(warm, 0);
+		printk("cfe_exit returned??\n");
 	}
-#endif
-	printk("passing control back to CFE\n");
-	cfe_exit(1, 0);
-	printk("cfe_exit returned??\n");
-	while(1);
+	while (1);
+}
+
+static void ATTRIB_NORET cfe_linux_restart(char *command)
+{
+	static const int zero;
+
+	cfe_linux_exit((void *)&zero);
+}
+
+static void ATTRIB_NORET cfe_linux_halt(void)
+{
+	static const int one = 1;
+
+	cfe_linux_exit((void *)&one);
 }
 
 static __init void prom_meminit(void)
@@ -250,9 +261,9 @@ __init int prom_init(int argc, char **argv, char **envp, int *prom_vec)
 	char *arg;
 #endif
 
-	_machine_restart   = (void (*)(char *))cfe_linux_exit;
-	_machine_halt      = cfe_linux_exit;
-	_machine_power_off = cfe_linux_exit;
+	_machine_restart   = cfe_linux_restart;
+	_machine_halt      = cfe_linux_halt;
+	_machine_power_off = cfe_linux_halt;
 
 	/*
 	 * Check if a loader was used; if NOT, the 4 arguments are

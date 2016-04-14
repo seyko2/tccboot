@@ -22,18 +22,6 @@
 #define DEBUGP(format, args...)
 #endif
 
-/* If the original packet is part of a connection, but the connection
-   is not confirmed, our manufactured reply will not be associated
-   with it, so we need to do this manually. */
-static void connection_attach(struct sk_buff *new_skb, struct nf_ct_info *nfct)
-{
-	void (*attach)(struct sk_buff *, struct nf_ct_info *);
-
-	/* Avoid module unload race with ip_ct_attach being NULLed out */
-	if (nfct && (attach = ip_ct_attach) != NULL)
-		attach(new_skb, nfct);
-}
-
 static inline struct rtable *route_reverse(struct sk_buff *skb, int hook)
 {
 	struct iphdr *iph = skb->nh.iph;
@@ -126,12 +114,8 @@ static void send_reset(struct sk_buff *oldskb, int hook)
 	nskb->dst = &rt->u.dst;
 
 	/* This packet will not be the same as the other: clear nf fields */
-	nf_conntrack_put(nskb->nfct);
-	nskb->nfct = NULL;
+	nf_reset(nskb);
 	nskb->nfcache = 0;
-#ifdef CONFIG_NETFILTER_DEBUG
-	nskb->nf_debug = 0;
-#endif
 	nskb->nfmark = 0;
 
 	tcph = (struct tcphdr *)((u_int32_t*)nskb->nh.iph + nskb->nh.iph->ihl);
@@ -191,7 +175,7 @@ static void send_reset(struct sk_buff *oldskb, int hook)
 	if (nskb->len > nskb->dst->pmtu)
 		goto free_nskb;
 
-	connection_attach(nskb, oldskb->nfct);
+	nf_ct_attach(nskb, oldskb);
 
 	NF_HOOK(PF_INET, NF_IP_LOCAL_OUT, nskb, NULL, nskb->dst->dev,
 		ip_finish_output);
@@ -327,7 +311,7 @@ static void send_unreach(struct sk_buff *skb_in, int code)
 	icmph->checksum = ip_compute_csum((unsigned char *)icmph,
 					  length - sizeof(struct iphdr));
 
-	connection_attach(nskb, skb_in->nfct);
+	nf_ct_attach(nskb, skb_in);
 
 	NF_HOOK(PF_INET, NF_IP_LOCAL_OUT, nskb, NULL, nskb->dst->dev,
 		ip_finish_output);

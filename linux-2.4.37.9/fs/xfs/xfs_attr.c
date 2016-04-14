@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2003 Silicon Graphics, Inc.  All Rights Reserved.
+ * Copyright (c) 2000-2004 Silicon Graphics, Inc.  All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -104,7 +104,6 @@ STATIC int xfs_attr_rmtval_set(xfs_da_args_t *args);
 STATIC int xfs_attr_rmtval_remove(xfs_da_args_t *args);
 
 #define ATTR_RMTVALUE_MAPSIZE	1	/* # of map entries at once */
-#define ATTR_RMTVALUE_TRANSBLKS	8	/* max # of blks in a transaction */
 
 #if defined(XFS_ATTR_TRACE)
 ktrace_t *xfs_attr_trace_buf;
@@ -115,38 +114,21 @@ ktrace_t *xfs_attr_trace_buf;
  * Overall external interface routines.
  *========================================================================*/
 
-/*ARGSUSED*/
-STATIC int
-xfs_attr_get_int(xfs_inode_t *ip, char *name, char *value, int *valuelenp,
-	     int flags, int lock, struct cred *cred)
+int
+xfs_attr_fetch(xfs_inode_t *ip, char *name, int namelen,
+	       char *value, int *valuelenp, int flags, struct cred *cred)
 {
 	xfs_da_args_t   args;
 	int             error;
-	int             namelen;
-
-	ASSERT(MAXNAMELEN-1 <= 0xff);	/* length is stored in uint8 */
-	namelen = strlen(name);
-	if (namelen >= MAXNAMELEN)
-		return(EFAULT);		/* match IRIX behaviour */
-	XFS_STATS_INC(xs_attr_get);
-
-	if (XFS_FORCED_SHUTDOWN(ip->i_mount))
-		return(EIO);
 
 	if ((XFS_IFORK_Q(ip) == 0) ||
 	    (ip->i_d.di_aformat == XFS_DINODE_FMT_EXTENTS &&
 	     ip->i_d.di_anextents == 0))
 		return(ENOATTR);
 
-	if (lock) {
-		xfs_ilock(ip, XFS_ILOCK_SHARED);
-		/*
-		 * Do we answer them, or ignore them?
-		 */
-		if ((error = xfs_iaccess(ip, S_IRUSR, cred))) {
-			xfs_iunlock(ip, XFS_ILOCK_SHARED);
+	if (!(flags & (ATTR_KERNACCESS|ATTR_SECURE))) {
+		if ((error = xfs_iaccess(ip, S_IRUSR, cred)))
 			return(XFS_ERROR(error));
-		}
 	}
 
 	/*
@@ -161,7 +143,6 @@ xfs_attr_get_int(xfs_inode_t *ip, char *name, char *value, int *valuelenp,
 	args.hashval = xfs_da_hashname(args.name, args.namelen);
 	args.dp = ip;
 	args.whichfork = XFS_ATTR_FORK;
-	args.trans = NULL;
 
 	/*
 	 * Decide on what work routines to call based on the inode size.
@@ -178,9 +159,6 @@ xfs_attr_get_int(xfs_inode_t *ip, char *name, char *value, int *valuelenp,
 		error = xfs_attr_node_get(&args);
 	}
 
-	if (lock)
-		xfs_iunlock(ip, XFS_ILOCK_SHARED);
-
 	/*
 	 * Return the number of bytes in the value to the caller.
 	 */
@@ -192,20 +170,27 @@ xfs_attr_get_int(xfs_inode_t *ip, char *name, char *value, int *valuelenp,
 }
 
 int
-xfs_attr_fetch(xfs_inode_t *ip, char *name, char *value, int valuelen)
-{
-	return xfs_attr_get_int(ip, name, value, &valuelen, ATTR_ROOT, 0, NULL);
-}
-
-int
 xfs_attr_get(bhv_desc_t *bdp, char *name, char *value, int *valuelenp,
 	     int flags, struct cred *cred)
 {
 	xfs_inode_t	*ip = XFS_BHVTOI(bdp);
+	int		error, namelen;
+
+	XFS_STATS_INC(xs_attr_get);
 
 	if (!name)
 		return(EINVAL);
-	return xfs_attr_get_int(ip, name, value, valuelenp, flags, 1, cred);
+	namelen = strlen(name);
+	if (namelen >= MAXNAMELEN)
+		return(EFAULT);		/* match IRIX behaviour */
+
+	if (XFS_FORCED_SHUTDOWN(ip->i_mount))
+		return(EIO);
+
+	xfs_ilock(ip, XFS_ILOCK_SHARED);
+	error = xfs_attr_fetch(ip, name, namelen, value, valuelenp, flags, cred);
+	xfs_iunlock(ip, XFS_ILOCK_SHARED);
+	return(error);
 }
 
 /*ARGSUSED*/
@@ -224,22 +209,20 @@ xfs_attr_set(bhv_desc_t *bdp, char *name, char *value, int valuelen, int flags,
 	int             rsvd = (flags & ATTR_ROOT) != 0;
 	int             namelen;
 
-	ASSERT(MAXNAMELEN-1 <= 0xff); /* length is stored in uint8 */
 	namelen = strlen(name);
 	if (namelen >= MAXNAMELEN)
-		return EFAULT; /* match irix behaviour */
+		return EFAULT;		/* match IRIX behaviour */
 
 	XFS_STATS_INC(xs_attr_set);
-	/*
-	 * Do we answer them, or ignore them?
-	 */
+
 	dp = XFS_BHVTOI(bdp);
 	mp = dp->i_mount;
 	if (XFS_FORCED_SHUTDOWN(mp))
 		return (EIO);
 
 	xfs_ilock(dp, XFS_ILOCK_SHARED);
-	if ((error = xfs_iaccess(dp, S_IWUSR, cred))) {
+	if (!(flags & ATTR_SECURE) &&
+	     (error = xfs_iaccess(dp, S_IWUSR, cred))) {
 		xfs_iunlock(dp, XFS_ILOCK_SHARED);
 		return(XFS_ERROR(error));
 	}
@@ -489,16 +472,14 @@ xfs_attr_remove(bhv_desc_t *bdp, char *name, int flags, struct cred *cred)
 
 	XFS_STATS_INC(xs_attr_remove);
 
-	/*
-	 * Do we answer them, or ignore them?
-	 */
 	dp = XFS_BHVTOI(bdp);
 	mp = dp->i_mount;
 	if (XFS_FORCED_SHUTDOWN(mp))
 		return (EIO);
 
 	xfs_ilock(dp, XFS_ILOCK_SHARED);
-	if ((error = xfs_iaccess(dp, S_IWUSR, cred))) {
+	if (!(flags & ATTR_SECURE) &&
+	     (error = xfs_iaccess(dp, S_IWUSR, cred))) {
 		xfs_iunlock(dp, XFS_ILOCK_SHARED);
 		return(XFS_ERROR(error));
 	} else if (XFS_IFORK_Q(dp) == 0 ||
@@ -683,11 +664,10 @@ xfs_attr_list(bhv_desc_t *bdp, char *buffer, int bufsize, int flags,
 
 	if (XFS_FORCED_SHUTDOWN(dp->i_mount))
 		return (EIO);
-	/*
-	 * Do they have permission?
-	 */
+
 	xfs_ilock(dp, XFS_ILOCK_SHARED);
-	if ((error = xfs_iaccess(dp, S_IRUSR, cred))) {
+	if (!(flags & ATTR_SECURE) &&
+	     (error = xfs_iaccess(dp, S_IRUSR, cred))) {
 		xfs_iunlock(dp, XFS_ILOCK_SHARED);
 		return(XFS_ERROR(error));
 	}
@@ -733,16 +713,15 @@ xfs_attr_inactive(xfs_inode_t *dp)
 	mp = dp->i_mount;
 	ASSERT(! XFS_NOT_DQATTACHED(mp, dp));
 
-	/* XXXsup - why on earth are we taking ILOCK_EXCL here??? */
-	xfs_ilock(dp, XFS_ILOCK_EXCL);
+	xfs_ilock(dp, XFS_ILOCK_SHARED);
 	if ((XFS_IFORK_Q(dp) == 0) ||
 	    (dp->i_d.di_aformat == XFS_DINODE_FMT_LOCAL) ||
 	    (dp->i_d.di_aformat == XFS_DINODE_FMT_EXTENTS &&
 	     dp->i_d.di_anextents == 0)) {
-		xfs_iunlock(dp, XFS_ILOCK_EXCL);
+		xfs_iunlock(dp, XFS_ILOCK_SHARED);
 		return(0);
 	}
-	xfs_iunlock(dp, XFS_ILOCK_EXCL);
+	xfs_iunlock(dp, XFS_ILOCK_SHARED);
 
 	/*
 	 * Start our first transaction of the day.
@@ -2163,8 +2142,8 @@ xfs_attr_rmtval_remove(xfs_da_args_t *args)
 		/*
 		 * If the "remote" value is in the cache, remove it.
 		 */
-		/* bp = incore(mp->m_dev, dblkno, blkcnt, 1); */
-		bp = xfs_incore(mp->m_ddev_targp, dblkno, blkcnt, 1);
+		bp = xfs_incore(mp->m_ddev_targp, dblkno, blkcnt,
+				XFS_INCORE_TRYLOCK);
 		if (bp) {
 			XFS_BUF_STALE(bp);
 			XFS_BUF_UNDELAYWRITE(bp);

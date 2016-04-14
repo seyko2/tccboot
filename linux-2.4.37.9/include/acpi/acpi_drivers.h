@@ -288,7 +288,8 @@ void acpi_system_exit (void);
 #define ACPI_THERMAL_MODE_PASSIVE	0x01
 #define ACPI_THERMAL_PATH_POWEROFF	"/sbin/poweroff"
 
-
+/* Motherboard devices */
+int acpi_motherboard_init(void);
 /* --------------------------------------------------------------------------
                                 Debug Support
    -------------------------------------------------------------------------- */

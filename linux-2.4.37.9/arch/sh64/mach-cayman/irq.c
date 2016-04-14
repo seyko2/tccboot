@@ -27,9 +27,12 @@ unsigned long epld_virt;
 #define EPLD_STATUS_BASE (epld_virt + 0x10)
 #define EPLD_MASK_BASE   (epld_virt + 0x20)
 
+/* Note the SMSC SuperIO chip and SMSC LAN chip interrupts are all muxed onto
+   the same SH-5 interrupt */
+
 static void cayman_interrupt_smsc(int irq, void *dev_id, struct pt_regs *regs)
 {
-        printk(KERN_INFO "CAYMAN: spurious interrupt\n");
+        printk(KERN_INFO "CAYMAN: spurious SMSC interrupt\n");
 }
 
 static void cayman_interrupt_pci2(int irq, void *dev_id, struct pt_regs *regs)

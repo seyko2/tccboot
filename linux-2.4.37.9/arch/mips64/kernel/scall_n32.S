@@ -35,13 +35,16 @@ NESTED(handle_sysn32, PT_SIZE, sp)
 	STI
 	.set	at
 #endif
-	ld	t1, PT_EPC(sp)		# skip syscall on return
 
 	subu	t0, v0, __NR_N32_Linux	# check syscall number
 	sltiu	t0, t0,	__NR_N32_Linux_syscalls + 1
+
+#ifndef CONFIG_MIPS32_O32
+	ld	t1, PT_EPC(sp)		# skip syscall on return
 	daddiu	t1, 4			# skip to next instruction
-	beqz	t0, not_n32_scall
 	sd	t1, PT_EPC(sp)
+#endif
+	beqz	t0, not_n32_scall
 
 	dsll	t0, v0, 3		# offset into table
 	ld	t2, (sysn32_call_table - (__NR_N32_Linux * 8))(t0)
@@ -300,11 +303,11 @@ EXPORT(sysn32_call_table)
 	PTR	sys_reboot
 	PTR	sys_sethostname			/* 6165 */
 	PTR	sys_setdomainname
-	PTR	sys_create_module
-	PTR	sys_init_module
-	PTR	sys_delete_module
-	PTR	sys_get_kernel_syms		/* 6170 */
-	PTR	sys_query_module
+	PTR	sys32_create_module
+	PTR	sys32_init_module
+	PTR	sys32_delete_module
+	PTR	sys32_get_kernel_syms		/* 6170 */
+	PTR	sys32_query_module
 	PTR	sys_quotactl
 	PTR	sys_nfsservctl
 	PTR	sys_ni_syscall			/* res. for getpmsg */

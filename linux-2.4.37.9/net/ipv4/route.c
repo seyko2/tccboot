@@ -284,6 +284,7 @@ static int rt_cache_stat_get_info(char *buffer, char **start, off_t offset, int 
 	int i, lcpu;
 	int len = 0;
 
+ 	len += sprintf(buffer+len, "entries  in_hit in_slow_tot in_slow_mc in_no_route in_brd in_martian_dst in_martian_src  out_hit out_slow_tot out_slow_mc  gc_total gc_ignored gc_goal_miss gc_dst_overflow in_hlist_search out_hlist_search\n");
         for (lcpu = 0; lcpu < smp_num_cpus; lcpu++) {
                 i = cpu_logical_map(lcpu);
 
@@ -2213,7 +2214,10 @@ int inet_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr* nlh, void *arg)
 	/* Reserve room for dummy headers, this skb can pass
 	   through good chunk of routing engine.
 	 */
-	skb->mac.raw = skb->data;
+	skb->mac.raw = skb->nh.raw = skb->data;
+
+	/* Bugfix: need to give ip_route_input enough of an IP header to not gag. */
+	skb->nh.iph->protocol = IPPROTO_ICMP;
 	skb_reserve(skb, MAX_HEADER + sizeof(struct iphdr));
 
 	if (rta[RTA_SRC - 1])
@@ -2625,7 +2629,8 @@ void __init ip_rt_init(void)
 	add_timer(&rt_secret_timer);
 
 	proc_net_create ("rt_cache", 0, rt_cache_get_info);
-	proc_net_create ("rt_cache_stat", 0, rt_cache_stat_get_info);
+	create_proc_info_entry ("rt_cache", 0, proc_net_stat, 
+				rt_cache_stat_get_info);
 #ifdef CONFIG_NET_CLS_ROUTE
 	create_proc_read_entry("net/rt_acct", 0, 0, ip_rt_acct_read, NULL);
 #endif

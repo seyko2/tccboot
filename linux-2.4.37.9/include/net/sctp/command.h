@@ -1,5 +1,5 @@
 /* SCTP kernel reference Implementation
- * (C) Copyright IBM Corp. 2001, 2003
+ * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (C) 1999-2001 Cisco, Motorola
  *
  * This file is part of the SCTP kernel reference Implementation
@@ -29,6 +29,7 @@
  * La Monte H.P. Yarroll <piggy@acm.org>
  * Karl Knutson <karl@athena.chicago.il.us>
  * Ardelle Fan <ardelle.fan@intel.com>
+ * Sridhar Samudrala <sri@us.ibm.com>
  *
  * Any bugs reported given to us we will try to fix... any fixes shared will
  * be incorporated into the next SCTP release.
@@ -90,6 +91,12 @@ typedef enum {
 	SCTP_CMD_RENEGE,         /* Renege data on an association. */
 	SCTP_CMD_SETUP_T4,	 /* ADDIP, setup T4 RTO timer parms. */
 	SCTP_CMD_PROCESS_OPERR,  /* Process an ERROR chunk. */
+	SCTP_CMD_REPORT_FWDTSN,	 /* Report new cumulative TSN Ack. */
+	SCTP_CMD_PROCESS_FWDTSN, /* Skips were reported, so process further. */
+	SCTP_CMD_CLEAR_INIT_TAG, /* Clears association peer's inittag. */
+	SCTP_CMD_DEL_NON_PRIMARY, /* Removes non-primary peer transports. */
+	SCTP_CMD_T3_RTX_TIMERS_STOP, /* Stops T3-rtx pending timers */
+	SCTP_CMD_FORCE_PRIM_RETRAN,  /* Forces retrans. over primary path. */
 	SCTP_CMD_LAST
 } sctp_verb_t;
 
@@ -182,11 +189,6 @@ typedef struct {
 } sctp_cmd_seq_t;
 
 
-/* Create a new sctp_command_sequence.
- * Return NULL if creating a new sequence fails.
- */
-sctp_cmd_seq_t *sctp_new_cmd_seq(int gfp);
-
 /* Initialize a block of memory as a command sequence.
  * Return 0 if the initialization fails.
  */
@@ -200,18 +202,10 @@ int sctp_init_cmd_seq(sctp_cmd_seq_t *seq);
  */
 int sctp_add_cmd(sctp_cmd_seq_t *seq, sctp_verb_t verb, sctp_arg_t obj);
 
-/* Rewind an sctp_cmd_seq_t to iterate from the start.
- * Return 0 if the rewind fails.
- */
-int sctp_rewind_sequence(sctp_cmd_seq_t *seq);
-
 /* Return the next command structure in an sctp_cmd_seq.
  * Return NULL at the end of the sequence.
  */
 sctp_cmd_t *sctp_next_cmd(sctp_cmd_seq_t *seq);
-
-/* Dispose of a command sequence.  */
-void sctp_free_cmd_seq(sctp_cmd_seq_t *seq);
 
 #endif /* __net_sctp_command_h__ */
 

@@ -300,12 +300,11 @@ asmlinkage unsigned long sys_mmap(unsigned long addr, unsigned long len,
 
 	if (current->thread.flags & SPARC_FLAG_32BIT) {
 		if (len > 0xf0000000UL ||
-		    ((flags & MAP_FIXED) && addr > 0xf0000000UL - len))
+		    (addr > 0xf0000000UL - len))
 			goto out_putf;
 	} else {
 		if (len > -PAGE_OFFSET ||
-		    ((flags & MAP_FIXED) &&
-		     addr < PAGE_OFFSET && addr + len > -PAGE_OFFSET))
+		    (addr < PAGE_OFFSET && addr + len > -PAGE_OFFSET))
 			goto out_putf;
 	}
 

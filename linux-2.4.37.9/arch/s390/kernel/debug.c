@@ -470,8 +470,8 @@ static ssize_t debug_output(struct file *file,	/* file descriptor */
 				goto out;
 	}
 out:
-	p_info->offset           = *offset + count;
-	p_info->act_entry_offset = size;	
+	p_info->offset           += count;
+	p_info->act_entry_offset = size;
 	*offset = p_info->offset;
 	return count;
 }
@@ -1068,7 +1068,7 @@ static int debug_input_level_fn(debug_info_t * id, struct debug_view *view,
 		       input_buf[0]);
 	}
       out:
-	*offset += in_buf_size;
+	*offset = in_buf_size;
 	return rc;		/* number of input characters */
 }
 
@@ -1135,7 +1135,7 @@ static int debug_input_flush_fn(debug_info_t * id, struct debug_view *view,
         printk(KERN_INFO "debug: area `%c` is not valid\n", input_buf[0]);
 
       out:
-        *offset += in_buf_size;
+        *offset = in_buf_size;
         return rc;              /* number of input characters */
 }
 

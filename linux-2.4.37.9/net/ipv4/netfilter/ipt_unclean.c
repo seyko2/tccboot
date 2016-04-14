@@ -264,6 +264,7 @@ static u8 tcp_valid_flags[(TH_FIN|TH_SYN|TH_RST|TH_PUSH|TH_ACK|TH_URG) + 1] =
 {
 	[TH_SYN]			= 1,
 	[TH_SYN|TH_ACK]			= 1,
+	[TH_SYN|TH_ACK|TH_PUSH]		= 1,
 	[TH_RST]			= 1,
 	[TH_RST|TH_ACK]			= 1,
 	[TH_RST|TH_ACK|TH_PUSH]		= 1,
@@ -467,23 +468,14 @@ check_ip(struct iphdr *iph, size_t length, int embedded)
 	/* Fragment checks. */
 
 	/* CHECK: More fragments, but doesn't fill 8-byte boundary. */
-	if ((ntohs(iph->frag_off) & IP_MF)
-	    && (ntohs(iph->tot_len) % 8) != 0) {
-		limpk("Truncated fragment %u long.\n", ntohs(iph->tot_len));
+	if ((ntohs(iph->frag_off) & IP_MF) && datalen % 8 != 0) {
+		limpk("Truncated fragment %u long.\n", datalen);
 		return 0;
 	}
 
 	/* CHECK: Oversize fragment a-la Ping of Death. */
 	if (offset * 8 + datalen > 65535) {
 		limpk("Oversize fragment to %u.\n", offset * 8);
-		return 0;
-	}
-
-	/* CHECK: DF set and offset or MF set. */
-	if ((ntohs(iph->frag_off) & IP_DF)
-	    && (offset || (ntohs(iph->frag_off) & IP_MF))) {
-		limpk("DF set and offset=%u, MF=%u.\n",
-		      offset, ntohs(iph->frag_off) & IP_MF);
 		return 0;
 	}
 

@@ -52,6 +52,7 @@ extern void * __rd_start, * __rd_end;
 #endif
 
 #ifdef CONFIG_BLK_DEV_IDE
+extern struct ide_ops no_ide_ops;
 extern struct ide_ops std_ide_ops;
 extern struct ide_ops *ide_ops;
 #endif
@@ -64,21 +65,46 @@ extern void au1000_halt(void);
 extern void au1000_power_off(void);
 extern struct resource ioport_resource;
 extern struct resource iomem_resource;
-#if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_SOC_AU1500)
+#if defined(CONFIG_64BIT_PHYS_ADDR) && (defined(CONFIG_SOC_AU1500) || defined(CONFIG_SOC_AU1550))
 extern phys_t (*fixup_bigphys_addr)(phys_t phys_addr, phys_t size);
 static phys_t au1500_fixup_bigphys_addr(phys_t phys_addr, phys_t size);
 #endif
 extern void au1xxx_time_init(void);
 extern void au1xxx_timer_setup(void);
+extern void set_cpuspec(void);
 
 void __init au1x00_setup(void)
 {
+	struct	cpu_spec *sp;
 	char *argptr;
+	unsigned long prid, cpupll, bclk;
 
-	/* Various early Au1000 Errata corrected by this */
-	set_c0_config(1<<19); /* Config[OD] */
+	set_cpuspec();
+	sp = cur_cpu_spec[0];
 
 	board_setup();  /* board specific setup */
+
+	prid = read_c0_prid();
+	cpupll = (au_readl(0xB1900060) & 0x3F) * 12;
+
+	printk("%s (PRId %08X) @ %dMHZ\n", sp->cpu_name, prid, cpupll);
+
+	bclk = sp->cpu_bclk;
+	if (bclk) {
+		/* Enable BCLK switching */
+		bclk = au_readl(0xB190003C);
+		au_writel(bclk | 0x60, 0xB190003C);
+		printk("BCLK switching enabled!\n");
+	}
+
+	if (sp->cpu_od) {
+		/* Various early Au1000 Errata corrected by this */
+		set_c0_config(1<<19); /* Set Config[OD] */
+	}
+	else {
+		/* Clear to obtain best system bus performance */
+		clear_c0_config(1<<19); /* Clear Config[OD] */
+ 	}
 
 	argptr = prom_getcmdline();
 
@@ -128,7 +154,7 @@ void __init au1x00_setup(void)
 	_machine_restart = au1000_restart;
 	_machine_halt = au1000_halt;
 	_machine_power_off = au1000_power_off;
-#if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_SOC_AU1500)
+#if defined(CONFIG_64BIT_PHYS_ADDR) && (defined(CONFIG_SOC_AU1500) || defined(CONFIG_SOC_AU1550))
 	fixup_bigphys_addr = au1500_fixup_bigphys_addr;
 #endif
 
@@ -185,7 +211,7 @@ void __init au1x00_setup(void)
 #ifdef CONFIG_BLK_DEV_IDE
 	/* Board setup takes precedence for unique devices.
 	*/
-	if (ide_ops == NULL)
+	if ((ide_ops == NULL) || (ide_ops == &no_ide_ops))
 		ide_ops = &std_ide_ops;
 #endif
 

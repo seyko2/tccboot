@@ -1,7 +1,7 @@
 /* SCTP kernel reference Implementation
+ * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (c) 1999-2000 Cisco, Inc.
  * Copyright (c) 1999-2001 Motorola, Inc.
- * Copyright (c) 2001 International Business Machines, Corp.
  * Copyright (c) 2001 Intel Corp.
  * Copyright (c) 2001 Nokia, Inc.
  * Copyright (c) 2001 La Monte H.P. Yarroll
@@ -54,7 +54,13 @@
  * growing this structure as it is at the maximum limit now.
  */
 struct sctp_ulpevent {
-	struct sctp_sndrcvinfo sndrcvinfo;
+	struct sctp_association *asoc;
+	__u16 stream;
+	__u16 ssn;
+	__u16 flags;
+	__u32 ppid;
+	__u32 tsn;
+	__u32 cumtsn;
 	int msg_flags;
 	int iif;
 };
@@ -71,8 +77,6 @@ static inline struct sctp_ulpevent *sctp_skb2event(struct sk_buff *skb)
 	return (struct sctp_ulpevent *)skb->cb;
 }
 
-struct sctp_ulpevent *sctp_ulpevent_new(int size, int flags, int gfp);
-void sctp_ulpevent_init(struct sctp_ulpevent *, int flags);
 void sctp_ulpevent_free(struct sctp_ulpevent *);
 int sctp_ulpevent_is_notification(const struct sctp_ulpevent *);
 void sctp_queue_purge_ulpevents(struct sk_buff_head *list);
@@ -114,6 +118,9 @@ struct sctp_ulpevent *sctp_ulpevent_make_shutdown_event(
 struct sctp_ulpevent *sctp_ulpevent_make_pdapi(
 	const struct sctp_association *asoc,
 	__u32 indication, int gfp);
+
+struct sctp_ulpevent *sctp_ulpevent_make_adaption_indication(
+	const struct sctp_association *asoc, int gfp);
 
 struct sctp_ulpevent *sctp_ulpevent_make_rcvmsg(struct sctp_association *asoc,
 	struct sctp_chunk *chunk,

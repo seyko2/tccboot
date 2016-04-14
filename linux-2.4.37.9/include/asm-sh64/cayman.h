@@ -13,7 +13,7 @@
  */
 
 
-/* Setup for the SMSC FDC37C935 */
+/* Setup for the SMSC FDC37C935 / LAN91C100FD */
 #define SMSC_IRQ         IRQ_IRL1
 
 /* Setup for PCI Bus 2, which transmits interrupts via the EPLD */

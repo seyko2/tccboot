@@ -256,6 +256,13 @@ struct tcp_sack_block {
 	__u32	end_seq;
 };
 
+enum tcp_congestion_algo {
+ 	TCP_RENO=0,
+ 	TCP_VEGAS,
+ 	TCP_WESTWOOD,
+ 	TCP_BIC,
+};
+ 
 struct tcp_opt {
 	int	tcp_header_len;	/* Bytes of tcp header to send		*/
 
@@ -428,10 +435,25 @@ struct tcp_opt {
 	unsigned int		keepalive_intvl;  /* time interval between keep alive probes */
 	int			linger2;
 
-	int                     frto_counter; /* Number of new acks after RTO */
+	__u8			adv_cong;    /* Using Vegas, Westwood, or BIC */
+	__u8                    frto_counter; /* Number of new acks after RTO */
 	__u32                   frto_highmark; /* snd_nxt when RTO occurred */
 
 	unsigned long last_synq_overflow; 
+
+/* Receiver side RTT estimation */
+	struct {
+		__u32	rtt;
+		__u32	seq;
+		__u32	time;
+	} rcv_rtt_est;
+
+/* Receiver queue space */
+	struct {
+		int	space;
+		__u32	seq;
+		__u32	time;
+	} rcvq_space;
 
 /* TCP Westwood structure */
         struct {
@@ -445,6 +467,25 @@ struct tcp_opt {
                 __u32    rtt;
                 __u32    rtt_min;          /* minimum observed RTT */
         } westwood;
+
+/* Vegas variables */
+	struct {
+		__u32	beg_snd_nxt;	/* right edge during last RTT */
+		__u32	beg_snd_una;	/* left edge  during last RTT */
+		__u32	beg_snd_cwnd;	/* saves the size of the cwnd */
+		__u8	doing_vegas_now;/* if true, do vegas for this RTT */
+		__u16	cntRTT;		/* # of RTTs measured within last RTT */
+		__u32	minRTT;		/* min of RTTs measured within last RTT (in usec) */
+		__u32	baseRTT;	/* the min of all Vegas RTT measurements seen (in usec) */
+	} vegas;
+
+	/* BI TCP Parameters */
+	struct {
+		__u32	cnt;		/* increase cwnd by 1 after this number of ACKs */
+		__u32 	last_max_cwnd;	/* last maximium snd_cwnd */
+		__u32	last_cwnd;	/* the last snd_cwnd */
+		__u32   last_stamp;     /* time when updated last_cwnd */
+	} bictcp;
 };
 
  	

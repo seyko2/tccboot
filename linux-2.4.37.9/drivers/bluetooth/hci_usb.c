@@ -30,7 +30,7 @@
  *
  * $Id: hci_usb.c,v 1.8 2002/07/18 17:23:09 maxk Exp $    
  */
-#define VERSION "2.5"
+#define VERSION "2.7"
 
 #include <linux/config.h>
 #include <linux/module.h>
@@ -76,14 +76,15 @@ static struct usb_device_id bluetooth_ids[] = {
 	/* AVM BlueFRITZ! USB v2.0 */
 	{ USB_DEVICE(0x057c, 0x3800) },
 
-	/* Ericsson with non-standard id */
-	{ USB_DEVICE(0x0bdb, 0x1002) },
-
-	/* ALPS Module with non-standard id */
-	{ USB_DEVICE(0x044e, 0x3002) },
-
 	/* Bluetooth Ultraport Module from IBM */
 	{ USB_DEVICE(0x04bf, 0x030a) },
+
+	/* ALPS Modules with non-standard id */
+	{ USB_DEVICE(0x044e, 0x3001) },
+	{ USB_DEVICE(0x044e, 0x3002) },
+
+	/* Ericsson with non-standard id */
+	{ USB_DEVICE(0x0bdb, 0x1002) },
 
 	{ }	/* Terminating entry */
 };
@@ -97,8 +98,14 @@ static struct usb_device_id blacklist_ids[] = {
 	/* Broadcom BCM2035 */
 	{ USB_DEVICE(0x0a5c, 0x200a), driver_info: HCI_RESET },
 
+	/* ISSC Bluetooth Adapter v3.1 */
+	{ USB_DEVICE(0x1131, 0x1001), driver_info: HCI_RESET },
+
 	/* Digianswer device */
 	{ USB_DEVICE(0x08fd, 0x0001), driver_info: HCI_DIGIANSWER },
+
+	/* RTX Telecom based adapter with buggy SCO support */
+	{ USB_DEVICE(0x0400, 0x0807), driver_info: HCI_BROKEN_ISOC },
 
 	{ }	/* Terminating entry */
 };
@@ -391,12 +398,12 @@ static int hci_usb_close(struct hci_dev *hdev)
 
 	BT_DBG("%s", hdev->name);
 
+	/* Synchronize with completion handlers */
 	write_lock_irqsave(&husb->completion_lock, flags);
-	
+	write_unlock_irqrestore(&husb->completion_lock, flags);
+
 	hci_usb_unlink_urbs(husb);
 	hci_usb_flush(hdev);
-
-	write_unlock_irqrestore(&husb->completion_lock, flags);
 
 	MOD_DEC_USE_COUNT;
 	return 0;
@@ -699,10 +706,10 @@ static void hci_usb_rx_complete(struct urb *urb)
 	BT_DBG("%s urb %p type %d status %d count %d flags %x", hdev->name, urb,
 			_urb->type, urb->status, count, urb->transfer_flags);
 
-	if (!test_bit(HCI_RUNNING, &hdev->flags))
-		return;
-
 	read_lock(&husb->completion_lock);
+
+	if (!test_bit(HCI_RUNNING, &hdev->flags))
+		goto unlock;
 
 	if (urb->status || !count)
 		goto resubmit;
@@ -740,6 +747,8 @@ resubmit:
 		BT_DBG("%s urb %p type %d resubmit status %d", hdev->name, urb,
 				_urb->type, err);
 	}
+
+unlock:
 	read_unlock(&husb->completion_lock);
 }
 
@@ -876,7 +885,7 @@ static void *hci_usb_probe(struct usb_device *udev, unsigned int ifnum, const st
 	}
 
 #ifdef CONFIG_BLUEZ_HCIUSB_SCO
-	if (!isoc_in_ep[1] || !isoc_out_ep[1]) {
+	if (id->driver_info & HCI_BROKEN_ISOC || !isoc_in_ep[1] || !isoc_out_ep[1]) {
 		BT_DBG("Isoc endpoints not found");
 		isoc_iface = NULL;
 	}

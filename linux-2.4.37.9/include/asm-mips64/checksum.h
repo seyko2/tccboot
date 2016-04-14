@@ -127,9 +127,6 @@ static inline unsigned short ip_fast_csum(unsigned char *iph, unsigned int ihl)
 }
 
 /*
- * computes the checksum of the TCP/UDP pseudo-header
- * returns a 16-bit checksum, already complemented
- *
  * Cast unsigned short expressions to unsigned long explicitly
  * to avoid surprises resulting from implicit promotions to
  * signed int.  --macro

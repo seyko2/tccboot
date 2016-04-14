@@ -53,7 +53,6 @@ do {								\
 #endif
 #define SMP_ALIGN(x) (((x) + SMP_CACHE_BYTES-1) & ~(SMP_CACHE_BYTES-1))
 
-/* Mutex protects lists (only traversed in user context). */
 static DECLARE_MUTEX(ipt_mutex);
 
 /* Must have mutex */
@@ -418,7 +417,7 @@ find_inlist_lock_noload(struct list_head *head,
 {
 	void *ret;
 
-#if 0
+#if 0 
 	duprintf("find_inlist: searching for `%s' in %s.\n",
 		 name, head == &ipt_target ? "ipt_target"
 		 : head == &ipt_match ? "ipt_match"
@@ -464,7 +463,7 @@ find_inlist_lock(struct list_head *head,
 #endif
 
 static inline struct ipt_table *
-find_table_lock(const char *name, int *error, struct semaphore *mutex)
+ipt_find_table_lock(const char *name, int *error, struct semaphore *mutex)
 {
 	return find_inlist_lock(&ipt_tables, name, "iptable_", error, mutex);
 }
@@ -475,8 +474,8 @@ find_match_lock(const char *name, int *error, struct semaphore *mutex)
 	return find_inlist_lock(&ipt_match, name, "ipt_", error, mutex);
 }
 
-static inline struct ipt_target *
-find_target_lock(const char *name, int *error, struct semaphore *mutex)
+struct ipt_target *
+ipt_find_target_lock(const char *name, int *error, struct semaphore *mutex)
 {
 	return find_inlist_lock(&ipt_target, name, "ipt_", error, mutex);
 }
@@ -693,7 +692,7 @@ check_entry(struct ipt_entry *e, const char *name, unsigned int size,
 		goto cleanup_matches;
 
 	t = ipt_get_target(e);
-	target = find_target_lock(t->u.user.name, &ret, &ipt_mutex);
+	target = ipt_find_target_lock(t->u.user.name, &ret, &ipt_mutex);
 	if (!target) {
 		duprintf("check_entry: `%s' not found\n", t->u.user.name);
 		goto cleanup_matches;
@@ -1030,7 +1029,7 @@ get_entries(const struct ipt_get_entries *entries,
 	int ret;
 	struct ipt_table *t;
 
-	t = find_table_lock(entries->name, &ret, &ipt_mutex);
+	t = ipt_find_table_lock(entries->name, &ret, &ipt_mutex);
 	if (t) {
 		duprintf("t->private->number = %u\n",
 			 t->private->number);
@@ -1067,6 +1066,13 @@ do_replace(void *user, unsigned int len)
 	if (len != sizeof(tmp) + tmp.size)
 		return -ENOPROTOOPT;
 
+	/* overflow check */
+	if (tmp.size >= (INT_MAX - sizeof(struct ipt_table_info)) / NR_CPUS -
+			SMP_CACHE_BYTES)
+		return -ENOMEM;
+	if (tmp.num_counters >= INT_MAX / sizeof(struct ipt_counters))
+		return -ENOMEM;
+
 	/* Pedantry: prevent them from hitting BUG() in vmalloc.c --RR */
 	if ((SMP_ALIGN(tmp.size) >> PAGE_SHIFT) + 2 > num_physpages)
 		return -ENOMEM;
@@ -1097,7 +1103,7 @@ do_replace(void *user, unsigned int len)
 
 	duprintf("ip_tables: Translated table\n");
 
-	t = find_table_lock(tmp.name, &ret, &ipt_mutex);
+	t = ipt_find_table_lock(tmp.name, &ret, &ipt_mutex);
 	if (!t)
 		goto free_newinfo_counters_untrans;
 
@@ -1191,12 +1197,12 @@ do_add_counters(void *user, unsigned int len)
 		goto free;
 	}
 
-	t = find_table_lock(tmp.name, &ret, &ipt_mutex);
+	t = ipt_find_table_lock(tmp.name, &ret, &ipt_mutex);
 	if (!t)
 		goto free;
 
 	write_lock_bh(&t->lock);
-	if (t->private->number != paddc->num_counters) {
+	if (t->private->number != tmp.num_counters) {
 		ret = -EINVAL;
 		goto unlock_up_free;
 	}
@@ -1266,7 +1272,7 @@ do_ipt_get_ctl(struct sock *sk, int cmd, void *user, int *len)
 			break;
 		}
 		name[IPT_TABLE_MAXNAMELEN-1] = '\0';
-		t = find_table_lock(name, &ret, &ipt_mutex);
+		t = ipt_find_table_lock(name, &ret, &ipt_mutex);
 		if (t) {
 			struct ipt_getinfo info;
 
@@ -1277,7 +1283,7 @@ do_ipt_get_ctl(struct sock *sk, int cmd, void *user, int *len)
 			       sizeof(info.underflow));
 			info.num_entries = t->private->number;
 			info.size = t->private->size;
-			strcpy(info.name, name);
+			memcpy(info.name, name, sizeof(info.name));
 
 			if (copy_to_user(user, &info, *len) != 0)
 				ret = -EFAULT;
@@ -1717,6 +1723,15 @@ static inline int print_name(const char *i,
 	return 0;
 }
 
+static inline int print_target(const struct ipt_target *t,
+                               off_t start_offset, char *buffer, int length,
+                               off_t *pos, unsigned int *count)
+{
+	if (t == &ipt_standard_target || t == &ipt_error_target)
+		return 0;
+	return print_name((char *)t, start_offset, buffer, length, pos, count);
+}
+
 static int ipt_get_tables(char *buffer, char **start, off_t offset, int length)
 {
 	off_t pos = 0;
@@ -1743,7 +1758,7 @@ static int ipt_get_targets(char *buffer, char **start, off_t offset, int length)
 	if (down_interruptible(&ipt_mutex) != 0)
 		return 0;
 
-	LIST_FIND(&ipt_target, print_name, void *,
+	LIST_FIND(&ipt_target, print_target, struct ipt_target *,
 		  offset, buffer, length, &pos, &count);
 	
 	up(&ipt_mutex);
@@ -1838,6 +1853,7 @@ EXPORT_SYMBOL(ipt_unregister_match);
 EXPORT_SYMBOL(ipt_do_table);
 EXPORT_SYMBOL(ipt_register_target);
 EXPORT_SYMBOL(ipt_unregister_target);
+EXPORT_SYMBOL(ipt_find_target_lock);
 
 module_init(init);
 module_exit(fini);

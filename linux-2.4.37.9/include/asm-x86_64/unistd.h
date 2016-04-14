@@ -673,7 +673,7 @@ static inline long close(unsigned int fd)
 }
 
 extern long sys_exit(int) __attribute__((noreturn));
-extern inline long exit(int error_code)
+extern inline void exit(int error_code)
 {
 	sys_exit(error_code);
 }

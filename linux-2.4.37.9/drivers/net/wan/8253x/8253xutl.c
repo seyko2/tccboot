@@ -1412,11 +1412,6 @@ void sab8253x_flush_buffer(struct tty_struct *tty)
 	WRITEB(port,cmdr,SAB82532_CMDR_XRES);
 	restore_flags(flags);
 	
-	wake_up_interruptible(&tty->write_wait); /* wake up tty driver */
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-	{
-		(*tty->ldisc.write_wakeup)(tty);
-	}
+	tty_wakeup(tty);
 }
 

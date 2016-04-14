@@ -67,9 +67,8 @@ static struct bluez_sock_list sco_sk_list = {
 	lock: RW_LOCK_UNLOCKED
 };
 
-static inline int sco_chan_add(struct sco_conn *conn, struct sock *sk, struct sock *parent);
+static void __sco_chan_add(struct sco_conn *conn, struct sock *sk, struct sock *parent);
 static void sco_chan_del(struct sock *sk, int err);
-static inline struct sock * sco_chan_get(struct sco_conn *conn);
 
 static int  sco_conn_del(struct hci_conn *conn, int err);
 
@@ -150,6 +149,15 @@ static struct sco_conn *sco_conn_add(struct hci_conn *hcon, __u8 status)
 	return conn;
 }
 
+static inline struct sock * sco_chan_get(struct sco_conn *conn)
+{
+	struct sock *sk = NULL;
+	sco_conn_lock(conn);
+	sk = conn->sk;
+	sco_conn_unlock(conn);
+	return sk;
+}
+
 static int sco_conn_del(struct hci_conn *hcon, int err)
 {
 	struct sco_conn *conn;
@@ -174,6 +182,20 @@ static int sco_conn_del(struct hci_conn *hcon, int err)
 
 	MOD_DEC_USE_COUNT;
 	return 0;
+}
+
+static inline int sco_chan_add(struct sco_conn *conn, struct sock *sk, struct sock *parent)
+{
+	int err = 0;
+
+	sco_conn_lock(conn);
+	if (conn->sk) {
+		err = -EBUSY;
+	} else {
+		__sco_chan_add(conn, sk, parent);
+	}
+	sco_conn_unlock(conn);
+	return err;
 }
 
 int sco_connect(struct sock *sk)
@@ -741,29 +763,6 @@ static void __sco_chan_add(struct sco_conn *conn, struct sock *sk, struct sock *
 
 	if (parent)
 		bluez_accept_enqueue(parent, sk);
-}
-
-static inline int sco_chan_add(struct sco_conn *conn, struct sock *sk, struct sock *parent)
-{
-	int err = 0;
-
-	sco_conn_lock(conn);
-	if (conn->sk) {
-		err = -EBUSY;
-	} else {
-		__sco_chan_add(conn, sk, parent);
-	}
-	sco_conn_unlock(conn);
-	return err;
-}
-
-static inline struct sock * sco_chan_get(struct sco_conn *conn)
-{
-	struct sock *sk = NULL;
-	sco_conn_lock(conn);
-	sk = conn->sk;
-	sco_conn_unlock(conn);
-	return sk;
 }
 
 /* Delete channel. 

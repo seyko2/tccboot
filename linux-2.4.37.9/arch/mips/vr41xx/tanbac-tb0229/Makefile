@@ -12,8 +12,9 @@ O_TARGET := tb0229.o
 
 all: tb0229.o
 
-obj-y	:= init.o setup.o reboot.o
+obj-y	:= init.o setup.o
 
-obj-$(CONFIG_PCI)	+= pci_fixup.o
+obj-$(CONFIG_PCI)		+= pci_fixup.o
+obj-$(CONFIG_TANBAC_TB0219)	+= reboot.o
 
 include $(TOPDIR)/Rules.make

@@ -14,7 +14,6 @@
 
 static unsigned int __devinit init_chipset_triflex(struct pci_dev *, const char *);
 static void init_hwif_triflex(ide_hwif_t *);
-static int triflex_get_info(char *, char **, off_t, int);
 
 static ide_pci_device_t triflex_devices[] __devinitdata = {
 	{
@@ -34,7 +33,9 @@ static ide_pci_device_t triflex_devices[] __devinitdata = {
 };
 
 #ifdef CONFIG_PROC_FS
-static ide_pci_host_proc_t triflex_proc __initdata = {
+static int triflex_get_info(char *, char **, off_t, int);
+
+static ide_pci_host_proc_t triflex_procs __initdata = {
 	.name		= "triflex",
 	.set		= 1,
 	.get_info 	= triflex_get_info,

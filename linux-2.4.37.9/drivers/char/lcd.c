@@ -386,6 +386,8 @@ static int lcd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 
 		int ctr=0;
 
+		if (!capable(CAP_SYS_ADMIN)) return -EPERM;
+
 		    // Chip Erase Sequence
 		WRITE_FLASH( kFlash_Addr1, kFlash_Data1 );
 		WRITE_FLASH( kFlash_Addr2, kFlash_Data2 );
@@ -422,6 +424,8 @@ static int lcd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 
                 struct lcd_display display;
 
+		if (!capable(CAP_SYS_ADMIN)) return -EPERM;
+
                 if(copy_from_user(&display, (struct lcd_display*)arg, sizeof(struct lcd_display)))
 		  return -EFAULT;
 		rom = (unsigned char *) kmalloc((128),GFP_ATOMIC);
@@ -434,8 +438,10 @@ static int lcd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 		save_flags(flags);
 		for (i=0; i<FLASH_SIZE; i=i+128) {
 
-		        if(copy_from_user(rom, display.RomImage + i, 128))
+		        if(copy_from_user(rom, display.RomImage + i, 128)) {
+			   kfree(rom);
 			   return -EFAULT;
+			}
 			burn_addr = kFlashBase + i;
 			cli();
 			for ( index = 0; index < ( 128 ) ; index++ ) 
@@ -556,9 +562,8 @@ static struct file_operations lcd_fops = {
 	open:		lcd_open,
 };
 
-static struct miscdevice lcd_dev=
-{
-	LCD_MINOR,
+static struct miscdevice lcd_dev = {
+	MISC_DYNAMIC_MINOR,
 	"lcd",
 	&lcd_fops
 };

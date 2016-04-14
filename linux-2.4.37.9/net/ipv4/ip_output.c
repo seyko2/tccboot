@@ -184,7 +184,7 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 	return -EINVAL;
 }
 
-__inline__ int ip_finish_output(struct sk_buff *skb)
+static __inline__ int __ip_finish_output(struct sk_buff *skb)
 {
 	struct net_device *dev = skb->dst->dev;
 
@@ -193,6 +193,11 @@ __inline__ int ip_finish_output(struct sk_buff *skb)
 
 	return NF_HOOK(PF_INET, NF_IP_POST_ROUTING, skb, NULL, dev,
 		       ip_finish_output2);
+}
+
+int ip_finish_output(struct sk_buff *skb)
+{
+	return __ip_finish_output(skb);
 }
 
 int ip_mc_output(struct sk_buff *skb)
@@ -253,7 +258,7 @@ int ip_mc_output(struct sk_buff *skb)
 				newskb->dev, ip_dev_loopback_xmit);
 	}
 
-	return ip_finish_output(skb);
+	return __ip_finish_output(skb);
 }
 
 int ip_output(struct sk_buff *skb)
@@ -269,7 +274,7 @@ int ip_output(struct sk_buff *skb)
 		ip_do_nat(skb);
 #endif
 
-	return ip_finish_output(skb);
+	return __ip_finish_output(skb);
 }
 
 /* Queues a packet to be sent, and starts the transmitter if necessary.  
@@ -433,7 +438,8 @@ static int ip_build_xmit_slow(struct sock *sk,
 		  int getfrag (const void *,
 			       char *,
 			       unsigned int,	
-			       unsigned int),
+			       unsigned int,
+			       struct sk_buff *),
 		  const void *frag,
 		  unsigned length,
 		  struct ipcm_cookie *ipc,
@@ -602,7 +608,7 @@ static int ip_build_xmit_slow(struct sock *sk,
 		 *	User data callback
 		 */
 
-		if (getfrag(frag, data, offset, fraglen-fragheaderlen)) {
+		if (getfrag(frag, data, offset, fraglen-fragheaderlen, skb)) {
 			err = -EFAULT;
 			kfree_skb(skb);
 			goto error;
@@ -642,7 +648,8 @@ int ip_build_xmit(struct sock *sk,
 		  int getfrag (const void *,
 			       char *,
 			       unsigned int,	
-			       unsigned int),
+			       unsigned int,
+			       struct sk_buff *),
 		  const void *frag,
 		  unsigned length,
 		  struct ipcm_cookie *ipc,
@@ -716,10 +723,10 @@ int ip_build_xmit(struct sock *sk,
 		iph->daddr=rt->rt_dst;
 		iph->check=0;
 		iph->check = ip_fast_csum((unsigned char *)iph, iph->ihl);
-		err = getfrag(frag, ((char *)iph)+iph->ihl*4,0, length-iph->ihl*4);
+		err = getfrag(frag, ((char *)iph)+iph->ihl*4,0, length-iph->ihl*4, skb);
 	}
 	else
-		err = getfrag(frag, (void *)iph, 0, length);
+		err = getfrag(frag, (void *)iph, 0, length, skb);
 
 	if (err)
 		goto error_fault;
@@ -916,7 +923,7 @@ fail:
  *	Fetch data from kernel space and fill in checksum if needed.
  */
 static int ip_reply_glue_bits(const void *dptr, char *to, unsigned int offset, 
-			      unsigned int fraglen)
+			      unsigned int fraglen, struct sk_buff *skb)
 {
         struct ip_reply_arg *dp = (struct ip_reply_arg*)dptr;
 	u16 *pktp = (u16 *)to;

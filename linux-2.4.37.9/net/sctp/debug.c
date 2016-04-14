@@ -1,8 +1,8 @@
 /* SCTP kernel reference Implementation
+ * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (c) 1999-2000 Cisco, Inc.
  * Copyright (c) 1999-2001 Motorola, Inc.
  * Copyright (c) 2001 Intel Corp.
- * Copyright (c) 2001 International Business Machines Corp.
  * 
  * This file is part of the SCTP kernel reference Implementation
  * 
@@ -43,6 +43,7 @@
  *    Xingang Guo           <xingang.guo@intel.com>
  *    Jon Grimm             <jgrimm@us.ibm.com>
  *    Daisy Chang	    <daisyc@us.ibm.com>
+ *    Sridhar Samudrala	    <sri@us.ibm.com>
  * 
  * Any bugs reported given to us we will try to fix... any fixes shared will
  * be incorporated into the next SCTP release.
@@ -88,28 +89,14 @@ const char *sctp_cname(const sctp_subtype_t cid)
 	case SCTP_CID_ASCONF_ACK:
 		return "ASCONF_ACK";
 
+	case SCTP_CID_FWD_TSN:
+		return "FWD_TSN";
+
 	default:
 		return "unknown chunk";
 	};
 	return "unknown chunk";
 }
-
-/* These are printable form of variable-length parameters. */
-const char *sctp_param_tbl[SCTP_PARAM_ECN_CAPABLE + 1] = {
-	"",
-	"PARAM_HEARTBEAT_INFO",
-	"",
-	"",
-	"",
-	"PARAM_IPV4_ADDRESS",
-	"PARAM_IPV6_ADDRESS",
-	"PARAM_STATE_COOKIE",
-	"PARAM_UNRECOGNIZED_PARAMETERS",
-	"PARAM_COOKIE_PRESERVATIVE",
-	"",
-	"PARAM_HOST_NAME_ADDRESS",
-	"PARAM_SUPPORTED_ADDRESS_TYPES",
-};
 
 /* These are printable forms of the states.  */
 const char *sctp_state_tbl[SCTP_STATE_NUM_STATES] = {
@@ -167,6 +154,7 @@ const char *sctp_pname(const sctp_subtype_t id)
 
 static const char *sctp_other_tbl[] = {
 	"NO_PENDING_TSN",
+        "ICMP_PROTO_UNREACH",
 };
 
 /* Lookup "other" debug name. */
@@ -174,7 +162,7 @@ const char *sctp_oname(const sctp_subtype_t id)
 {
 	if (id.other < 0)
 		return "illegal 'other' event";
-	if (id.other < SCTP_EVENT_OTHER_MAX)
+	if (id.other <= SCTP_EVENT_OTHER_MAX)
 		return sctp_other_tbl[id.other];
 	return "unknown 'other' event";
 }

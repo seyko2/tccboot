@@ -58,8 +58,7 @@ bool 'Fixup misaligned loads/stores occurring in user mode' CONFIG_SH64_USER_MIS
 
 # Use 32-bit addressing for now.
 # EMI based.
-# P2 (UNCACHED) required to use identity mapping
-# P1 (CACHED) assumes non-identity.
+# (CACHED) assumes non-identity.
 
 #
 # Memory options
@@ -68,7 +67,6 @@ comment 'Memory options'
 
 int 'Memory size (in MB)' CONFIG_MEMORY_SIZE_IN_MB 64
 hex 'Cached Area Offset' CONFIG_CACHED_MEMORY_OFFSET 20000000
-hex 'Uncached Area Offset' CONFIG_UNCACHED_MEMORY_OFFSET 00000000
 hex 'Physical memory start address' CONFIG_MEMORY_START 80000000
 
 #
@@ -152,7 +150,7 @@ if [ "$CONFIG_PROC_FS" = "y" ]; then
 	"ELF		CONFIG_KCORE_ELF	\
 	 A.OUT		CONFIG_KCORE_AOUT" ELF
 fi
-tristate 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
+bool 'Kernel support for ELF binaries' CONFIG_BINFMT_ELF
 tristate 'Kernel support for MISC binaries' CONFIG_BINFMT_MISC
 
 bool 'Select task to kill on out of memory condition' CONFIG_OOM_KILLER
@@ -304,6 +302,7 @@ bool 'GDB Stub kernel debug' CONFIG_DEBUG_KERNEL_WITH_GDB_STUB
 bool "Debug: audit page tables on return from syscall/exception/interrupt" CONFIG_SH64_PAGE_TABLE_AUDIT
 dep_bool "Debug: report TLB fill/purge activity through /proc/tlb" CONFIG_SH64_PROC_TLB $CONFIG_PROC_FS
 dep_bool "Debug: report ASIDS through /proc/asids" CONFIG_SH64_PROC_ASIDS $CONFIG_PROC_FS
+bool "Debug: set SR.WATCH to enable hardware watchpoints and trace" CONFIG_SH64_SR_WATCH
 
 int 'Kernel messages buffer length shift (0 = default)' CONFIG_LOG_BUF_SHIFT 0
 

@@ -134,6 +134,10 @@
 /* ExCA IO offset registers */
 #define TI113X_IO_OFFSET(map)		(0x36+((map)<<1))
 
+/* EnE test register */
+#define ENE_TEST_C9			0xc9	/* 8bit */
+#define ENE_TEST_C9_TLTENABLE		0x02
+
 #ifdef CONFIG_CARDBUS
 
 /*
@@ -155,6 +159,17 @@ static int ti_open(pci_socket_t *socket)
 	new = reg & ~I365_INTR_ENA;
 	if (new != reg)
 		exca_writeb(socket, I365_INTCTL, new);
+
+	/*
+	 * for EnE bridges only: clear testbit TLTEnable. this makes the
+	 * RME Hammerfall DSP sound card working.
+	 */
+	if (socket->dev->vendor == PCI_VENDOR_ID_ENE) {
+		u8 test_c9 = config_readb(socket, ENE_TEST_C9);
+		test_c9 &= ~ENE_TEST_C9_TLTENABLE;
+		config_writeb(socket, ENE_TEST_C9, test_c9);
+	}
+
 	return 0;
 }
 

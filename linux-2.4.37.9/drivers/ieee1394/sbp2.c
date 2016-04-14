@@ -113,8 +113,8 @@ static int sbp2_max_speed = IEEE1394_SPEED_MAX;
  * badly behaved sbp2 devices.
  */
 MODULE_PARM(sbp2_serialize_io,"i");
-MODULE_PARM_DESC(sbp2_serialize_io, "Serialize all I/O coming down from the scsi drivers (default = 0)");
-static int sbp2_serialize_io = 0;	/* serialize I/O - available for debugging purposes */
+MODULE_PARM_DESC(sbp2_serialize_io, "Serialize all I/O coming down from the scsi drivers (default = 1)");
+static int sbp2_serialize_io = 1;	/* serialize I/O - available for debugging purposes */
 
 /*
  * Bump up sbp2_max_sectors if you'd like to support very large sized
@@ -231,7 +231,7 @@ static u32 global_outstanding_dmas = 0;
  * enable this define to make use of it. This provides better hotplug
  * support. The mentioned patch is not part of the kernel proper though,
  * because it is considered somewhat of a hack. */
-//#define SBP2_USE_SCSI_ADDREM_HACK
+#define SBP2_USE_SCSI_ADDREM_HACK
 
 
 /*

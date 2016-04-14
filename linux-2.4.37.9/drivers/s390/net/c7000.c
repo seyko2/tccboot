@@ -3,6 +3,20 @@
 	Author: Bob Scardapane (UTS Global LLC).
 	Version: 3.
 
+	This program is free software; you can redistribute it and/or
+	modify it under the terms of the GNU General Public License as
+	published by the Free Software Foundation; either version 2, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program; if not, write to the Free Software
+	Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
 	To use this driver, run the LINUX command:
 
 	insmod c7000 base0=0xYYYY lhost0=s1 uhost0=s2 lappl0=s3 uappl0=s4 dbg=x
@@ -409,16 +423,7 @@ static char	ifnames[MAX_C7000][8] = {"ci0", "ci1", "ci2", "ci3"};
 	One device structure per controller.
 */
 
-/* RBH Try out the new code for 2.4.0 */
-#define NEWSTUFF
-
-#ifdef NEWSTUFF
-#define STRUCT_NET_DEVICE struct net_device
-#else
-#define STRUCT_NET_DEVICE struct device
-#endif
-
-STRUCT_NET_DEVICE	c7000_devices[MAX_C7000];
+struct net_device	c7000_devices[MAX_C7000];
 
 /*
 	Scratch variable filled in with controller name.
@@ -432,6 +437,7 @@ static char	*controller;
 
 MODULE_AUTHOR("Robert Scardapane (UTS Global)");
 MODULE_DESCRIPTION("Network module for Cisco 7000 box.");
+MODULE_LICENSE("GPL");
 
 MODULE_PARM(base0, "1i");
 MODULE_PARM_DESC(base0, "Base unit address for 1st C7000 box.");
@@ -521,16 +527,12 @@ struct	c7000_unit {
 	ccw1_t				ccws[5];	/* control ccws */
 	int				devno;		/* device number */
 	int				irq;		/* subchannel number */
-	int				IO_active;	/* IO activity flag */
+	unsigned long			IO_active;	/* IO activity flag */
 	int				state;		/* fsm state */
 	int				retries;	/* retry counter */
 	unsigned long			flag_a;		/* bh activity flag */
 	devstat_t			devstat;	/* device status */
-#ifdef NEWSTUFF
 	wait_queue_head_t		wait;		/* sleep q head */
-#else
-	struct wait_queue		*wait;		/* sleep q pointer */
-#endif
 	struct c7000_controller		*cntlp;		/* controller pointer */
 	struct c7000_buffer		*free;		/* free buffer anchor */
 	struct c7000_buffer		*proc_head;	/* proc head */
@@ -551,7 +553,7 @@ struct	c7000_unit {
 
 struct c7000_controller {
 	struct	net_device_stats	stats;		/* statistics */
-	STRUCT_NET_DEVICE		*dev;		/* -> device struct */
+	struct net_device		*dev;		/* -> device struct */
 	unsigned int			base_addr;	/* base address */
 	char				lappl[NAMLEN];	/* local appl */
 	char				lhost[NAMLEN];	/* local host */
@@ -560,9 +562,7 @@ struct c7000_controller {
 	unsigned char			version;	/* version = 2 */
 	unsigned char			linkid;		/* link id */
 	struct	c7000_unit		cunits[NUNITS];	/* embedded units */
-#ifdef NEWSTUFF
-	int				tbusy;
-#endif
+	unsigned long			tbusy;
 };
 
 /*
@@ -579,62 +579,29 @@ struct	c7000_rd_header {
 	Set the device structure transmission busy flag.
 */
 
-#ifdef NEWSTUFF
 #define c7000_set_busy(dev) netif_stop_queue(dev)
-#else
-static __inline__ void
-c7000_set_busy(STRUCT_NET_DEVICE *dev)
-{
-	dev->tbusy = 1;
-	eieio();
-	return;
-}
-#endif
 	
 /*
 	Clear the device structure transmission busy flag.
 */
 
-#ifdef NEWSTUFF
 #define c7000_clear_busy(dev) netif_wake_queue(dev)
-#else
-static __inline__ void
-c7000_clear_busy(STRUCT_NET_DEVICE *dev)
-{
-	dev->tbusy = 0;
-	eieio();
-	return;
-}
-#endif
 
 /*
 	Extract the device structure transmission busy flag.
 */
 
-#ifdef NEWSTUFF
 #define c7000_check_busy(dev) netif_queue_stopped(dev)
-#else
-static __inline__ int
-c7000_check_busy(STRUCT_NET_DEVICE *dev)
-{
-	eieio();
-	return(dev->tbusy);
-}
-#endif
 
 /*
 	Set a bit in the device structure transmission busy flag.
 */
 
 static __inline__ void
-c7000_setbit_busy(int nr, STRUCT_NET_DEVICE *dev)
+c7000_setbit_busy(int nr, struct net_device *dev)
 {
-#ifdef NEWSTUFF
 	netif_stop_queue(dev);
 	test_and_set_bit(nr, &((struct c7000_controller *)dev->priv)->tbusy);
-#else
-	set_bit(nr, (void *)&dev->tbusy);
-#endif
 	return;
 }
 
@@ -643,14 +610,10 @@ c7000_setbit_busy(int nr, STRUCT_NET_DEVICE *dev)
 */
 
 static __inline__ void
-c7000_clearbit_busy(int nr, STRUCT_NET_DEVICE *dev)
+c7000_clearbit_busy(int nr, struct net_device *dev)
 {
-#ifdef NEWSTUFF
 	clear_bit(nr, &((struct c7000_controller *)dev->priv)->tbusy);
 	netif_wake_queue(dev);
-#else
-	clear_bit(nr, (void *)&dev->tbusy);
-#endif
 	return;
 }
 
@@ -659,14 +622,10 @@ c7000_clearbit_busy(int nr, STRUCT_NET_DEVICE *dev)
 */
 
 static __inline__ int
-c7000_ts_busy(int nr, STRUCT_NET_DEVICE *dev)
+c7000_ts_busy(int nr, struct net_device *dev)
 {
-#ifdef NEWSTUFF
 	netif_stop_queue(dev);
 	return test_and_set_bit(nr, &((struct c7000_controller *)dev->priv)->tbusy);
-#else
-	return(test_and_set_bit(nr, (void *)&dev->tbusy));
-#endif
 }
 
 /*
@@ -678,7 +637,7 @@ c7000_error(struct c7000_controller *ccp)
 {
 	int			i;
 	struct	c7000_unit	*cup;
-	STRUCT_NET_DEVICE	*dev = ccp->dev;
+	struct net_device	*dev = ccp->dev;
 
 	for (i = 0; i < NUNITS; i++) {
 		cup = &ccp->cunits[i];
@@ -686,12 +645,8 @@ c7000_error(struct c7000_controller *ccp)
 	}
 
 	if (dev != NULL)
-#ifdef NEWSTUFF
 		/* RBH XXX Should we be doing this? */
 		dev->state &= ~__LINK_STATE_START;
-#else
-		dev->flags &= ~IFF_RUNNING;
-#endif
 
 	CPrintk(0, "c7000: c7000_error: base unit 0x%x is down\n", ccp->base_addr);
 	return;
@@ -759,9 +714,9 @@ c7000_check_devices(int devno)
 static int
 c7000_haltio(struct c7000_unit *cup)
 {
-	__u32			parm;
+	unsigned long		parm;
 	__u8			flags = 0x00;
-	__u32			saveflags;
+	unsigned long		saveflags;
 	DECLARE_WAITQUEUE(wait, current);
 	int			rc;
 
@@ -792,9 +747,9 @@ c7000_haltio(struct c7000_unit *cup)
 static int
 c7000_doio(struct c7000_unit *cup)
 {
-	__u32			parm;
+	unsigned long		parm;
 	__u8			flags = 0x00;
-	__u32			saveflags;
+	unsigned long		saveflags;
 	DECLARE_WAITQUEUE(wait, current);
 	int			rc;
 
@@ -1013,7 +968,7 @@ c7000_bld_read_chpgm(struct c7000_unit *cup, struct c7000_buffer *buf)
 */
 
 static int
-c7000_alloc_buffers(STRUCT_NET_DEVICE *dev)
+c7000_alloc_buffers(struct net_device *dev)
 {
 	int				i;
 	int				j;
@@ -1030,9 +985,10 @@ c7000_alloc_buffers(STRUCT_NET_DEVICE *dev)
 			bufptr = kmalloc(sizeof(struct c7000_buffer), GFP_KERNEL);
 			data = kmalloc(C7000_BUFSIZE, GFP_KERNEL);
 
-			if (bufptr == NULL)
-			{
-				if(data)
+			if (bufptr == NULL || data == NULL) {
+				if (bufptr)
+					kfree(bufptr);
+				if (data)
 					kfree(data);
 				return(-1);
 			}
@@ -1088,7 +1044,7 @@ c7000_free_chain(struct c7000_buffer *buf)
 */
 
 static void
-c7000_free_buffers(STRUCT_NET_DEVICE *dev)
+c7000_free_buffers(struct net_device *dev)
 {
 	int				i;
 	struct	c7000_controller	*ccp = (struct c7000_controller *) dev->priv;
@@ -1328,12 +1284,12 @@ c7000_irq_bh(struct c7000_unit *cup)
 	struct	c7000_rd_header		*head;	
 	struct	sk_buff			*skb;
 	struct	c7000_controller	*ccp;
-	STRUCT_NET_DEVICE		*dev;
+	struct	net_device		*dev;
 	int				rc;
 	__u16				data_length;
-	__u32				parm;
+	unsigned long			parm;
 	__u8				flags = 0x00;
-	__u32				saveflags;
+	unsigned long			saveflags;
 
 	ccp = cup->cntlp;
 	dev = ccp->dev;
@@ -1385,6 +1341,7 @@ c7000_irq_bh(struct c7000_unit *cup)
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 			netif_rx(skb);
 			ccp->stats.rx_packets++;
+			ccp->stats.rx_bytes += skb->len;
 		} else {
 			CPrintk(0, "c7000: c7000_irq_bh: can not allocate a skb for unit 0x%x\n", cup->devno);
 			ccp->stats.rx_dropped++;
@@ -1403,6 +1360,7 @@ c7000_irq_bh(struct c7000_unit *cup)
 			Rechain the buffer on the running channel program.
 		*/
 
+		buf->ccws[3].cda = buf->ccws[5].cda = (__u32)virt_to_phys(&buf->ccws[6]);
 		if (pbuf != NULL)
 			pbuf->ccws[3].cda = pbuf->ccws[5].cda = (__u32)virt_to_phys(&buf->ccws[0]);
 
@@ -1422,7 +1380,7 @@ c7000_irq_bh(struct c7000_unit *cup)
 			return;
 		}
 
-		parm = (__u32)cup;
+		parm = (unsigned long)cup;
 		cup->state = C7000_READ;
 
 		if ((rc = do_IO(cup->irq, &cup->proc_head->ccws[0], parm, 0xff, flags)) != 0) {
@@ -1979,7 +1937,7 @@ c7000_get_conn(struct c7000_unit *cup)
 */
 
 struct net_device_stats *
-c7000_stats(STRUCT_NET_DEVICE *dev)
+c7000_stats(struct net_device *dev)
 {
 	struct	c7000_controller	*ccp = (struct c7000_controller *)dev->priv;
 
@@ -1991,13 +1949,13 @@ c7000_stats(STRUCT_NET_DEVICE *dev)
 */
 
 static int
-c7000_open(STRUCT_NET_DEVICE *dev)
+c7000_open(struct net_device *dev)
 {
 	int				i;
 	struct	c7000_controller	*ccp = (struct c7000_controller *)dev->priv;
 	struct	c7000_unit		*cup;
 	int				rc;
-	__u32				parm;
+	unsigned long			parm;
 	__u8				flags = 0x00;
 
 	c7000_set_busy(dev);
@@ -2025,16 +1983,11 @@ c7000_open(STRUCT_NET_DEVICE *dev)
 			half routine.
 		*/
 
-#ifndef NEWSTUFF
-		cup->tq.next = NULL;
-#endif
 		cup->tq.sync = 0;
 		cup->tq.routine = (void *)(void *)c7000_irq_bh;
 		cup->tq.data = cup;
 		cup->state = C7000_HALT;
-#ifdef NEWSTUFF
 		init_waitqueue_head(&cup->wait);
-#endif
 		CPrintk(1, "c7000: c7000_open: issuing halt to unit 0x%x\n", cup->devno);
 
 		/*
@@ -2154,7 +2107,7 @@ c7000_open(STRUCT_NET_DEVICE *dev)
 	*/
 
 	cup->state = C7000_READ;
-	parm = (__u32) cup;
+	parm = (unsigned long)cup;
 	set_bit(0, (void *)&cup->IO_active);
 
 	if ((rc = do_IO(cup->irq, &cup->proc_head->ccws[0], parm, 0xff, flags)) != 0) {
@@ -2165,11 +2118,7 @@ c7000_open(STRUCT_NET_DEVICE *dev)
 		return(-EIO);
 	}
 
-#ifdef NEWSTUFF
 	netif_start_queue(dev);
-#else
-	dev->start = 1;
-#endif
 	CPrintk(0, "c7000: c7000_open: base unit 0x%lx is opened\n", dev->base_addr);
 	c7000_clear_busy(dev);
 	MOD_INC_USE_COUNT;	/* increment module usage count */
@@ -2181,18 +2130,13 @@ c7000_open(STRUCT_NET_DEVICE *dev)
 */
 
 static int
-c7000_stop(STRUCT_NET_DEVICE *dev)
+c7000_stop(struct net_device *dev)
 {
 	int				i;
 	struct	c7000_controller	*ccp = (struct c7000_controller *)dev->priv;
 	struct	c7000_unit		*cup;
 	int				rc;
 
-#ifdef NEWSTUFF
-/* nothing? */
-#else
-	dev->start = 0;
-#endif
 	c7000_set_busy(dev);
 
 	/*
@@ -2236,7 +2180,7 @@ c7000_stop(STRUCT_NET_DEVICE *dev)
 */
 
 static int
-c7000_config(STRUCT_NET_DEVICE *dev, struct ifmap *map)
+c7000_config(struct net_device *dev, struct ifmap *map)
 {
 	CPrintk(1, "c7000: c7000_config: entered for base unit 0x%lx\n", dev->base_addr);
 	return(0);
@@ -2247,12 +2191,12 @@ c7000_config(STRUCT_NET_DEVICE *dev, struct ifmap *map)
 */
 
 static int
-c7000_xmit(struct sk_buff *skb, STRUCT_NET_DEVICE *dev)
+c7000_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct	c7000_controller	*ccp = (struct c7000_controller *)dev->priv;
 	struct	c7000_unit		*cup;
-	__u32				saveflags;
-	__u32				parm;
+	unsigned long			saveflags;
+	unsigned long			parm;
 	__u8				flags = 0x00;
 	struct	c7000_buffer		*buf, *pbuf;
 	int				rc;
@@ -2350,7 +2294,7 @@ c7000_xmit(struct sk_buff *skb, STRUCT_NET_DEVICE *dev)
 	if (test_and_set_bit(0, (void *)&cup->IO_active) == 0) {
 		CPrintk(1, "c7000: c7000_xmit: start IO for unit 0x%x\n", cup->devno);
 		c7000_bld_wrt_chain(cup);
-		parm = (__u32) cup;
+		parm = (unsigned long)cup;
 		cup->state = C7000_WRITE;
 
 		if ((rc = do_IO(cup->irq, &cup->proc_head->ccws[0], parm, 0xff, flags)) != 0) {
@@ -2385,7 +2329,7 @@ c7000_xmit(struct sk_buff *skb, STRUCT_NET_DEVICE *dev)
 */
 
 static int
-c7000_ioctl(STRUCT_NET_DEVICE *dev, struct ifreq *ifr, int cmd)
+c7000_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	CPrintk(1, "c7000: c7000_ioctl: entered for base unit 0x%lx with cmd %d\n", dev->base_addr, cmd);
 	return(0);
@@ -2461,7 +2405,7 @@ static void
 c7000_retry_io(struct c7000_unit *cup)
 {
 	int	rc;
-	__u32	parm;
+	unsigned long	parm;
 	__u8	flags = 0x00;
 	ccw1_t	*ccwp;
 
@@ -2472,7 +2416,7 @@ c7000_retry_io(struct c7000_unit *cup)
 	}
 
 	set_bit(0, (void *)&cup->IO_active);
-	parm = (__u32)cup;
+	parm = (unsigned long)cup;
 
 	if (cup->state == C7000_READ || cup->state == C7000_WRITE)
 		ccwp = &cup->proc_head->ccws[0];
@@ -2560,14 +2504,10 @@ c7000_proc_wintr(struct c7000_unit *cup)
 		*/
 
 		buf = c7000_dequeue_buffer(cup);
+		ccp->stats.tx_bytes += buf->len;
+		ccp->stats.tx_packets++;
 		c7000_release_buffer(cup, buf);
 		num_write++;
-
-		/*
-			Update transmitted packets statistic.
-		*/
-
-		ccp->stats.tx_packets++;
 	}
 
 	CPrintk(1, "c7000: c7000_proc_wintr: %d buffers written for unit 0x%x\n", num_write, cup->devno);
@@ -2584,8 +2524,8 @@ c7000_intr(int irq, void *initparm, struct pt_regs *regs)
 	devstat_t			*devstat = ((devstat_t *) initparm);
 	struct	c7000_unit		*cup = NULL;
 	struct	c7000_controller	*ccp = NULL;
-	STRUCT_NET_DEVICE		*dev = NULL;
-	__u32				parm;
+	struct	net_device		*dev = NULL;
+	unsigned long			parm;
 	__u8				flags = 0x00;
 	int				rc;
 
@@ -2618,14 +2558,14 @@ c7000_intr(int irq, void *initparm, struct pt_regs *regs)
 	ccp = cup->cntlp;
 
 	if (ccp == NULL) {
-		CPrintk(0, "c7000: c7000_intr: c7000_cntlp pointer is NULL in c7000_unit structure 0x%x for unit 0x%x\n", (int)cup, cup->devno);
+		CPrintk(0, "c7000: c7000_intr: c7000_cntlp pointer is NULL in c7000_unit structure %p for unit 0x%x\n", cup, cup->devno);
 		return;
 	}
 
 	dev = ccp->dev;
 
 	if (dev == NULL) {
-		CPrintk(0, "c7000: c7000_intr: device pointer is NULL in c7000_controller structure 0x%x for unit 0x%x\n", (int)ccp, cup->devno);
+		CPrintk(0, "c7000: c7000_intr: device pointer is NULL in c7000_controller structure %p for unit 0x%x\n", ccp, cup->devno);
 		return;
 	}
 
@@ -2777,7 +2717,7 @@ c7000_intr(int irq, void *initparm, struct pt_regs *regs)
 			if ((devstat->flag & DEVSTAT_FINAL_STATUS) &&
 			    (cup->free != NULL)) {
 				c7000_bld_read_chain(cup);
-				parm = (__u32)cup;
+				parm = (unsigned long)cup;
 				set_bit(0, (void *)&cup->IO_active);
 
 				if ((rc = do_IO(cup->irq, &cup->proc_head->ccws[0], parm, 0xff, flags)) != 0) {
@@ -2834,7 +2774,7 @@ c7000_intr(int irq, void *initparm, struct pt_regs *regs)
 
 			if (cup->proc_head != NULL) {
 				c7000_bld_wrt_chain(cup);
-				parm = (__u32)cup;
+				parm = (unsigned long)cup;
 				set_bit(0, (void *)&cup->IO_active);
 
 				if ((rc = do_IO(cup->irq, &cup->proc_head->ccws[0], parm, 0xff, flags)) != 0) {
@@ -2932,7 +2872,7 @@ c7000_fill_name(char *dst, char *src)
 */
 
 static int
-c7000_init(STRUCT_NET_DEVICE *dev)
+c7000_init(struct net_device *dev)
 {
 	struct	c7000_controller	*ccp;
 	int				i;
@@ -2970,7 +2910,7 @@ c7000_init(STRUCT_NET_DEVICE *dev)
         dev->addr_len = 0;
         dev->type = ARPHRD_SLIP;
         dev->tx_queue_len = C7000_TXQUEUE_LEN;
-	dev->flags = IFF_NOARP;   
+	dev->flags = IFF_BROADCAST|IFF_MULTICAST|IFF_NOARP;
 	dev->open = c7000_open;
 	dev->stop = c7000_stop;
 	dev->set_config = c7000_config;
@@ -2987,7 +2927,7 @@ c7000_init(STRUCT_NET_DEVICE *dev)
 		return(-ENOMEM);
 	}
 
-	CPrintk(1, "c7000: c7000_init: allocated a c7000_controller structure at address 0x%x\n", (int)ccp);
+	CPrintk(1, "c7000: c7000_init: allocated a c7000_controller structure at address %p\n", ccp);
 	memset(ccp, '\0', sizeof(struct c7000_controller));
 	ccp->dev = dev;
 	ccp->base_addr = dev->base_addr;
@@ -3217,12 +3157,8 @@ init_module(void)
 			Initialize the device structure.
 		*/
 
-		memset(&c7000_devices[i], '\0', sizeof(STRUCT_NET_DEVICE));
-#ifdef NEWSTUFF
+		memset(&c7000_devices[i], '\0', sizeof(struct net_device));
 		strcpy(c7000_devices[i].name, ifnames[i]);
-#else
-		c7000_devices[i].name = &ifnames[i][0];
-#endif
 		c7000_devices[i].base_addr = bases[i];
 		c7000_devices[i].init = c7000_init;
 
@@ -3278,7 +3214,7 @@ cleanup_module(void)
 					free_irq(ccp->cunits[j].irq, &ccp->cunits[j].devstat);
 				}
 
-				CPrintk(1, "c7000: clean_module: free a c7000_controller structure at address 0x%x\n", (int)ccp);
+				CPrintk(1, "c7000: clean_module: free a c7000_controller structure at address %p\n", ccp);
 				kfree(ccp);
 			}
 

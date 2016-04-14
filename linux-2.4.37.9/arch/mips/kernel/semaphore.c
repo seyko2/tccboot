@@ -8,7 +8,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 
-#ifdef CONFIG_CPU_HAS_LLDSCD
+#ifndef CONFIG_CPU_HAS_LLDSCD
 /*
  * On machines without lld/scd we need a spinlock to make the manipulation of
  * sem->count and sem->waking atomic.  Scalability isn't an issue because

@@ -27,17 +27,23 @@
 
 #define dprintk(x...)
 
-//#define io_addr(x)  (((unsigned)(x) & 0x000fffff)| PCI_ST50_IO_ADDR )
-
+static int io_addr(int x) {
+	if (x < 0x400) {
 #ifdef CONFIG_SH_CAYMAN
-extern unsigned long smsc_virt;
-extern unsigned long pciio_virt;
-#define io_addr(x)  ( ((x)<0x400) ? \
-			(((x) << 2)|smsc_virt) : \
-			((unsigned long)(x)+pciio_virt) )
+		return (x << 2) | smsc_superio_virt;
 #else
-#define io_addr(x)  ((unsigned long)(x)+pciio_virt)
+		panic ("Illegal access to I/O port 0x%04x\n", x);
+		return 0;
 #endif
+	} else {
+#ifdef CONFIG_PCI
+		return (x + pciio_virt);
+#else
+		panic ("Illegal access to I/O port 0x%04x\n", x);
+		return 0;
+#endif
+	}
+}
 
 unsigned long inb(unsigned long port)
 {

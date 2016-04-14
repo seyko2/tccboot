@@ -55,13 +55,6 @@ static int befs_remount(struct super_block *, int *, char *);
 static int befs_statfs(struct super_block *, struct statfs *);
 static int parse_options(char *, befs_mount_options *);
 
-static ssize_t befs_listxattr(struct dentry *dentry, char *buffer, size_t size);
-static ssize_t befs_getxattr(struct dentry *dentry, const char *name,
-			     void *buffer, size_t size);
-static int befs_setxattr(struct dentry *dentry, const char *name, void *value,
-			 size_t size, int flags);
-static int befs_removexattr(struct dentry *dentry, const char *name);
-
 /* slab cache for befs_inode_info objects */
 static kmem_cache_t *befs_inode_cachep;
 
@@ -584,11 +577,11 @@ befs_utf2nls(struct super_block *sb, const char *in,
 		}
 	}
 	result[o] = '\0';
+	*out_len = o;
 
 	befs_debug(sb, "<--- utf2nls()");
 
 	return o;
-	*out_len = o;
 
       conv_err:
 	befs_error(sb, "Name using charecter set %s contains a charecter that "
@@ -673,35 +666,6 @@ befs_nls2utf(struct super_block *sb, const char *in,
 	befs_debug(sb, "<--- nls2utf()");
 	kfree(result);
 	return -EILSEQ;
-}
-
-/****Xattr****/
-
-static ssize_t
-befs_listxattr(struct dentry *dentry, char *buffer, size_t size)
-{
-	printk(KERN_ERR "befs_listxattr called\n");
-	return 0;
-}
-
-static ssize_t
-befs_getxattr(struct dentry *dentry, const char *name,
-	      void *buffer, size_t size)
-{
-	return 0;
-}
-
-static int
-befs_setxattr(struct dentry *dentry, const char *name,
-	      void *value, size_t size, int flags)
-{
-	return 0;
-}
-
-static int
-befs_removexattr(struct dentry *dentry, const char *name)
-{
-	return 0;
 }
 
 /****Superblock****/

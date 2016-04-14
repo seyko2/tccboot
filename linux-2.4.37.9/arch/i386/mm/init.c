@@ -381,7 +381,7 @@ void __init paging_init(void)
  * This function cannot be __init, since exceptions don't work in that
  * section.
  */
-static int do_test_wp_bit(unsigned long vaddr);
+static int __attribute__((noinline)) do_test_wp_bit(unsigned long vaddr);
 
 void __init test_wp_bit(void)
 {
@@ -561,8 +561,8 @@ void __init mem_init(void)
 
 }
 
-/* Put this after the callers, so that it cannot be inlined */
-static int do_test_wp_bit(unsigned long vaddr)
+/* This function must not be inlined */
+static int __attribute__((noinline)) do_test_wp_bit(unsigned long vaddr)
 {
 	char tmp_reg;
 	int flag;

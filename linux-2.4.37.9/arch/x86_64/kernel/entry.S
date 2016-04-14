@@ -249,7 +249,16 @@ intret_signal_test:
 	PTREGSCALL stub_vfork, sys_vfork
 	PTREGSCALL stub_rt_sigsuspend, sys_rt_sigsuspend
 	PTREGSCALL stub_sigaltstack, sys_sigaltstack
-	PTREGSCALL stub_iopl, sys_iopl
+
+	.macro PTREGSCALL3 label,func,arg
+	.globl \label
+\label:
+	leaq	\func(%rip),%rax
+	leaq    -ARGOFFSET+8(%rsp),\arg /* 8 for return address */
+	jmp	ptregscall_common
+	.endm
+
+	PTREGSCALL3 stub_iopl, sys_iopl, %rsi
 
 ENTRY(ptregscall_common)
 	popq %r11

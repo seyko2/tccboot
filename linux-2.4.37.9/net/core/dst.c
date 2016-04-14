@@ -142,8 +142,13 @@ void __dst_free(struct dst_entry * dst)
 
 void dst_destroy(struct dst_entry * dst)
 {
-	struct neighbour *neigh = dst->neighbour;
-	struct hh_cache *hh = dst->hh;
+	struct neighbour *neigh;
+	struct hh_cache *hh;
+
+	smp_rmb();
+
+	neigh = dst->neighbour;
+	hh = dst->hh;
 
 	dst->hh = NULL;
 	if (hh && atomic_dec_and_test(&hh->hh_refcnt))

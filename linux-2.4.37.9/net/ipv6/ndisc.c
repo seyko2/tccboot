@@ -3,7 +3,7 @@
  *	Linux INET6 implementation 
  *
  *	Authors:
- *	Pedro Roque		<roque@di.fc.ul.pt>	
+ *	Pedro Roque		<pedro_m@yahoo.com>	
  *	Mike Shaver		<shaver@ingenia.com>
  *
  *	This program is free software; you can redistribute it and/or
@@ -60,6 +60,7 @@
 #include <linux/if_arp.h>
 #include <linux/ipv6.h>
 #include <linux/icmpv6.h>
+#include <linux/jhash.h>
 
 #include <net/sock.h>
 #include <net/snmp.h>
@@ -240,15 +241,14 @@ int ndisc_mc_map(struct in6_addr *addr, char *buf, struct net_device *dev, int d
 
 static u32 ndisc_hash(const void *pkey, const struct net_device *dev)
 {
-	u32 hash_val;
+	const u32 *p32 = pkey;
+	u32 addr_hash, i;
 
-	hash_val = *(u32*)(pkey + sizeof(struct in6_addr) - 4);
-	hash_val ^= (hash_val>>16);
-	hash_val ^= hash_val>>8;
-	hash_val ^= hash_val>>3;
-	hash_val = (hash_val^dev->ifindex)&NEIGH_HASHMASK;
+	addr_hash = 0;
+	for (i = 0; i < (sizeof(struct in6_addr) / sizeof(u32)); i++)
+		addr_hash ^= *p32++;
 
-	return hash_val;
+	return jhash_2words(addr_hash, dev->ifindex, nd_tbl.hash_rnd);
 }
 
 static int ndisc_constructor(struct neighbour *neigh)
@@ -696,9 +696,9 @@ void ndisc_recv_ns(struct sk_buff *skb)
 			int inc = ipv6_addr_type(daddr)&IPV6_ADDR_MULTICAST;
 
 			if (inc)
-				nd_tbl.stats.rcv_probes_mcast++;
+				NEIGH_CACHE_STAT_INC(&nd_tbl, rcv_probes_mcast);
 			else
-				nd_tbl.stats.rcv_probes_ucast++;
+				NEIGH_CACHE_STAT_INC(&nd_tbl, rcv_probes_ucast);
 
 			/* 
 			 *	update / create cache entry
@@ -741,9 +741,9 @@ void ndisc_recv_ns(struct sk_buff *skb)
 		if (addr_type & IPV6_ADDR_UNICAST) {
 			int inc = ipv6_addr_type(daddr)&IPV6_ADDR_MULTICAST;
 			if (inc)  
-				nd_tbl.stats.rcv_probes_mcast++;
+				NEIGH_CACHE_STAT_INC(&nd_tbl, rcv_probes_mcast);
  			else
-				nd_tbl.stats.rcv_probes_ucast++;
+				NEIGH_CACHE_STAT_INC(&nd_tbl, rcv_probes_ucast);
 
 			/*
 			 *   update / create cache entry
@@ -775,9 +775,11 @@ void ndisc_recv_ns(struct sk_buff *skb)
 			    inc == 0 ||
 			    in6_dev->nd_parms->proxy_delay == 0) {
 				if (inc)
-					nd_tbl.stats.rcv_probes_mcast++;
+					NEIGH_CACHE_STAT_INC(&nd_tbl, 
+							rcv_probes_mcast);
 				else
-					nd_tbl.stats.rcv_probes_ucast++;
+					NEIGH_CACHE_STAT_INC(&nd_tbl, 
+							rcv_probes_ucast);
 					
 				neigh = neigh_event_ns(&nd_tbl, lladdr, saddr, dev);
 
@@ -874,7 +876,7 @@ void ndisc_recv_na(struct sk_buff *skb)
 					/* It is safe only because
 					   we aer in BH */
 					dst_release(&rt->u.dst);
-					ip6_del_rt(rt, NULL);
+					ip6_del_rt(rt, NULL, NULL);
 				}
 			}
 		} else {
@@ -960,7 +962,7 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 	rt = rt6_get_dflt_router(&skb->nh.ipv6h->saddr, skb->dev);
 
 	if (rt && lifetime == 0) {
-		ip6_del_rt(rt, NULL);
+		ip6_del_rt(rt, NULL, NULL);
 		rt = NULL;
 	}
 

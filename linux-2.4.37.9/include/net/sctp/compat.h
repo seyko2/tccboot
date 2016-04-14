@@ -61,39 +61,8 @@
 #define virt_addr_valid(x)	VALID_PAGE(virt_to_page((x)))
 #define sock_owned_by_user(sk)  ((sk)->lock.users)
 #define sk_set_owner(x, y)
-#define __unsafe(x) MOD_INC_USE_COUNT
+#define __unsafe(x)
 #define dst_pmtu(x) ((x)->pmtu)
-
-#define sk_family family
-#define sk_state state
-#define sk_type type
-#define sk_socket socket
-#define sk_prot prot
-#define sk_rcvbuf rcvbuf
-#define sk_sndbuf sndbuf
-#define sk_ack_backlog ack_backlog
-#define sk_max_ack_backlog max_ack_backlog
-#define sk_write_space write_space
-#define sk_use_write_queue use_write_queue
-#define sk_err err
-#define sk_err_soft err_soft
-#define sk_error_report error_report
-#define sk_error_queue error_queue
-#define sk_shutdown shutdown
-#define sk_state_change state_change
-#define sk_receive_queue receive_queue
-#define sk_data_ready data_ready
-#define sk_no_check no_check
-#define sk_reuse reuse
-#define sk_destruct destruct
-#define sk_zapped zapped
-#define sk_protocol protocol
-#define sk_backlog_rcv backlog_rcv
-#define sk_allocation allocation
-#define sk_lingertime lingertime
-#define sk_sleep sleep
-#define sk_wmem_queued wmem_queued
-#define sk_bound_dev_if bound_dev_if
 
 /*
  * find last bit set.

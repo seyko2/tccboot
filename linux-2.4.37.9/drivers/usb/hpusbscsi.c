@@ -182,7 +182,7 @@ hpusbscsi_usb_probe (struct usb_device *dev, unsigned int interface,
 
 	memcpy (&(new->ctempl), &hpusbscsi_scsi_host_template,
 		sizeof (hpusbscsi_scsi_host_template));
-	(struct hpusbscsi *) new->ctempl.proc_dir = new;
+	new->ctempl.proc_dir = (void *) new;
 	new->ctempl.module = THIS_MODULE;
 
 	if (scsi_register_module (MODULE_SCSI_HA, &(new->ctempl)))

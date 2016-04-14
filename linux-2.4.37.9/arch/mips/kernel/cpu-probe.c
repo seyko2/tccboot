@@ -43,14 +43,21 @@ extern void (*au1k_wait_ptr)(void);
 void au1k_wait(void)
 {
 #ifdef CONFIG_PM
+	unsigned long addr;
 	/* using the wait instruction makes CP0 counter unusable */
-	__asm__(".set\tmips3\n\t"
+	__asm__("la %0,au1k_wait\n\t"
+		".set mips3\n\t"
+		"cache 0x14,0(%0)\n\t"
+		"cache 0x14,32(%0)\n\t"
+		"sync\n\t"
+		"nop\n\t"
 		"wait\n\t"
 		"nop\n\t"
 		"nop\n\t"
 		"nop\n\t"
 		"nop\n\t"
-		".set\tmips0");
+		".set mips0\n\t"
+		: : "r" (addr));
 #else
 	__asm__("nop\n\t"
 		"nop");
@@ -81,7 +88,7 @@ static inline void check_wait(void)
 	case CPU_R5000:
 	case CPU_NEVADA:
 	case CPU_RM7000:
-/*	case CPU_RM9000: */
+	case CPU_RM9000:
 	case CPU_TX49XX:
 	case CPU_4KC:
 	case CPU_4KEC:
@@ -97,6 +104,7 @@ static inline void check_wait(void)
 	case CPU_AU1000:
 	case CPU_AU1100:
 	case CPU_AU1500:
+	case CPU_AU1550:
 		if (au1k_wait_ptr != NULL) {
 			cpu_wait = au1k_wait_ptr;
 			printk(" available.\n");
@@ -170,8 +178,7 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c)
 	case PRID_IMP_R2000:
 		c->cputype = CPU_R2000;
 		c->isa_level = MIPS_CPU_ISA_I;
-		c->options = MIPS_CPU_TLB | MIPS_CPU_NOFPUEX |
-		             MIPS_CPU_LLSC;
+		c->options = MIPS_CPU_TLB | MIPS_CPU_NOFPUEX;
 		if (__cpu_has_fpu())
 			c->options |= MIPS_CPU_FPU;
 		c->tlbsize = 64;
@@ -185,17 +192,24 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c)
 		else
 			c->cputype = CPU_R3000;
 		c->isa_level = MIPS_CPU_ISA_I;
-		c->options = MIPS_CPU_TLB | MIPS_CPU_NOFPUEX |
-		             MIPS_CPU_LLSC;
+		c->options = MIPS_CPU_TLB | MIPS_CPU_NOFPUEX; 
 		if (__cpu_has_fpu())
 			c->options |= MIPS_CPU_FPU;
 		c->tlbsize = 64;
 		break;
 	case PRID_IMP_R4000:
-		if ((c->processor_id & 0xff) >= PRID_REV_R4400)
-			c->cputype = CPU_R4400SC;
-		else
-			c->cputype = CPU_R4000SC;
+		if (read_c0_config() & CONF_SC) {
+			if ((c->processor_id & 0xff) >= PRID_REV_R4400)
+				c->cputype = CPU_R4400PC;
+			else
+				c->cputype = CPU_R4000PC;
+		} else {
+			if ((c->processor_id & 0xff) >= PRID_REV_R4400)
+				c->cputype = CPU_R4400SC;
+			else
+				c->cputype = CPU_R4000SC;
+		}
+
 		c->isa_level = MIPS_CPU_ISA_III;
 		c->options = R4K_OPTS | MIPS_CPU_FPU | MIPS_CPU_32FPR |
 		             MIPS_CPU_WATCH | MIPS_CPU_VCE |
@@ -476,6 +490,7 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c)
 static inline void cpu_probe_alchemy(struct cpuinfo_mips *c)
 {
 	decode_config1(c);
+	c->options |= MIPS_CPU_PREFETCH;
 	switch (c->processor_id & 0xff00) {
 	case PRID_IMP_AU1_REV1:
 	case PRID_IMP_AU1_REV2:
@@ -491,6 +506,9 @@ static inline void cpu_probe_alchemy(struct cpuinfo_mips *c)
 			break;
 		case 3:
 			c->cputype = CPU_AU1550;
+			break;
+		case 4:
+			c->cputype = CPU_AU1200;
 			break;
 		default:
 			panic("Unknown Au Core!");

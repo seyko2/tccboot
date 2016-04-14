@@ -3838,11 +3838,9 @@ void cleanup_module(void)
 				    (unsigned char *) -1) {
 					pm3fb_unmapIO(l_fb_info);
 #if (defined KERNEL_2_4) || (defined KERNEL_2_5)
-					release_mem_region(l_fb_info->p_fb,
-							   l_fb_info->
-							   fb_size);
-					release_mem_region(l_fb_info->
-							   pIOBase,
+					release_mem_region((u_long)l_fb_info->p_fb,
+							   l_fb_info->fb_size);
+					release_mem_region((u_long)l_fb_info->pIOBase,
 							   PM3_REGS_SIZE);
 #endif /* KERNEL_2_4 or KERNEL_2_5 */
 				}

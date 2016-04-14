@@ -3,7 +3,7 @@
  *	Linux INET6 implementation 
  *
  *	Authors:
- *	Pedro Roque		<roque@di.fc.ul.pt>
+ *	Pedro Roque		<pedro_m@yahoo.com>
  *	Ian P. Morris		<I.P.Morris@soton.ac.uk>
  *
  *	$Id: ip6_input.c,v 1.19 2000/12/13 18:31:50 davem Exp $

@@ -12,7 +12,7 @@ all: vr41xx.o
 
 O_TARGET := vr41xx.o
 
-obj-y := bcu.o cmu.o giu.o icu.o int-handler.o ksyms.o reset.o rtc.o
+obj-y := bcu.o cmu.o giu.o icu.o int-handler.o ksyms.o pmu.o rtc.o
 
 export-objs := ksyms.o vrc4171.o vrc4173.o
 

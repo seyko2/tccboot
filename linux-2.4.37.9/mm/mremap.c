@@ -196,6 +196,7 @@ static inline unsigned long move_vma(struct vm_area_struct * vma,
 			insert_vm_struct(current->mm, new_vma);
 		}
 
+		/* XXX: possible errors masked, mapping might remain */
 		do_munmap(current->mm, addr, old_len);
 
 		current->mm->total_vm += new_len >> PAGE_SHIFT;
@@ -236,6 +237,12 @@ unsigned long do_mremap(unsigned long addr,
 	old_len = PAGE_ALIGN(old_len);
 	new_len = PAGE_ALIGN(new_len);
 
+	if (old_len > TASK_SIZE || addr > TASK_SIZE - old_len)
+		goto out;
+
+	if (addr >= TASK_SIZE)
+		goto out;
+
 	/* new_addr is only valid if MREMAP_FIXED is specified */
 	if (flags & MREMAP_FIXED) {
 		if (new_addr & ~PAGE_MASK)
@@ -245,6 +252,10 @@ unsigned long do_mremap(unsigned long addr,
 
 		if (new_len > TASK_SIZE || new_addr > TASK_SIZE - new_len)
 			goto out;
+
+		if (new_addr >= TASK_SIZE)
+			goto out;
+
 		/*
 		 * Allow new_len == 0 only if new_addr == addr
 		 * to preserve truncation in place (that was working
@@ -261,6 +272,12 @@ unsigned long do_mremap(unsigned long addr,
 
 		if ((addr <= new_addr) && (addr+old_len) > new_addr)
 			goto out;
+
+		/* Ensure a non-privileged process is not trying to map
+		 * lower pages.
+		 */
+		if (new_addr < mmap_min_addr && !capable(CAP_SYS_RAWIO))
+			return -EPERM;
 
 		ret = do_munmap(current->mm, new_addr, new_len);
 		if (ret && new_len)

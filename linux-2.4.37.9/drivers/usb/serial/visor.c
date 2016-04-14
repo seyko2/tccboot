@@ -184,6 +184,7 @@ static void visor_write_bulk_callback	(struct urb *urb);
 static void visor_read_bulk_callback	(struct urb *urb);
 static void visor_read_int_callback	(struct urb *urb);
 static int  clie_3_5_startup	(struct usb_serial *serial);
+static int  clie_5_startup	(struct usb_serial *serial);
 static void treo_attach		(struct usb_serial *serial);
 
 /* Parameters that may be passed into the module. */
@@ -205,13 +206,13 @@ static struct usb_device_id id_table [] = {
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_M130_ID) },
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_TUNGSTEN_T_ID) },
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_TUNGSTEN_Z_ID) },
+	{ USB_DEVICE(PALM_VENDOR_ID, PALM_ZIRE31_ID) },
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_ZIRE_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_4_0_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_S360_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_4_1_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_NX60_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_NZ90V_ID) },
-	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_UX50_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_TJ25_ID) },
 	{ USB_DEVICE(SAMSUNG_VENDOR_ID, SAMSUNG_SCH_I330_ID) },
 	{ USB_DEVICE(GARMIN_VENDOR_ID, GARMIN_IQUE_3600_ID) },
@@ -221,6 +222,12 @@ static struct usb_device_id id_table [] = {
 
 static struct usb_device_id clie_id_3_5_table [] = {
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_3_5_ID) },
+	{ }					/* Terminating entry */
+};
+
+
+static struct usb_device_id clie_id_5_table [] = {
+	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_UX50_ID) },
 	{ }					/* Terminating entry */
 };
 
@@ -237,6 +244,7 @@ static __devinitdata struct usb_device_id id_table_combined [] = {
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_M130_ID) },
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_TUNGSTEN_T_ID) },
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_TUNGSTEN_Z_ID) },
+	{ USB_DEVICE(PALM_VENDOR_ID, PALM_ZIRE31_ID) },
 	{ USB_DEVICE(PALM_VENDOR_ID, PALM_ZIRE_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_3_5_ID) },
 	{ USB_DEVICE(SONY_VENDOR_ID, SONY_CLIE_4_0_ID) },
@@ -308,6 +316,32 @@ static struct usb_serial_device_type clie_3_5_device = {
 	.chars_in_buffer =	visor_chars_in_buffer,
 	.write_bulk_callback =	visor_write_bulk_callback,
 	.read_bulk_callback =	visor_read_bulk_callback,
+};
+
+
+/* device info for the Sony Clie OS version 5.0 */
+static struct usb_serial_device_type clie_5_device = {
+	.owner =		THIS_MODULE,
+	.name =			"Sony Clié 5.0",
+	.id_table =		clie_id_5_table,
+	.num_interrupt_in =	NUM_DONT_CARE,
+	.num_bulk_in =		2,
+	.num_bulk_out =		2,
+	.num_ports =		2,
+	.open =			visor_open,
+	.close =		visor_close,
+	.throttle =		visor_throttle,
+	.unthrottle =		visor_unthrottle,
+	.startup =		clie_5_startup,
+	.shutdown =		visor_shutdown,
+	.ioctl =		visor_ioctl,
+	.set_termios =		visor_set_termios,
+	.write =		visor_write,
+	.write_room =		visor_write_room,
+	.chars_in_buffer =	visor_chars_in_buffer,
+	.write_bulk_callback =	visor_write_bulk_callback,
+	.read_bulk_callback =	visor_read_bulk_callback,
+	.read_int_callback =	visor_read_int_callback,
 };
 
 /* This structure is for Handspring Visor, and Palm 4.0 devices that are not
@@ -853,6 +887,67 @@ static int clie_3_5_startup (struct usb_serial *serial)
 	return 0;
 }
 
+
+static int clie_5_startup (struct usb_serial *serial)
+{
+	int response;
+	unsigned char *transfer_buffer;
+	struct palm_ext_connection_info *connection_info;
+
+	dbg("%s", __FUNCTION__);
+
+	dbg("%s - Set config to 1", __FUNCTION__);
+	usb_set_configuration(serial->dev, 1);
+
+	transfer_buffer = kmalloc(sizeof (*connection_info),
+					GFP_KERNEL);
+	if (!transfer_buffer) {
+		err("%s - kmalloc(%d) failed.", __FUNCTION__,
+			sizeof (*connection_info));
+		return -ENOMEM;
+	}
+
+	response = usb_control_msg(serial->dev, usb_rcvctrlpipe(serial->dev, 0), 
+					PALM_GET_EXT_CONNECTION_INFORMATION,
+					0xc2, 0x0000, 0x0000, transfer_buffer, 
+					sizeof(*connection_info), 300);
+	if (response < 0) {
+		err("%s - error %d getting connection info",
+			 __FUNCTION__, response);
+	} else {
+		usb_serial_debug_data (__FILE__, __FUNCTION__, 0x14, transfer_buffer);
+	}
+
+	/* ask for the number of bytes available, but ignore the response as it is broken */
+	response = usb_control_msg(serial->dev, usb_rcvctrlpipe(serial->dev, 0), VISOR_REQUEST_BYTES_AVAILABLE,
+					0xc2, 0x0000, 0x0005, transfer_buffer, 0x02, 300);
+	if (response < 0) {
+		err("%s - error getting bytes available request", __FUNCTION__);
+	}
+
+	kfree (transfer_buffer);
+
+	/* UX50/TH55 registers 2 ports. 
+	   Communication in from the TH55 uses bulk_in_endpointAddress from port 0 
+	   Communication out to the TH55 uses bulk_out_endpointAddress from port 1 
+
+	   Lets do a quick and dirty mapping
+	*/
+
+	/* some sanity check */
+	if (serial->num_ports < 2)
+		return -ENODEV;
+
+	/* port 0 now uses the modified endpoint Address */
+	serial->port[0].bulk_out_endpointAddress = serial->port[1].bulk_out_endpointAddress;
+
+	/* continue on with initialization */
+	return 0;
+}
+
+
+
+
 static void treo_attach (struct usb_serial *serial)
 {
 	struct usb_serial_port *port;
@@ -993,6 +1088,7 @@ static int __init visor_init (void)
 	}
 	usb_serial_register (&handspring_device);
 	usb_serial_register (&clie_3_5_device);
+	usb_serial_register (&clie_5_device);
 	
 	/* create our write urb pool and transfer buffers */ 
 	spin_lock_init (&write_urb_pool_lock);
@@ -1029,6 +1125,7 @@ static void __exit visor_exit (void)
 	}
 	usb_serial_deregister (&handspring_device);
 	usb_serial_deregister (&clie_3_5_device);
+	usb_serial_deregister (&clie_5_device);
 
 	spin_lock_irqsave (&write_urb_pool_lock, flags);
 

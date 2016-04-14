@@ -150,7 +150,7 @@ static inline void __send_IPI_shortcut(unsigned int shortcut, int vector)
 	apic_write_around(APIC_ICR, cfg);
 }
 
-void send_IPI_self(int vector)
+void fastcall send_IPI_self(int vector)
 {
 	__send_IPI_shortcut(APIC_DEST_SELF, vector);
 }
@@ -497,7 +497,7 @@ void flush_tlb_all(void)
  * anything. Worst case is that we lose a reschedule ...
  */
 
-void smp_send_reschedule(int cpu)
+void fastcall smp_send_reschedule(int cpu)
 {
 	send_IPI_mask(1 << cpu, RESCHEDULE_VECTOR);
 }

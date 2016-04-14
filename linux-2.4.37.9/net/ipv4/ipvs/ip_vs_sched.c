@@ -156,7 +156,7 @@ struct ip_vs_scheduler *ip_vs_scheduler_get(const char *sched_name)
 	 */
 	if (sched == NULL) {
 		char module_name[IP_VS_SCHEDNAME_MAXLEN+8];
-		sprintf(module_name,"ip_vs_%s", sched_name);
+		snprintf(module_name, sizeof(module_name), "ip_vs_%s", sched_name);
 		request_module(module_name);
 		sched = ip_vs_sched_getbyname(sched_name);
 	}

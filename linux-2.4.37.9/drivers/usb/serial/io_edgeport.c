@@ -902,12 +902,7 @@ static void edge_bulk_out_data_callback (struct urb *urb)
 
 	if (tty && edge_port->open) {
 		/* let the tty driver wakeup if it has a special write_wakeup function */
-		if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) && tty->ldisc.write_wakeup) {
-			(tty->ldisc.write_wakeup)(tty);
-		}
-
-		/* tell the tty driver that something has changed */
-		wake_up_interruptible(&tty->write_wait);
+		tty_wakeup(tty);
 	}
 
 	// Release the Write URB
@@ -1913,6 +1908,7 @@ static int edge_ioctl (struct usb_serial_port *port, struct file *file, unsigned
 
 		case TIOCGICOUNT:
 			cnow = edge_port->icount;
+			memset(&icount, 0, sizeof(icount));
 			icount.cts = cnow.cts;
 			icount.dsr = cnow.dsr;
 			icount.rng = cnow.rng;
@@ -2807,9 +2803,13 @@ static void change_port_settings (struct edgeport_port *edge_port, struct termio
 static void unicode_to_ascii (char *string, short *unicode, int unicode_size)
 {
 	int i;
-	for (i = 0; i < unicode_size; ++i) {
+
+	if (unicode_size <= 0)
+		return;
+	
+	for (i = 0; i < unicode_size; ++i)
 		string[i] = (char)(le16_to_cpu(unicode[i]));
-	}
+
 	string[unicode_size] = 0x00;
 }
 

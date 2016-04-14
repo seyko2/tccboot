@@ -178,13 +178,6 @@ xfs_bmap_cancel(
 	xfs_bmap_free_t		*flist);	/* free list to clean up */
 
 /*
- * Routine to check if a specified inode is swap capable.
- */
-int
-xfs_bmap_check_swappable(
-	struct xfs_inode	*ip);		/* incore inode */
-
-/*
  * Compute and fill in the value of the maximum depth of a bmap btree
  * in this filesystem.  Done once, during mount.
  */
@@ -335,7 +328,7 @@ int						/* error code */
 xfs_getbmap(
 	bhv_desc_t		*bdp,		/* XFS behavior descriptor*/
 	struct getbmap		*bmv,		/* user bmap structure */
-	void			*ap,		/* pointer to user's array */
+	void			__user *ap,	/* pointer to user's array */
 	int			iflags);	/* interface flags */
 
 /*

@@ -198,7 +198,7 @@ static int ircomm_param_service_type(void *instance, irda_param_t *param,
 		IRDA_DEBUG(2, "%s(), No common service type to use!\n", __FUNCTION__);
 		return -1;
 	}
-	IRDA_DEBUG(0, __FUNCTION__ "%s(), services in common=%02x\n", __FUNCTION__,
+	IRDA_DEBUG(0, "%s(), services in common=%02x\n", __FUNCTION__ ,
 		   service_type);
 
 	/*

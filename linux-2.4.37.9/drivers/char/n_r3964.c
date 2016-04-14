@@ -158,7 +158,8 @@ static struct tty_ldisc tty_ldisc_N_R3964 = {
         r3964_write,           /* write */
         r3964_ioctl,           /* ioctl */
         r3964_set_termios,     /* set_termios */
-        r3964_poll,            /* poll */            
+        r3964_poll,            /* poll */
+        NULL,                  /* hangup */
         r3964_receive_buf,     /* receive_buf */
         r3964_receive_room,    /* receive_room */
         0                      /* write_wakeup */

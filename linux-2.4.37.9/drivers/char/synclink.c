@@ -1011,6 +1011,29 @@ static inline int mgsl_paranoia_check(struct mgsl_struct *info,
 	return 0;
 }
 
+/**
+ * line discipline callback wrappers
+ *
+ * The wrappers maintain line discipline references
+ * while calling into the line discipline.
+ *
+ * ldisc_receive_buf  - pass receive data to line discipline
+ */
+
+static void ldisc_receive_buf(struct tty_struct *tty,
+			      const __u8 *data, char *flags, int count)
+{
+	struct tty_ldisc *ld;
+	if (!tty)
+		return;
+	ld = tty_ldisc_ref(tty);
+	if (ld) {
+		if (ld->receive_buf)
+			ld->receive_buf(tty, data, flags, count);
+		tty_ldisc_deref(ld);
+	}
+}
+
 /* mgsl_stop()		throttle (stop) transmitter
  * 	
  * Arguments:		tty	pointer to tty info structure
@@ -1170,14 +1193,7 @@ void mgsl_bh_transmit(struct mgsl_struct *info)
 			__FILE__,__LINE__,info->device_name);
 
 	if (tty) {
-		if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-		    tty->ldisc.write_wakeup) {
-			if ( debug_level >= DEBUG_LEVEL_BH )
-				printk( "%s(%d):calling ldisc.write_wakeup on %s\n",
-					__FILE__,__LINE__,info->device_name);
-			(tty->ldisc.write_wakeup)(tty);
-		}
-		wake_up_interruptible(&tty->write_wait);
+		tty_wakeup(tty);
 	}
 
 	/* if transmitter idle and loopmode_send_done_requested
@@ -2433,12 +2449,8 @@ static void mgsl_flush_buffer(struct tty_struct *tty)
 	del_timer(&info->tx_timer);	
 	spin_unlock_irqrestore(&info->irq_spinlock,flags);
 	
-	wake_up_interruptible(&tty->write_wait);
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup)(tty);
-		
-}	/* end of mgsl_flush_buffer() */
+	tty_wakeup(tty);
+}
 
 /* mgsl_send_xchar()
  *
@@ -3342,9 +3354,8 @@ static void mgsl_close(struct tty_struct *tty, struct file * filp)
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-		
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	
+	tty_ldisc_flush(tty);
 		
 	shutdown(info);
 	
@@ -7007,11 +7018,7 @@ int mgsl_get_rx_frame(struct mgsl_struct *info)
 			} 
 			else
 #endif
-			{
-				/* Call the line discipline receive callback directly. */
-				if ( tty && tty->ldisc.receive_buf )
-				tty->ldisc.receive_buf(tty, info->intermediate_rxbuffer, info->flag_buf, framesize);
-			}
+				ldisc_receive_buf(tty, info->intermediate_rxbuffer, info->flag_buf, framesize);
 		}
 	}
 	/* Free the buffers used by this frame. */
@@ -7183,9 +7190,7 @@ int mgsl_get_raw_rx_frame(struct mgsl_struct *info)
 			memcpy( info->intermediate_rxbuffer, pBufEntry->virt_addr, framesize);
 			info->icount.rxok++;
 
-			/* Call the line discipline receive callback directly. */
-			if ( tty && tty->ldisc.receive_buf )
-				tty->ldisc.receive_buf(tty, info->intermediate_rxbuffer, info->flag_buf, framesize);
+			ldisc_receive_buf(tty, info->intermediate_rxbuffer, info->flag_buf, framesize);
 		}
 
 		/* Free the buffers used by this frame. */

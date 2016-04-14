@@ -596,6 +596,9 @@ brlvger_write(struct file *file, const char *buffer,
 
 	off = *pos;
 
+	if (off < 0)
+		return -EINVAL;
+
 	if(off > priv->plength)
 		return -ESPIPE;;
 
@@ -743,6 +746,7 @@ brlvger_ioctl(struct inode *inode, struct file *file,
 	case BRLVGER_GET_INFO: {
 		struct brlvger_info vi;
 
+		memset(&vi, 0, sizeof(vi));
 		strncpy(vi.driver_version, DRIVER_VERSION,
 			sizeof(vi.driver_version));
 		vi.driver_version[sizeof(vi.driver_version)-1] = 0;

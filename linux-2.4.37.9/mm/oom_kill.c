@@ -141,7 +141,7 @@ static struct task_struct * select_bad_process(void)
  * CAP_SYS_RAW_IO set, send SIGTERM instead (but it's unlikely that
  * we select a process with CAP_SYS_RAW_IO set).
  */
-void oom_kill_task(struct task_struct *p)
+static void __oom_kill_task(struct task_struct *p)
 {
 	printk(KERN_ERR "Out of Memory: Killed process %d (%s).\n", p->pid, p->comm);
 
@@ -161,6 +161,26 @@ void oom_kill_task(struct task_struct *p)
 	}
 }
 
+static struct mm_struct *oom_kill_task(struct task_struct *p)
+{
+	struct mm_struct *mm;
+
+	task_lock(p);
+	mm = p->mm;
+	if (mm) {
+		spin_lock(&mmlist_lock);
+		if (atomic_read(&mm->mm_users))
+			atomic_inc(&mm->mm_users);
+		else
+			mm = NULL;
+		spin_unlock(&mmlist_lock);
+	}
+	task_unlock(p);
+	if (mm)
+		__oom_kill_task(p);
+	return mm;
+}
+
 /**
  * oom_kill - kill the "best" process when we run out of memory
  *
@@ -172,21 +192,27 @@ void oom_kill_task(struct task_struct *p)
 static void oom_kill(void)
 {
 	struct task_struct *p, *q;
+	struct mm_struct *mm;
 
+retry:
 	read_lock(&tasklist_lock);
 	p = select_bad_process();
 
 	/* Found nothing?!?! Either we hang forever, or we panic. */
 	if (p == NULL)
 		panic("Out of memory and no killable processes...\n");
-
+	mm = oom_kill_task(p);
+	if (!mm) {
+		read_unlock(&tasklist_lock);
+		goto retry;
+	}
 	/* kill all processes that share the ->mm (i.e. all threads) */
 	for_each_task(q) {
-		if (q->mm == p->mm)
-			oom_kill_task(q);
+		if (q->mm == mm)
+			__oom_kill_task(q);
 	}
 	read_unlock(&tasklist_lock);
-
+	mmput(mm);
 	/*
 	 * Make kswapd go out of the way, so "p" has a good chance of
 	 * killing itself before someone else gets the chance to ask
@@ -263,7 +289,7 @@ void out_of_memory(void)
 	spin_lock(&oom_lock);
 
 reset:
-	if (first < now)
+	if ((long)first - (long)now < 0)
 		first = now;
 	count = 0;
 

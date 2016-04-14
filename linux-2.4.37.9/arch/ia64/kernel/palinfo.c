@@ -473,7 +473,7 @@ static const char *proc_features[]={
 	"Enable CMCI promotion",
 	"Enable MCA to BINIT promotion",
 	"Enable MCA promotion",
-	"Enable BEER promotion"
+	"Enable BERR promotion"
 };
 
 
@@ -509,10 +509,10 @@ static const char *bus_features[]={
 	NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 	NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 	NULL, NULL, NULL, NULL,
-	"Enable Cache Line Repl. Exclusive",
 	"Enable Cache Line Repl. Shared",
+	"Enable Cache Line Repl. Exclusive",
 	"Disable Transaction Queuing",
-	"Disable Reponse Error Checking",
+	"Disable Response Error Checking",
 	"Disable Bus Error Checking",
 	"Disable Bus Requester Internal Error Signalling",
 	"Disable Bus Requester Error Signalling",

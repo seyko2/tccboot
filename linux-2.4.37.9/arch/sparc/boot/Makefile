@@ -26,11 +26,14 @@ BTOBJS := $(HEAD) init/main.o init/version.o init/do_mounts.o
 BTLIBS := $(CORE_FILES_NO_BTFIX) $(FILESYSTEMS) \
 	$(DRIVERS) $(NETWORKS)
 
-# I wanted to make this depend upon BTOBJS so that a parallel
-# build would work, but this fails because $(HEAD) cannot work
-# properly as it will cause head.o to be built with the implicit
-# rules not the ones in kernel/Makefile.  Someone please fix. --DaveM
-vmlinux.o: dummy
+GENFILES := include/linux/version.h include/linux/compile.h $(foreach dirname, $(CORE_FILES_NO_BTFIX), _dir_$(dir $(dirname)))
+.PHONY : $(GENFILES)
+GENFILES += $(BTOBJS)
+
+$(GENFILES):
+	$(MAKE) -C $(TOPDIR) $@
+
+vmlinux.o: $(GENFILES)
 	$(LD) -r $(patsubst %,$(TOPDIR)/%,$(BTOBJS)) \
 		--start-group \
 		$(patsubst %,$(TOPDIR)/%,$(BTLIBS)) \

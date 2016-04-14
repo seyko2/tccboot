@@ -70,7 +70,7 @@ extern int journal_enable_debug;
 #define jbd_debug(f, a...)	/**/
 #endif
 
-extern void * __jbd_kmalloc (char *where, size_t size, int flags, int retry);
+extern void * __jbd_kmalloc (const char *where, size_t size, int flags, int retry);
 #define jbd_kmalloc(size, flags) \
 	__jbd_kmalloc(__FUNCTION__, (size), (flags), journal_oom_retry)
 #define jbd_rep_kmalloc(size, flags) \
@@ -867,7 +867,7 @@ do {								      \
 	schedule();						      \
 } while (1)
 
-extern void __jbd_unexpected_dirty_buffer(char *, int, struct journal_head *);
+extern void __jbd_unexpected_dirty_buffer(const char *, int, struct journal_head *);
 #define jbd_unexpected_dirty_buffer(jh) \
 	__jbd_unexpected_dirty_buffer(__FUNCTION__, __LINE__, (jh))
 	

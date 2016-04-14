@@ -793,8 +793,6 @@ void __init mp_override_legacy_irq (
 	u32			global_irq)
 {
 	struct mpc_config_intsrc intsrc;
-	int			i = 0;
-	int			found = 0;
 	int			ioapic = -1;
 	int			pin = -1;
 
@@ -827,23 +825,9 @@ void __init mp_override_legacy_irq (
 		(intsrc.mpc_irqflag >> 2) & 3, intsrc.mpc_srcbus, 
 		intsrc.mpc_srcbusirq, intsrc.mpc_dstapic, intsrc.mpc_dstirq);
 
-	/* 
-	 * If an existing [IOAPIC.PIN -> IRQ] routing entry exists we override it.
-	 * Otherwise create a new entry (e.g. global_irq == 2).
-	 */
-	for (i = 0; i < mp_irq_entries; i++) {
-		if ((mp_irqs[i].mpc_srcbus == intsrc.mpc_srcbus) 
-			&& (mp_irqs[i].mpc_dstirq == intsrc.mpc_dstirq)) {
-			mp_irqs[i] = intsrc;
-			found = 1;
-			break;
-		}
-	}
-	if (!found) {
-		mp_irqs[mp_irq_entries] = intsrc;
-		if (++mp_irq_entries == MAX_IRQ_SOURCES)
-			panic("Max # of irq sources exceeded!\n");
-	}
+	mp_irqs[mp_irq_entries] = intsrc;
+	if (++mp_irq_entries == MAX_IRQ_SOURCES)
+		panic("Max # of irq sources exceeded!\n");
 
 	return;
 }
@@ -874,13 +858,23 @@ void __init mp_config_acpi_legacy_irqs (void)
 	intsrc.mpc_dstapic = mp_ioapics[ioapic].mpc_apicid;
 
 	/* 
-	 * Use the default configuration for the IRQs 0-15.  These may be
+	 * Use the default configuration for the IRQs 0-15.  Unless
 	 * overriden by (MADT) interrupt source override entries.
 	 */
 	for (i = 0; i < 16; i++) {
+		int idx;
 
-		if (i == 2)
-			continue;			/* Don't connect IRQ2 */
+		for (idx = 0; idx < mp_irq_entries; idx++)
+			if (mp_irqs[idx].mpc_srcbus == MP_ISA_BUS &&
+				(mp_irqs[idx].mpc_dstapic == intsrc.mpc_dstapic) &&
+				(mp_irqs[idx].mpc_srcbusirq == i ||
+				mp_irqs[idx].mpc_dstirq == i))
+					break;
+
+		if (idx != mp_irq_entries) {
+			printk(KERN_DEBUG "ACPI: IRQ%d used by override.\n", i);
+			continue;			  /* IRQ already used */
+		}
 
 		intsrc.mpc_irqtype = mp_INT;
 		intsrc.mpc_srcbusirq = i;		   /* Identity mapped */
@@ -942,8 +936,6 @@ void __init mp_parse_prt (void)
 			irq = entry->link.index;
 		}
 
-		irq = entry->link.index;
-
   		/* Don't set up the ACPI SCI because it's already set up */
                 if (acpi_fadt.sci_int == irq) {
                          entry->irq = irq; /*we still need to set entry's irq*/
@@ -982,10 +974,11 @@ void __init mp_parse_prt (void)
 			entry->irq = irq;
 
 		printk(KERN_DEBUG "%02x:%02x:%02x[%c] -> %d-%d -> vector 0x%02x"
-			" -> IRQ %d\n", entry->id.segment, entry->id.bus, 
-			entry->id.device, ('A' + entry->pin), 
-			mp_ioapic_routing[ioapic].apic_id, ioapic_pin, vector, 
-			entry->irq);
+			" -> IRQ %d %s %s\n", entry->id.segment, entry->id.bus,
+			entry->id.device, ('A' + entry->pin),
+			mp_ioapic_routing[ioapic].apic_id, ioapic_pin, vector,
+			entry->irq, edge_level ? "level" : "edge",
+			active_high_low ? "low" : "high");
 	}
 
 	print_IO_APIC();

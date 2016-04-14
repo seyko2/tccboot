@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) International Business Machines Corp., 2000-2003
+ *   Copyright (C) International Business Machines Corp., 2000-2004
  *   Portions Copyright (C) Christoph Hellwig, 2001-2002
  *
  *   This program is free software;  you can redistribute it and/or modify
@@ -175,7 +175,6 @@ static void dtLog(struct jfs_log * log, struct tblock * tblk, struct lrd * lrd,
 		struct tlock * tlck);
 static void mapLog(struct jfs_log * log, struct tblock * tblk, struct lrd * lrd,
 		struct tlock * tlck);
-static void txAbortCommit(struct commit * cd);
 static void txAllocPMap(struct inode *ip, struct maplock * maplock,
 		struct tblock * tblk);
 static void txForce(struct tblock * tblk);
@@ -1176,7 +1175,7 @@ int txCommit(tid_t tid,		/* transaction identifier */
 		jfs_ip = JFS_IP(ip);
 
 		if (test_and_clear_cflag(COMMIT_Syncdata, ip) &&
-		    ((tblk->flag && COMMIT_DELETE) == 0))
+		    ((tblk->flag & COMMIT_DELETE) == 0))
 			fsync_inode_data_buffers(ip);
 
 		/*
@@ -1295,7 +1294,7 @@ int txCommit(tid_t tid,		/* transaction identifier */
 
       out:
 	if (rc != 0)
-		txAbortCommit(&cd);
+		txAbort(tid, 1);
 
       TheEnd:
 	jfs_info("txCommit: tid = %d, returning %d", tid, rc);
@@ -1706,7 +1705,10 @@ static void xtLog(struct jfs_log * log, struct tblock * tblk, struct lrd * lrd,
 
 		if (lwm == next)
 			goto out;
-		assert(lwm < next);
+		if (lwm > next) {
+			jfs_err("xtLog: lwm > next\n");
+			goto out;
+		}
 		tlck->flag |= tlckUPDATEMAP;
 		xadlock->flag = mlckALLOCXADLIST;
 		xadlock->count = next - lwm;
@@ -1872,25 +1874,18 @@ static void xtLog(struct jfs_log * log, struct tblock * tblk, struct lrd * lrd,
 		/*
 		 *      write log records
 		 */
-		/*
-		 * allocate entries XAD[lwm:next]:
+		/* log after-image for logredo():
+		 *
+		 * logredo() will update bmap for alloc of new/extended
+		 * extents (XAD_NEW|XAD_EXTEND) of XAD[lwm:next) from
+		 * after-image of XADlist;
+		 * logredo() resets (XAD_NEW|XAD_EXTEND) flag when
+		 * applying the after-image to the meta-data page.
 		 */
-		if (lwm < next) {
-			/* log after-image for logredo():
-			 * logredo() will update bmap for alloc of new/extended
-			 * extents (XAD_NEW|XAD_EXTEND) of XAD[lwm:next) from
-			 * after-image of XADlist;
-			 * logredo() resets (XAD_NEW|XAD_EXTEND) flag when
-			 * applying the after-image to the meta-data page.
-			 */
-			lrd->type = cpu_to_le16(LOG_REDOPAGE);
-			PXDaddress(pxd, mp->index);
-			PXDlength(pxd,
-				  mp->logical_size >> tblk->sb->
-				  s_blocksize_bits);
-			lrd->backchain =
-			    cpu_to_le32(lmLog(log, tblk, lrd, tlck));
-		}
+		lrd->type = cpu_to_le16(LOG_REDOPAGE);
+		PXDaddress(pxd, mp->index);
+		PXDlength(pxd, mp->logical_size >> tblk->sb->s_blocksize_bits);
+		lrd->backchain = cpu_to_le32(lmLog(log, tblk, lrd, tlck));
 
 		/*
 		 * truncate entry XAD[twm == next - 1]:
@@ -2589,6 +2584,7 @@ void txAbort(tid_t tid, int dirty)
 	lid_t lid, next;
 	struct metapage *mp;
 	struct tblock *tblk = tid_to_tblock(tid);
+	struct tlock *tlck;
 
 	jfs_warn("txAbort: tid:%d dirty:0x%x", tid, dirty);
 
@@ -2596,9 +2592,10 @@ void txAbort(tid_t tid, int dirty)
 	 * free tlocks of the transaction
 	 */
 	for (lid = tblk->next; lid; lid = next) {
-		next = lid_to_tlock(lid)->next;
-
-		mp = lid_to_tlock(lid)->mp;
+		tlck = lid_to_tlock(lid);
+		next = tlck->next;
+		mp = tlck->mp;
+		JFS_IP(tlck->ip)->xtlid = 0;
 
 		if (mp) {
 			mp->lid = 0;
@@ -2632,64 +2629,6 @@ void txAbort(tid_t tid, int dirty)
 
 	return;
 }
-
-
-/*
- *      txAbortCommit()
- *
- * function: abort commit.
- *
- * frees tlocks of transaction; line-locks and segment locks for all
- * segments in comdata structure. frees malloc storage
- * sets state of file-system to FM_MDIRTY in super-block.
- * log age of page-frames in memory for which caller has
- * are reset to 0 (to avoid logwarap).
- */
-static void txAbortCommit(struct commit * cd)
-{
-	struct tblock *tblk;
-	tid_t tid;
-	lid_t lid, next;
-	struct metapage *mp;
-
-	jfs_warn("txAbortCommit: cd:0x%p", cd);
-
-	/*
-	 * free tlocks of the transaction
-	 */
-	tid = cd->tid;
-	tblk = tid_to_tblock(tid);
-	for (lid = tblk->next; lid; lid = next) {
-		next = lid_to_tlock(lid)->next;
-
-		mp = lid_to_tlock(lid)->mp;
-		if (mp) {
-			mp->lid = 0;
-
-			/*
-			 * reset lsn of page to avoid logwarap;
-			 */
-			if (mp->xflag & COMMIT_PAGE)
-				LogSyncRelease(mp);
-		}
-
-		/* insert tlock at head of freelist */
-		TXN_LOCK();
-		txLockFree(lid);
-		TXN_UNLOCK();
-	}
-
-	tblk->next = tblk->last = 0;
-
-	/* free the transaction block */
-	txEnd(tid);
-
-	/*
-	 * mark filesystem dirty
-	 */
-	jfs_error(cd->sb, "txAbortCommit");
-}
-
 
 /*
  *      txLazyCommit(void)

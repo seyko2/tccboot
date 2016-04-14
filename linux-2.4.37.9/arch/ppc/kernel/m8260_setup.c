@@ -93,7 +93,7 @@ m8260_calibrate_decr(void)
  */
 static uint rtc_time;
 
-static static int
+static int
 m8260_set_rtc_time(unsigned long time)
 {
 	rtc_time = time;

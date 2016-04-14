@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) International Business Machines Corp., 2000-2003
+ *   Copyright (C) International Business Machines Corp., 2000-2004
  *   Portions Copyright (C) Christoph Hellwig, 2001-2002
  *
  *   This program is free software;  you can redistribute it and/or modify
@@ -281,36 +281,48 @@ struct metapage *__get_metapage(struct inode *inode, unsigned long lblock,
 
 	if (absolute)
 		mapping = inode->i_sb->s_bdev->bd_inode->i_mapping;
-	else
+	else {
+		/*
+		 * If an nfs client tries to read an inode that is larger
+		 * than any existing inodes, we may try to read past the
+		 * end of the inode map
+		 */
+		if ((lblock << inode->i_blkbits) >= inode->i_size)
+			return NULL;
 		mapping = inode->i_mapping;
-
-	spin_lock(&meta_lock);
+	}
 
 	hash_ptr = meta_hash(mapping, lblock);
-
+again:
+	spin_lock(&meta_lock);
 	mp = search_hash(hash_ptr, mapping, lblock);
 	if (mp) {
 	      page_found:
+		if (test_bit(META_stale, &mp->flag)) {
+			spin_unlock(&meta_lock);
+			yield();
+			goto again;
+		}
+		mp->count++;
+		lock_metapage(mp);
+		spin_unlock(&meta_lock);
 		if (test_bit(META_discard, &mp->flag)) {
 			if (!new) {
-				spin_unlock(&meta_lock);
 				jfs_error(inode->i_sb,
 					  "__get_metapage: using a "
 					  "discarded metapage");
+				release_metapage(mp);
 				return NULL;
 			}
 			clear_bit(META_discard, &mp->flag);
 		}
-		mp->count++;
 		jfs_info("__get_metapage: found 0x%p, in hash", mp);
 		if (mp->logical_size != size) {
-			spin_unlock(&meta_lock);
 			jfs_error(inode->i_sb,
 				  "__get_metapage: mp->logical_size != size");
+			release_metapage(mp);
 			return NULL;
 		}
-		lock_metapage(mp);
-		spin_unlock(&meta_lock);
 	} else {
 		l2bsize = inode->i_blkbits;
 		l2BlocksPerPage = PAGE_CACHE_SHIFT - l2bsize;
@@ -337,6 +349,10 @@ struct metapage *__get_metapage(struct inode *inode, unsigned long lblock,
 			no_wait = 0;
 
 		mp = alloc_metapage(&dropped_lock, no_wait);
+		if (!mp) {
+			spin_unlock(&meta_lock);
+			return NULL;
+		}
 		if (dropped_lock) {
 			/* alloc_metapage blocked, we need to search the hash
 			 * again.
@@ -498,46 +514,50 @@ void release_metapage(struct metapage * mp)
 	if (--mp->count || atomic_read(&mp->nohomeok)) {
 		unlock_metapage(mp);
 		spin_unlock(&meta_lock);
-	} else {
-		remove_from_hash(mp, meta_hash(mp->mapping, mp->index));
-		spin_unlock(&meta_lock);
-
-		if (mp->page) {
-			kunmap(mp->page);
-			mp->data = 0;
-			if (test_bit(META_dirty, &mp->flag))
-				__write_metapage(mp);
-			if (test_bit(META_sync, &mp->flag)) {
-				sync_metapage(mp);
-				clear_bit(META_sync, &mp->flag);
-			}
-
-			if (test_bit(META_discard, &mp->flag)) {
-				lock_page(mp->page);
-				block_flushpage(mp->page, 0);
-				UnlockPage(mp->page);
-			}
-
-			page_cache_release(mp->page);
-			INCREMENT(mpStat.pagefree);
-		}
-
-		if (mp->lsn) {
-			/*
-			 * Remove metapage from logsynclist.
-			 */
-			log = mp->log;
-			LOGSYNC_LOCK(log);
-			mp->log = 0;
-			mp->lsn = 0;
-			mp->clsn = 0;
-			log->count--;
-			list_del(&mp->synclist);
-			LOGSYNC_UNLOCK(log);
-		}
-
-		free_metapage(mp);
+		return;
 	}
+
+	if (mp->page) {
+		set_bit(META_stale, &mp->flag);
+		spin_unlock(&meta_lock);
+		kunmap(mp->page);
+		mp->data = 0;
+		if (test_bit(META_dirty, &mp->flag))
+			__write_metapage(mp);
+		if (test_bit(META_sync, &mp->flag)) {
+			sync_metapage(mp);
+			clear_bit(META_sync, &mp->flag);
+		}
+
+		if (test_bit(META_discard, &mp->flag)) {
+			lock_page(mp->page);
+			block_flushpage(mp->page, 0);
+			UnlockPage(mp->page);
+		}
+
+		page_cache_release(mp->page);
+		mp->page = NULL;
+		INCREMENT(mpStat.pagefree);
+		spin_lock(&meta_lock);
+	}
+
+	if (mp->lsn) {
+		/*
+		 * Remove metapage from logsynclist.
+		 */
+		log = mp->log;
+		LOGSYNC_LOCK(log);
+		mp->log = 0;
+		mp->lsn = 0;
+		mp->clsn = 0;
+		log->count--;
+		list_del(&mp->synclist);
+		LOGSYNC_UNLOCK(log);
+	}
+	remove_from_hash(mp, meta_hash(mp->mapping, mp->index));
+	spin_unlock(&meta_lock);
+
+	free_metapage(mp);
 }
 
 void __invalidate_metapages(struct inode *ip, s64 addr, int len)
@@ -557,9 +577,16 @@ void __invalidate_metapages(struct inode *ip, s64 addr, int len)
 	for (lblock = addr; lblock < addr + len;
 	     lblock += 1 << l2BlocksPerPage) {
 		hash_ptr = meta_hash(mapping, lblock);
+again:
 		spin_lock(&meta_lock);
 		mp = search_hash(hash_ptr, mapping, lblock);
 		if (mp) {
+			if (test_bit(META_stale, &mp->flag)) {
+				spin_unlock(&meta_lock);
+				yield();
+				goto again;
+			}
+
 			set_bit(META_discard, &mp->flag);
 			spin_unlock(&meta_lock);
 		} else {
@@ -568,6 +595,7 @@ void __invalidate_metapages(struct inode *ip, s64 addr, int len)
 			if (page) {
 				block_flushpage(page, 0);
 				UnlockPage(page);
+				page_cache_release(page);
 			}
 		}
 	}

@@ -409,8 +409,19 @@ static int ignored_signal(int sig, struct task_struct *t)
 static void handle_stop_signal(int sig, struct task_struct *t)
 {
 	switch (sig) {
-	case SIGKILL: case SIGCONT:
-		/* Wake up the process if stopped.  */
+	case SIGCONT:
+		/* SIGCONT must not wake a task while it's being traced */
+		if ((t->state == TASK_STOPPED) &&
+		    ((t->ptrace & (PT_PTRACED|PT_TRACESYS)) ==
+		     (PT_PTRACED|PT_TRACESYS)))
+			return;
+		/* fall through */
+	case SIGKILL:
+		/* Wake up the process if stopped.
+		 * Note that if the process is being traced, waking it up
+		 * will make it continue before being killed. This may end
+		 * up unexpectedly completing whatever syscall is pending.
+		 */
 		if (t->state == TASK_STOPPED)
 			wake_up_process(t);
 		t->exit_code = 0;
@@ -1132,11 +1143,9 @@ do_sigaltstack (const stack_t *uss, stack_t *uoss, unsigned long sp)
 	stack_t oss;
 	int error;
 
-	if (uoss) {
-		oss.ss_sp = (void *) current->sas_ss_sp;
-		oss.ss_size = current->sas_ss_size;
-		oss.ss_flags = sas_ss_flags(sp);
-	}
+	oss.ss_sp = (void *) current->sas_ss_sp;
+	oss.ss_size = current->sas_ss_size;
+	oss.ss_flags = sas_ss_flags(sp);
 
 	if (uss) {
 		void *ss_sp;
@@ -1179,13 +1188,16 @@ do_sigaltstack (const stack_t *uss, stack_t *uoss, unsigned long sp)
 		current->sas_ss_size = ss_size;
 	}
 
+	error = 0;
 	if (uoss) {
 		error = -EFAULT;
-		if (copy_to_user(uoss, &oss, sizeof(oss)))
+		if (!access_ok(VERIFY_WRITE, uoss, sizeof(*uoss)))
 			goto out;
+		error = __put_user(oss.ss_sp, &uoss->ss_sp) |
+			__put_user(oss.ss_size, &uoss->ss_size) |
+			__put_user(oss.ss_flags, &uoss->ss_flags);
 	}
 
-	error = 0;
 out:
 	return error;
 }

@@ -489,7 +489,18 @@ static void videodev_proc_destroy_dev (struct video_device *vfd)
 
 #endif /* CONFIG_VIDEO_PROC_FS */
 
-extern struct file_operations video_fops;
+static struct file_operations video_fops=
+{
+	owner:		THIS_MODULE,
+	llseek:		no_llseek,
+	read:		video_read,
+	write:		video_write,
+	ioctl:		video_ioctl,
+	mmap:		video_mmap,
+	open:		video_open,
+	release:	video_release,
+	poll:		video_poll,
+};
 
 /**
  *	video_register_device - register video4linux devices
@@ -553,19 +564,19 @@ int video_register_device(struct video_device *vfd, int type, int nr)
 
 	/* pick a minor number */
 	down(&videodev_lock);
-	if (-1 == nr) {
+	if (nr >= 0  &&  nr < end-base) {
+		/* use the one the driver asked for */
+		i = base+nr;
+		if (NULL != video_device[i]) {
+			up(&videodev_lock);
+			return -ENFILE;
+		}
+	} else {
 		/* use first free */
 		for(i=base;i<end;i++)
 			if (NULL == video_device[i])
 				break;
 		if (i == end) {
-			up(&videodev_lock);
-			return -ENFILE;
-		}
-	} else {
-		/* use the one the driver asked for */
-		i = base+nr;
-		if (NULL != video_device[i]) {
 			up(&videodev_lock);
 			return -ENFILE;
 		}
@@ -632,19 +643,6 @@ void video_unregister_device(struct video_device *vfd)
 	up(&videodev_lock);
 }
 
-
-static struct file_operations video_fops=
-{
-	owner:		THIS_MODULE,
-	llseek:		no_llseek,
-	read:		video_read,
-	write:		video_write,
-	ioctl:		video_ioctl,
-	mmap:		video_mmap,
-	open:		video_open,
-	release:	video_release,
-	poll:		video_poll,
-};
 
 /*
  *	Initialise video for linux

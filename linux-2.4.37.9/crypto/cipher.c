@@ -52,8 +52,8 @@ static int crypt(struct crypto_tfm *tfm,
 {
 	struct scatter_walk walk_in, walk_out;
 	const unsigned int bsize = crypto_tfm_alg_blocksize(tfm);
-	u8 tmp_src[nbytes > src->length ? bsize : 0];
-	u8 tmp_dst[nbytes > dst->length ? bsize : 0];
+	u8 tmp_src[bsize];
+	u8 tmp_dst[bsize];
 
 	if (!nbytes)
 		return 0;
@@ -68,19 +68,20 @@ static int crypt(struct crypto_tfm *tfm,
 
 	for(;;) {
 		u8 *src_p, *dst_p;
+		int in_place;
 
 		scatterwalk_map(&walk_in, 0);
 		scatterwalk_map(&walk_out, 1);
 		src_p = scatterwalk_whichbuf(&walk_in, bsize, tmp_src);
 		dst_p = scatterwalk_whichbuf(&walk_out, bsize, tmp_dst);
+		in_place = scatterwalk_samebuf(&walk_in, &walk_out,
+					       src_p, dst_p);
 
 		nbytes -= bsize;
 
 		scatterwalk_copychunks(src_p, &walk_in, bsize, 0);
 
-		prfn(tfm, dst_p, src_p, crfn, enc, info,
-		     scatterwalk_samebuf(&walk_in, &walk_out,
-					 src_p, dst_p));
+		prfn(tfm, dst_p, src_p, crfn, enc, info, in_place);
 
 		scatterwalk_done(&walk_in, 0, nbytes);
 
@@ -146,6 +147,15 @@ static int ecb_encrypt(struct crypto_tfm *tfm,
 	             ecb_process, 1, NULL);
 }
 
+static int ecb_encrypt_iv(struct crypto_tfm *tfm,
+			  struct scatterlist *dst,
+			  struct scatterlist *src,
+			  unsigned int nbytes, u8 *iv)
+{
+	ecb_encrypt(tfm, dst, src, nbytes);
+	return -ENOSYS;
+}
+
 static int ecb_decrypt(struct crypto_tfm *tfm,
                        struct scatterlist *dst,
                        struct scatterlist *src,
@@ -154,6 +164,15 @@ static int ecb_decrypt(struct crypto_tfm *tfm,
 	return crypt(tfm, dst, src, nbytes,
 	             tfm->__crt_alg->cra_cipher.cia_decrypt,
 	             ecb_process, 1, NULL);
+}
+
+static int ecb_decrypt_iv(struct crypto_tfm *tfm,
+			  struct scatterlist *dst,
+			  struct scatterlist *src,
+			  unsigned int nbytes, u8 *iv)
+{
+	ecb_decrypt(tfm, dst, src, nbytes);
+	return -ENOSYS;
 }
 
 static int cbc_encrypt(struct crypto_tfm *tfm,
@@ -196,11 +215,20 @@ static int cbc_decrypt_iv(struct crypto_tfm *tfm,
 	             cbc_process, 0, iv);
 }
 
+/*
+ * nocrypt*() zeroize the destination buffer to make sure we don't leak
+ * uninitialized memory contents if the caller ignores the return value.
+ * This is bad since the data in the source buffer is unused and may be
+ * lost, but an infoleak would be even worse.  The performance cost of
+ * memset() is irrelevant since a well-behaved caller would not bump into
+ * the error repeatedly.
+ */
 static int nocrypt(struct crypto_tfm *tfm,
                    struct scatterlist *dst,
                    struct scatterlist *src,
 		   unsigned int nbytes)
 {
+	memset(dst, 0, nbytes);
 	return -ENOSYS;
 }
 
@@ -209,6 +237,7 @@ static int nocrypt_iv(struct crypto_tfm *tfm,
                       struct scatterlist *src,
                       unsigned int nbytes, u8 *iv)
 {
+	memset(dst, 0, nbytes);
 	return -ENOSYS;
 }
 
@@ -234,6 +263,11 @@ int crypto_init_cipher_ops(struct crypto_tfm *tfm)
 	case CRYPTO_TFM_MODE_ECB:
 		ops->cit_encrypt = ecb_encrypt;
 		ops->cit_decrypt = ecb_decrypt;
+/* These should have been nocrypt_iv, but patch-cryptoloop-jari-2.4.22.0
+ * (and its other revisions) directly calls the *_iv() functions even in
+ * ECB mode and ignores their return value. */
+		ops->cit_encrypt_iv = ecb_encrypt_iv;
+		ops->cit_decrypt_iv = ecb_decrypt_iv;
 		break;
 		
 	case CRYPTO_TFM_MODE_CBC:

@@ -1648,11 +1648,17 @@ static int mtrr_file_del (unsigned long base, unsigned long size,
 static ssize_t mtrr_read (struct file *file, char *buf, size_t len,
 			  loff_t *ppos)
 {
-    if (*ppos >= ascii_buf_bytes) return 0;
-    if (*ppos + len > ascii_buf_bytes) len = ascii_buf_bytes - *ppos;
-    if ( copy_to_user (buf, ascii_buffer + *ppos, len) ) return -EFAULT;
-    *ppos += len;
-    return len;
+	loff_t pos = *ppos;
+	if (pos < 0 || pos >= ascii_buf_bytes)
+		return 0;
+	if (len > ascii_buf_bytes - pos)
+		len = ascii_buf_bytes - pos;
+	if (copy_to_user(buf, ascii_buffer + pos, len))
+		return -EFAULT;
+	pos += len;
+	*ppos = pos;
+
+	return len;
 }   /*  End Function mtrr_read  */
 
 static ssize_t mtrr_write (struct file *file, const char *buf, size_t len,
@@ -1668,6 +1674,7 @@ static ssize_t mtrr_write (struct file *file, const char *buf, size_t len,
     char *ptr;
     char line[LINE_SIZE];
 
+    if (!len) return -EINVAL;
     if ( !suser () ) return -EPERM;
     /*  Can't seek (pwrite) on this device  */
     if (ppos != &file->f_pos) return -ESPIPE;

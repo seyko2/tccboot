@@ -1,4 +1,5 @@
 /* $XFree86$ */
+/* $XdotOrg$ */
 /*
  * General structure definitions for universal mode switching modules
  *
@@ -168,6 +169,7 @@ typedef struct _SiS_ExtStruct
 	UCHAR  VB_ExtTVYFilterIndex;
 	UCHAR  VB_ExtTVYFilterIndexROM661;
 	UCHAR  REFindex;
+	CHAR   ROMMODEIDX661;
 } SiS_ExtStruct;
 
 typedef struct _SiS_Ext2Struct
@@ -289,6 +291,7 @@ typedef struct _SiS_Private
 #endif
 	BOOLEAN SiS_UseROM;
 	BOOLEAN SiS_ROMNew;
+	BOOLEAN SiS_NeedRomModeData;
 	BOOLEAN PanelSelfDetected;
 	int     SiS_CHOverScan;
 	BOOLEAN SiS_CHSOverScan;

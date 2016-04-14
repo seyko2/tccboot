@@ -176,7 +176,8 @@
 #define RTRACE		if(0) printk
 #endif
 
-
+#define MAX_MAPPED_VRAM (2048*2048*4)
+#define MIN_MAPPED_VRAM (1024*768*1)
 
 enum radeon_chips {
 	RADEON_QD,
@@ -218,6 +219,7 @@ enum radeon_chips {
 	RADEON_NH,
 	RADEON_NI,
 	RADEON_AP,
+	RADEON_AQ,
 	RADEON_AR,
 };
 
@@ -279,6 +281,7 @@ static struct radeon_chip_info {
 	{ "9800 NH", RADEON_R350 },
 	{ "9800 NI", RADEON_R350 },
 	{ "9600 AP", RADEON_RV350 },
+	{ "9600 AQ", RADEON_RV350 },
 	{ "9600 AR", RADEON_RV350 },
 };
 
@@ -334,6 +337,7 @@ static struct pci_device_id radeonfb_pci_table[] __devinitdata = {
 	{ PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_RADEON_Yd, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RADEON_Yd},
 	{ PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_RADEON_AD, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RADEON_AD},
 	{ PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_RADEON_AP, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RADEON_AP},
+	{ PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_RADEON_AQ, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RADEON_AQ},
 	{ PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_RADEON_AR, PCI_ANY_ID, PCI_ANY_ID, 0, 0, RADEON_AR},
 	{ 0, }
 };
@@ -499,7 +503,7 @@ struct radeonfb_info {
 
 	short chipset;
 	unsigned char arch;
-	int video_ram;
+	unsigned int video_ram;
 	u8 rev;
 	int pitch, bpp, depth;
 	int xres, yres, pixclock;
@@ -935,6 +939,7 @@ static void radeon_pm_full_reset_sdram(struct radeonfb_info *rinfo);
 #endif /* CONFIG_PMAC_BACKLIGHT */
 
 static struct fb_ops radeon_fb_ops = {
+	owner:			THIS_MODULE,
 	fb_get_fix:		radeonfb_get_fix,
 	fb_get_var:		radeonfb_get_var,
 	fb_set_var:		radeonfb_set_var,
@@ -1625,6 +1630,7 @@ static int radeonfb_pci_register (struct pci_dev *pdev,
 				  const struct pci_device_id *ent)
 {
 	struct radeonfb_info *rinfo;
+	struct fb_info *fb_info;
 	struct radeon_chip_info *rci = &radeon_chip_info[ent->driver_data];
 	u32 tmp;
 	int i, j;
@@ -1639,6 +1645,7 @@ static int radeonfb_pci_register (struct pci_dev *pdev,
 
 	memset (rinfo, 0, sizeof (struct radeonfb_info));
 
+	fb_info = (struct fb_info *)rinfo;
 	rinfo->pdev = pdev;
 	strncpy(rinfo->name, rci->name, 16);
 	rinfo->arch = rci->arch;
@@ -1823,8 +1830,16 @@ static int radeonfb_pci_register (struct pci_dev *pdev,
 		}
 	}
 
-	rinfo->fb_base = (unsigned long) ioremap (rinfo->fb_base_phys,
-				  		  rinfo->video_ram);
+	fb_info->mapped_vram = min_t(unsigned int, MAX_MAPPED_VRAM, rinfo->video_ram);
+	do {
+		rinfo->fb_base = (unsigned long) ioremap (rinfo->fb_base_phys,
+				  		  fb_info->mapped_vram);
+		if (rinfo->fb_base)
+			break;
+
+		fb_info->mapped_vram /= 2;
+	} while(fb_info->mapped_vram > MIN_MAPPED_VRAM);
+	
 	if (!rinfo->fb_base) {
 		printk ("radeonfb: cannot map FB\n");
 		iounmap ((void*)rinfo->mmio_base);
@@ -1835,6 +1850,7 @@ static int radeonfb_pci_register (struct pci_dev *pdev,
 		kfree (rinfo);
 		return -ENODEV;
 	}
+	RTRACE(KERN_INFO "radeonfb: mapped %dk videoram\n", fb_info->mapped_vram/1024);
 
 	/* currcon not yet configured, will be set by first switch */
 	rinfo->currcon = -1;
@@ -2198,13 +2214,14 @@ static int radeonfb_do_maximize(struct radeonfb_info *rinfo,
                 {-1, -1}
         };
         int i;
+	struct fb_info *fb_info = (struct fb_info *)rinfo;
                 
         /* use highest possible virtual resolution */
         if (v->xres_virtual == -1 && v->yres_virtual == -1) {
                 printk("radeonfb: using max available virtual resolution\n");
                 for (i=0; modes[i].xres != -1; i++) {
                         if (modes[i].xres * nom / den * modes[i].yres <
-                            rinfo->video_ram / 2)
+                            fb_info->mapped_vram / 2)
                                 break;
                 }
                 if (modes[i].xres == -1) {
@@ -2217,15 +2234,15 @@ static int radeonfb_do_maximize(struct radeonfb_info *rinfo,
                 printk("radeonfb: virtual resolution set to max of %dx%d\n",
                         v->xres_virtual, v->yres_virtual);
         } else if (v->xres_virtual == -1) {
-                v->xres_virtual = (rinfo->video_ram * den /   
+                v->xres_virtual = (fb_info->mapped_vram * den /   
                                 (nom * v->yres_virtual * 2)) & ~15;
         } else if (v->yres_virtual == -1) {
                 v->xres_virtual = (v->xres_virtual + 15) & ~15;
-                v->yres_virtual = rinfo->video_ram * den /
+                v->yres_virtual = fb_info->mapped_vram * den /
                         (nom * v->xres_virtual *2);
         } else {
                 if (v->xres_virtual * nom / den * v->yres_virtual >
-                        rinfo->video_ram) {
+                        fb_info->mapped_vram) {
                         return -EINVAL;
                 }
         }
@@ -2368,7 +2385,7 @@ try_again:
 			disp->visual = FB_VISUAL_DIRECTCOLOR;
 			v.red.offset = 10;
 			v.green.offset = 5;
-			v.red.offset = 0;
+			v.blue.offset = 0;
 			v.red.length = v.green.length = v.blue.length = 5;
 			v.transp.offset = v.transp.length = 0;
 			break;
@@ -2428,6 +2445,9 @@ try_again:
                                 var->xres, var->yres, var->bits_per_pixel);
                         return -EINVAL;
         }
+
+	if (((v.xres_virtual * v.yres_virtual * nom) / den) > info->mapped_vram)
+		return -EINVAL;
 
         if (radeonfb_do_maximize(rinfo, var, &v, nom, den) < 0)
                 return -EINVAL;  

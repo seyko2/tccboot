@@ -9,6 +9,7 @@
 #include <linux/mm.h>
 #include <linux/smp.h>
 #include <asm/checksum.h>
+#include <asm/cpcmd.h>
 #include <asm/delay.h>
 #include <asm/pgalloc.h>
 #include <asm/setup.h>
@@ -83,3 +84,7 @@ EXPORT_SYMBOL(console_mode);
 EXPORT_SYMBOL(console_device);
 EXPORT_SYMBOL_NOVERS(do_call_softirq);
 EXPORT_SYMBOL(sys_wait4);
+EXPORT_SYMBOL(smp_call_function_on);
+EXPORT_SYMBOL(show_trace);
+EXPORT_SYMBOL(cpcmd);
+

@@ -876,6 +876,10 @@ int igmp_rcv(struct sk_buff *skb)
 		/* Is it our report looped back? */
 		if (((struct rtable*)skb->dst)->key.iif == 0)
 			break;
+		/* don't rely on MC router hearing unicast reports */
+		if (skb->pkt_type == PACKET_MULTICAST ||
+		    skb->pkt_type == PACKET_BROADCAST)
+			igmp_heard_report(in_dev, ih->group);
 		igmp_heard_report(in_dev, ih->group);
 		break;
 	case IGMP_PIM:
@@ -1582,7 +1586,7 @@ static void ip_mc_clear_src(struct ip_mc_list *pmc)
 	}
 	pmc->sources = 0;
 	pmc->sfmode = MCAST_EXCLUDE;
-	pmc->sfcount[MCAST_EXCLUDE] = 0;
+	pmc->sfcount[MCAST_INCLUDE] = 0;
 	pmc->sfcount[MCAST_EXCLUDE] = 1;
 }
 
@@ -1757,12 +1761,12 @@ int ip_mc_source(int add, int omode, struct sock *sk, struct
 			goto done;
 		rv = !0;
 		for (i=0; i<psl->sl_count; i++) {
-			rv = memcmp(&psl->sl_addr, &mreqs->imr_multiaddr,
+			rv = memcmp(&psl->sl_addr[i], &mreqs->imr_sourceaddr,
 				sizeof(__u32));
-			if (rv >= 0)
+			if (rv == 0)
 				break;
 		}
-		if (!rv)	/* source not found */
+		if (rv)		/* source not found */
 			goto done;
 
 		/* update the interface filter */
@@ -1804,9 +1808,9 @@ int ip_mc_source(int add, int omode, struct sock *sk, struct
 	}
 	rv = 1;	/* > 0 for insert logic below if sl_count is 0 */
 	for (i=0; i<psl->sl_count; i++) {
-		rv = memcmp(&psl->sl_addr, &mreqs->imr_multiaddr,
+		rv = memcmp(&psl->sl_addr[i], &mreqs->imr_sourceaddr,
 			sizeof(__u32));
-		if (rv >= 0)
+		if (rv == 0)
 			break;
 	}
 	if (rv == 0)		/* address already there is an error */
@@ -1876,8 +1880,11 @@ int ip_mc_msfilter(struct sock *sk, struct ip_msfilter *msf, int ifindex)
 			sock_kfree_s(sk, newpsl, IP_SFLSIZE(newpsl->sl_max));
 			goto done;
 		}
-	} else
-		newpsl = 0;
+	} else {
+		newpsl = NULL;
+		(void) ip_mc_add_src(in_dev, &msf->imsf_multiaddr,
+		       msf->imsf_fmode, 0, NULL, 0);
+	}
 	psl = pmc->sflist;
 	if (psl) {
 		(void) ip_mc_del_src(in_dev, &msf->imsf_multiaddr, pmc->sfmode,
@@ -2126,7 +2133,8 @@ int ip_mc_procinfo(char *buffer, char **start, off_t offset, int length)
 			continue;
 
 #ifdef CONFIG_IP_MULTICAST
-		querier = IGMP_V1_SEEN(in_dev) ? "V1" : "V2";
+		querier = IGMP_V1_SEEN(in_dev) ? "V1" : IGMP_V2_SEEN(in_dev) ?
+			"V2" : "V3";
 #endif
 
 		len+=sprintf(buffer+len,"%d\t%-10s: %5d %7s\n",
@@ -2137,7 +2145,9 @@ int ip_mc_procinfo(char *buffer, char **start, off_t offset, int length)
 			len+=sprintf(buffer+len,
 				     "\t\t\t\t%08lX %5d %d:%08lX\t\t%d\n",
 				     im->multiaddr, im->users,
-				     im->tm_running, im->timer.expires-jiffies, im->reporter);
+				     im->tm_running, im->tm_running ?
+				     im->timer.expires-jiffies : 0,
+				     im->reporter);
 
 			pos=begin+len;
 			if(pos<offset)

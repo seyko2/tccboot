@@ -1000,11 +1000,7 @@ do_softint(void *private_)
 	wake_up_interruptible(&info->delta_msr_wait);
     }
     if (test_and_clear_bit(Cy_EVENT_WRITE_WAKEUP, &info->event)) {
-        if((tty->flags & (1<< TTY_DO_WRITE_WAKEUP))
-        && tty->ldisc.write_wakeup){
-            (tty->ldisc.write_wakeup)(tty);
-        }
-        wake_up_interruptible(&tty->write_wait);
+	tty_wakeup(tty);
     }
 #ifdef Z_WAKE
     if (test_and_clear_bit(Cy_EVENT_SHUTDOWN_WAKEUP, &info->event)) {
@@ -2918,8 +2914,7 @@ cy_close(struct tty_struct *tty, struct file *filp)
     shutdown(info);
     if (tty->driver.flush_buffer)
         tty->driver.flush_buffer(tty);
-    if (tty->ldisc.flush_buffer)
-        tty->ldisc.flush_buffer(tty);
+    tty_ldisc_flush(tty);
     CY_LOCK(info, flags);
 
     tty->closing = 0;
@@ -2965,10 +2960,15 @@ static int
 cy_write(struct tty_struct * tty, int from_user,
            const unsigned char *buf, int count)
 {
-  struct cyclades_port *info = (struct cyclades_port *)tty->driver_data;
+  struct cyclades_port *info;
   unsigned long flags;
   int c, ret = 0;
 
+    if (!tty)
+	return 0;
+
+    info = (struct cyclades_port *)tty->driver_data;
+  
 #ifdef CY_DEBUG_IO
     printk("cyc:cy_write ttyC%d\n", info->line); /* */
 #endif
@@ -2977,7 +2977,7 @@ cy_write(struct tty_struct * tty, int from_user,
         return 0;
     }
         
-    if (!tty || !info->xmit_buf || !tmp_buf){
+    if (!info->xmit_buf || !tmp_buf){
         return 0;
     }
 
@@ -3052,9 +3052,14 @@ cy_write(struct tty_struct * tty, int from_user,
 static void
 cy_put_char(struct tty_struct *tty, unsigned char ch)
 {
-  struct cyclades_port *info = (struct cyclades_port *)tty->driver_data;
+  struct cyclades_port *info;
   unsigned long flags;
 
+    if (!tty)
+        return;
+
+    info = (struct cyclades_port *)tty->driver_data;
+  
 #ifdef CY_DEBUG_IO
     printk("cyc:cy_put_char ttyC%d\n", info->line);
 #endif
@@ -3062,7 +3067,7 @@ cy_put_char(struct tty_struct *tty, unsigned char ch)
     if (serial_paranoia_check(info, tty->device, "cy_put_char"))
         return;
 
-    if (!tty || !info->xmit_buf)
+    if (!info->xmit_buf)
         return;
 
     CY_LOCK(info, flags);
@@ -4689,10 +4694,7 @@ cy_flush_buffer(struct tty_struct *tty)
 	}
 	CY_UNLOCK(info, flags);
     }
-    wake_up_interruptible(&tty->write_wait);
-    if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP))
-	&& tty->ldisc.write_wakeup)
-	    (tty->ldisc.write_wakeup)(tty);
+    tty_wakeup(tty);
 } /* cy_flush_buffer */
 
 

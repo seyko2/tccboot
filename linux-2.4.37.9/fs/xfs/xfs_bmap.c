@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2003 Silicon Graphics, Inc.  All Rights Reserved.
+ * Copyright (c) 2000-2004 Silicon Graphics, Inc.  All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -69,7 +69,7 @@
 #include "xfs_buf_item.h"
 
 
-#ifdef XFSDEBUG
+#ifdef DEBUG
 STATIC void
 xfs_bmap_check_leaf_extents(xfs_btree_cur_t *cur, xfs_inode_t *ip, int whichfork);
 #endif
@@ -195,7 +195,7 @@ xfs_bmap_btree_to_extents(
 	int			*logflagsp, /* inode logging flags */
 	int			whichfork); /* data or attr fork */
 
-#ifdef XFSDEBUG
+#ifdef DEBUG
 /*
  * Check that the extents list for the inode ip is in the right order.
  */
@@ -203,8 +203,6 @@ STATIC void
 xfs_bmap_check_extents(
 	xfs_inode_t		*ip,		/* incore inode pointer */
 	int			whichfork);	/* data or attr fork */
-#else
-#define	xfs_bmap_check_extents(ip,w)
 #endif
 
 /*
@@ -695,7 +693,7 @@ xfs_bmap_add_extent(
 		*curp = cur;
 	}
 done:
-#ifdef XFSDEBUG
+#ifdef DEBUG
 	if (!error)
 		xfs_bmap_check_leaf_extents(*curp, ip, whichfork);
 #endif
@@ -3429,6 +3427,20 @@ xfs_bmap_do_search_extents(
 	int		high;		/* high index of binary search */
 	int		low;		/* low index of binary search */
 
+	/*
+	 * Initialize the extent entry structure to catch access to
+	 * uninitialized br_startblock field.
+	 */
+	got.br_startoff = 0xffa5a5a5a5a5a5a5LL;
+	got.br_blockcount = 0xa55a5a5a5a5a5a5aLL;
+	got.br_state = XFS_EXT_INVALID;
+
+#if XFS_BIG_BLKNOS
+	got.br_startblock = 0xffffa5a5a5a5a5a5LL;
+#else
+	got.br_startblock = 0xffffa5a5;
+#endif
+
 	if (lastx != NULLEXTNUM && lastx < nextents)
 		ep = base + lastx;
 	else
@@ -3527,6 +3539,8 @@ xfs_bmap_search_extents(
 	xfs_bmbt_rec_t  *base;          /* base of extent list */
 	xfs_extnum_t    lastx;          /* last extent index used */
 	xfs_extnum_t    nextents;       /* extent list size */
+	xfs_bmbt_rec_t  *ep;            /* extent list entry pointer */
+	int		rt;		/* realtime flag    */
 
 	XFS_STATS_INC(xs_look_exlist);
 	ifp = XFS_IFORK_PTR(ip, whichfork);
@@ -3534,8 +3548,18 @@ xfs_bmap_search_extents(
 	nextents = ifp->if_bytes / (uint)sizeof(xfs_bmbt_rec_t);
 	base = &ifp->if_u1.if_extents[0];
 
-	return xfs_bmap_do_search_extents(base, lastx, nextents, bno, eofp,
+	ep = xfs_bmap_do_search_extents(base, lastx, nextents, bno, eofp,
 					  lastxp, gotp, prevp);
+	rt = ip->i_d.di_flags & XFS_DIFLAG_REALTIME;
+	if(!rt && !gotp->br_startblock && (*lastxp != NULLEXTNUM)) {
+                cmn_err(CE_PANIC,"Access to block zero: fs: <%s> inode: %lld "
+			"start_block : %llx start_off : %llx blkcnt : %llx "
+			"extent-state : %x \n",
+			(ip->i_mount)->m_fsname,(long long)ip->i_ino,
+			gotp->br_startblock, gotp->br_startoff,
+			gotp->br_blockcount,gotp->br_state);
+        }
+        return ep;
 }
 
 
@@ -4074,64 +4098,6 @@ xfs_bmap_cancel(
 		xfs_bmap_del_free(flist, NULL, free);
 	}
 	ASSERT(flist->xbf_count == 0);
-}
-
-/*
- * Returns EINVAL if the specified file is not swappable.
- */
-int						/* error */
-xfs_bmap_check_swappable(
-	xfs_inode_t	*ip)			/* incore inode */
-{
-	xfs_bmbt_rec_t	*base;			/* base of extent array */
-	xfs_bmbt_rec_t	*ep;			/* pointer to an extent entry */
-	xfs_fileoff_t	end_fsb;		/* last block of file within size */
-	xfs_bmbt_irec_t	ext;			/* extent list entry, decoded */
-	xfs_ifork_t	*ifp;			/* inode fork pointer */
-	xfs_fileoff_t	lastaddr;		/* last block number seen */
-	xfs_extnum_t	nextents;		/* number of extent entries */
-	int		retval = 0;		/* return value */
-
-	xfs_ilock(ip, XFS_IOLOCK_EXCL | XFS_ILOCK_EXCL);
-
-	/*
-	 * Check for a zero length file.
-	 */
-	if (ip->i_d.di_size == 0)
-		goto check_done;
-
-	ASSERT(XFS_IFORK_FORMAT(ip, XFS_DATA_FORK) == XFS_DINODE_FMT_BTREE ||
-	       XFS_IFORK_FORMAT(ip, XFS_DATA_FORK) == XFS_DINODE_FMT_EXTENTS);
-
-	ifp = &ip->i_df;
-	if (!(ifp->if_flags & XFS_IFEXTENTS) &&
-	    (retval = xfs_iread_extents(NULL, ip, XFS_DATA_FORK)))
-		goto check_done;
-	/*
-	 * Scan extents until the file size is reached. Look for
-	 * holes or unwritten extents, since I/O to these would cause
-	 * a transaction.
-	 */
-	end_fsb = XFS_B_TO_FSB(ip->i_mount, ip->i_d.di_size);
-	nextents = ifp->if_bytes / (uint)sizeof(xfs_bmbt_rec_t);
-	base = &ifp->if_u1.if_extents[0];
-	for (lastaddr = 0, ep = base; ep < &base[nextents]; ep++) {
-		xfs_bmbt_get_all(ep, &ext);
-		if (lastaddr < ext.br_startoff ||
-		    ext.br_state != XFS_EXT_NORM) {
-			goto error_done;
-		}
-		if (end_fsb <= (lastaddr = ext.br_startoff +
-						ext.br_blockcount))
-			goto check_done;
-	}
-error_done:
-	retval = XFS_ERROR(EINVAL);
-
-
-check_done:
-	xfs_iunlock(ip, XFS_IOLOCK_EXCL | XFS_ILOCK_EXCL);
-	return retval;
 }
 
 /*
@@ -4747,8 +4713,41 @@ xfs_bmapi(
 					}
 					break;
 				}
+
+				/*
+				 * Split changing sb for alen and indlen since
+				 * they could be coming from different places.
+				 */
+				if (ip->i_d.di_flags & XFS_DIFLAG_REALTIME) {
+					xfs_extlen_t	extsz;
+					xfs_extlen_t	ralen;
+					if (!(extsz = ip->i_d.di_extsize))
+						extsz = mp->m_sb.sb_rextsize;
+					ralen = roundup(alen, extsz);
+					ralen = ralen / mp->m_sb.sb_rextsize;
+					if (xfs_mod_incore_sb(mp,
+						XFS_SBS_FREXTENTS,
+						-(ralen), rsvd)) {
+						if (XFS_IS_QUOTA_ON(ip->i_mount))
+							XFS_TRANS_UNRESERVE_BLKQUOTA(
+						     		mp, NULL, ip,
+								(long)alen);
+						break;
+					}
+				} else {
+					if (xfs_mod_incore_sb(mp,
+							      XFS_SBS_FDBLOCKS,
+							      -(alen), rsvd)) {
+						if (XFS_IS_QUOTA_ON(ip->i_mount))
+							XFS_TRANS_UNRESERVE_BLKQUOTA(
+								mp, NULL, ip,
+								(long)alen);
+						break;
+					}
+				}
+
 				if (xfs_mod_incore_sb(mp, XFS_SBS_FDBLOCKS,
-						-(alen + indlen), rsvd)) {
+						-(indlen), rsvd)) {
 					XFS_TRANS_UNRESERVE_BLKQUOTA(
 						mp, NULL, ip, (long)alen);
 					break;
@@ -5503,7 +5502,7 @@ int						/* error code */
 xfs_getbmap(
 	bhv_desc_t		*bdp,		/* XFS behavior descriptor*/
 	struct getbmap		*bmv,		/* user bmap structure */
-	void			*ap,		/* pointer to user's array */
+	void			__user *ap,	/* pointer to user's array */
 	int			interface)	/* interface flags */
 {
 	__int64_t		bmvend;		/* last block requested */
@@ -5692,8 +5691,10 @@ xfs_getbmap(
 					(__int64_t)(bmvend - bmv->bmv_offset));
 				bmv->bmv_entries++;
 				ap = (interface & BMV_IF_EXTENDED) ?
-					(void *)((struct getbmapx *)ap + 1) :
-					(void *)((struct getbmap *)ap + 1);
+						(void __user *)
+					((struct getbmapx __user *)ap + 1) :
+						(void __user *)
+					((struct getbmap __user *)ap + 1);
 			}
 		}
 	} while (nmap && nexleft && bmv->bmv_length);
@@ -5790,7 +5791,7 @@ xfs_bmap_eof(
 	return 0;
 }
 
-#ifdef XFSDEBUG
+#ifdef DEBUG
 /*
  * Check that the extents list for the inode ip is in the right order.
  */

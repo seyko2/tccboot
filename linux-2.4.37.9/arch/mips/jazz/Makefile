@@ -12,7 +12,7 @@ all: jazz.o
 
 O_TARGET := jazz.o
 
-export-syms	:= jazz-ksyms.o
+export-objs	:= jazz-ksyms.o
 obj-y	 	:= int-handler.o irq.o jazzdma.o jazz-ksyms.o reset.o \
 		   rtc-jazz.o setup.o floppy-jazz.o kbd-jazz.o
 

@@ -445,8 +445,9 @@ static ssize_t read_profile(struct file *file, char *buf,
 	}
 	pnt = (char *)(perfmon_base.profile_buffer) + p - sizeof(unsigned int);
 	copy_to_user(buf,(void *)pnt,count);
+	p += count;
 	read += count;
-	*ppos += read;
+	*ppos = p;
 	return read;
 }
 
@@ -460,19 +461,17 @@ static ssize_t read_trace(struct file *file, char *buf,
 			    size_t count, loff_t *ppos)
 {
 	unsigned long p = *ppos;
-	ssize_t read;
 	char * pnt;
 
 	if (p >= (perfmon_base.trace_length)) return 0;
 	if (count > (perfmon_base.trace_length) - p)
 		count = (perfmon_base.trace_length) - p;
-	read = 0;
 
 	pnt = (char *)(perfmon_base.trace_buffer) + p;
 	copy_to_user(buf,(void *)pnt,count);
-	read += count;
-	*ppos += read;
-	return read;
+	p += count;
+	*ppos = p;
+	return count;
 }
 
 static ssize_t write_trace(struct file * file, const char * buf,
@@ -491,13 +490,11 @@ static ssize_t read_timeslice(struct file *file, char *buf,
 	if (p >= (perfmon_base.timeslice_length)) return 0;
 	if (count > (perfmon_base.timeslice_length) - p)
 		count = (perfmon_base.timeslice_length) - p;
-	read = 0;
 
 	pnt = (char *)(perfmon_base.timeslice_buffer) + p;
 	copy_to_user(buf,(void *)pnt,count);
-	read += count;
-	*ppos += read;
-	return read;
+	*ppos = p + count;
+	return count;
 }
 
 static ssize_t write_timeslice(struct file * file, const char * buf,

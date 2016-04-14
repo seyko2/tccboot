@@ -94,13 +94,6 @@ unsigned long mv64340_sram_base;
  * Helper functions - used inside the driver only *
  **************************************************/
 
-static inline void __netif_rx_complete(struct net_device *dev)
-{
-        if (!test_bit(__LINK_STATE_RX_SCHED, &dev->state)) BUG();
-        list_del(&dev->poll_list);
-        clear_bit(__LINK_STATE_RX_SCHED, &dev->state);
-}
-
 static void *mv64340_eth_malloc_ring(unsigned int size)
 {
 	dma_addr_t dma_handle;
@@ -707,11 +700,11 @@ static int mv64340_eth_open(struct net_device *dev)
 	if (mv64340_eth_real_open(dev)) {
 		printk("%s: Error opening interface\n", dev->name);
 		free_irq(dev->irq, dev);
-		spin_unlock_irq(&ethernet_priv->lock);
+               spin_unlock_irq(&port_private->lock);
 		return -EBUSY;
 	}
 	MOD_INC_USE_COUNT;
-	spin_unlock_irq(&ethernet_priv->lock);
+       spin_unlock_irq(&port_private->lock);
 	return 0;
 }
 
@@ -723,7 +716,6 @@ static int mv64340_eth_real_open(struct net_device *dev)
 	unsigned int port_num;
 	u32 phy_reg_data;
 	unsigned int size;
-	int i;
 
 	ethernet_private = dev->priv;
 	port_private =
@@ -952,7 +944,7 @@ static int mv64340_eth_stop(struct net_device *dev)
 
 	free_irq(dev->irq, dev);
 	MOD_DEC_USE_COUNT;
-	spin_unlock_irq(&ethernet_priv->lock);
+       spin_unlock_irq(&port_private->lock);
 	return 0;
 };
 
@@ -1232,7 +1224,7 @@ static int mv64340_eth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	stats->tx_packets++;
 	dev->trans_start = jiffies;
 
-	spin_unlock_irqrestore(&ethernet_priv->lock, flags);
+       spin_unlock_irqrestore(&port_private->lock, flags);
 	return 0;		/* success */
 }
 
@@ -2874,6 +2866,8 @@ static ETH_FUNC_RET_STATUS eth_rx_return_buff(ETH_PORT_INFO * p_eth_port_ctrl,
 	return ETH_OK;
 }
 
+#ifdef MV64340_COAL
+
 /*******************************************************************************
  * eth_port_set_rx_coal - Sets coalescing interrupt mechanism on RX path
  *
@@ -2910,6 +2904,7 @@ static unsigned int eth_port_set_rx_coal(ETH_PORT eth_port_num,
 		  & 0xffc000ff));
 	return coal;
 }
+#endif
 
 /*******************************************************************************
  * eth_port_set_tx_coal - Sets coalescing interrupt mechanism on TX path

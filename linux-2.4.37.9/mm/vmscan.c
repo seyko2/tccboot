@@ -65,6 +65,27 @@ int vm_lru_balance_ratio = 2;
 int vm_vfs_scan_ratio = 6;
 
 /*
+ * "vm_anon_lru" select if to immdiatly insert anon pages in the
+ * lru. Immediatly means as soon as they're allocated during the
+ * page faults.
+ *
+ * If this is set to 0, they're inserted only after the first
+ * swapout.
+ *
+ * Having anon pages immediatly inserted in the lru allows the
+ * VM to know better when it's worthwhile to start swapping
+ * anonymous ram, it will start to swap earlier and it should
+ * swap smoother and faster, but it will decrease scalability
+ * on the >16-ways of an order of magnitude. Big SMP/NUMA
+ * definitely can't take an hit on a global spinlock at
+ * every anon page allocation. So this is off by default.
+ *
+ * Low ram machines that swaps all the time want to turn
+ * this on (i.e. set to 1).
+ */
+int vm_anon_lru = 0;
+
+/*
  * The swap-out function returns 1 if it successfully
  * scanned all the pages it was asked to (`count').
  * It returns zero if it couldn't do anything,
@@ -323,7 +344,7 @@ out_unlock:
 }
 
 static int FASTCALL(swap_out(zone_t * classzone));
-static int swap_out(zone_t * classzone)
+static int fastcall swap_out(zone_t * classzone)
 {
 	int counter, nr_pages = SWAP_CLUSTER_MAX;
 	struct mm_struct *mm;
@@ -366,7 +387,7 @@ empty:
 
 static void FASTCALL(refill_inactive(int nr_pages, zone_t * classzone));
 static int FASTCALL(shrink_cache(int nr_pages, zone_t * classzone, unsigned int gfp_mask, int * failed_swapout));
-static int shrink_cache(int nr_pages, zone_t * classzone, unsigned int gfp_mask, int * failed_swapout)
+static int fastcall shrink_cache(int nr_pages, zone_t * classzone, unsigned int gfp_mask, int * failed_swapout)
 {
 	struct list_head * entry;
 	int max_scan = (classzone->nr_inactive_pages + classzone->nr_active_pages) / vm_cache_scan_ratio;
@@ -535,6 +556,7 @@ page_mapped:
 			continue;
 			
 		}
+		smp_rmb();
 		if (PageDirty(page)) {
 			spin_unlock(&pagecache_lock);
 			UnlockPage(page);
@@ -577,7 +599,7 @@ page_mapped:
  * We move them the other way when we see the
  * reference bit on the page.
  */
-static void refill_inactive(int nr_pages, zone_t * classzone)
+static void fastcall refill_inactive(int nr_pages, zone_t * classzone)
 {
 	struct list_head * entry;
 	unsigned long ratio;
@@ -610,7 +632,7 @@ static void refill_inactive(int nr_pages, zone_t * classzone)
 }
 
 static int FASTCALL(shrink_caches(zone_t * classzone, unsigned int gfp_mask, int nr_pages, int * failed_swapout));
-static int shrink_caches(zone_t * classzone, unsigned int gfp_mask, int nr_pages, int * failed_swapout)
+static int fastcall shrink_caches(zone_t * classzone, unsigned int gfp_mask, int nr_pages, int * failed_swapout)
 {
 	nr_pages -= kmem_cache_reap(gfp_mask);
 	if (nr_pages <= 0)
@@ -627,7 +649,7 @@ out:
 
 static int check_classzone_need_balance(zone_t * classzone);
 
-int try_to_free_pages_zone(zone_t *classzone, unsigned int gfp_mask)
+int fastcall try_to_free_pages_zone(zone_t *classzone, unsigned int gfp_mask)
 {
 	gfp_mask = pf_gfp_mask(gfp_mask);
 
@@ -665,7 +687,7 @@ int try_to_free_pages_zone(zone_t *classzone, unsigned int gfp_mask)
 	return 0;
 }
 
-int try_to_free_pages(unsigned int gfp_mask)
+int fastcall try_to_free_pages(unsigned int gfp_mask)
 {
 	pg_data_t *pgdat;
 	zonelist_t *zonelist;

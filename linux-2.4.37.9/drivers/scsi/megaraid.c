@@ -3471,6 +3471,24 @@ int megaraid_detect (Scsi_Host_Template * pHostTmpl)
 	return count;
 }
 
+static inline void mega_freeSgList (mega_host_config * megaCfg)
+{
+	int i;
+
+	for (i = 0; i < megaCfg->max_cmds; i++) {
+		if (megaCfg->scbList[i].sgList)
+			pci_free_consistent (megaCfg->dev,
+					     sizeof (mega_64sglist) *
+					     MAX_SGLIST,
+					     megaCfg->scbList[i].sgList,
+					     megaCfg->scbList[i].
+					     dma_sghandle64);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,0)	/* 0x020400 */
+			kfree (megaCfg->scbList[i].sgList);	/* free sgList */
+#endif
+	}
+}
+
 /*---------------------------------------------------------------------
  * Release the controller's resources
  *---------------------------------------------------------------------*/
@@ -3878,24 +3896,6 @@ static void mega_swap_hosts (struct Scsi_Host *shone, struct Scsi_Host *shtwo)
 		shtwo->next = save;
 	}
 	return;
-}
-
-static inline void mega_freeSgList (mega_host_config * megaCfg)
-{
-	int i;
-
-	for (i = 0; i < megaCfg->max_cmds; i++) {
-		if (megaCfg->scbList[i].sgList)
-			pci_free_consistent (megaCfg->dev,
-					     sizeof (mega_64sglist) *
-					     MAX_SGLIST,
-					     megaCfg->scbList[i].sgList,
-					     megaCfg->scbList[i].
-					     dma_sghandle64);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,4,0)	/* 0x020400 */
-			kfree (megaCfg->scbList[i].sgList);	/* free sgList */
-#endif
-	}
 }
 
 /*----------------------------------------------

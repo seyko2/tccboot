@@ -52,6 +52,7 @@
 #include <linux/version.h>
 #include <linux/sched.h>
 #include <linux/smp_lock.h>	/* For (un)lock_kernel */
+#include <asm/system.h>	/* for cmpxchg() */
 #include <linux/mm.h>
 #include <linux/pagemap.h>
 #if defined(__alpha__) || defined(__powerpc__)
@@ -174,38 +175,7 @@ __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new, int size)
 				    (unsigned long)_n_, sizeof(*(ptr))); \
   })
 
-#elif __i386__
-static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
-				      unsigned long new, int size)
-{
-	unsigned long prev;
-	switch (size) {
-	case 1:
-		__asm__ __volatile__(LOCK_PREFIX "cmpxchgb %b1,%2"
-				     : "=a"(prev)
-				     : "q"(new), "m"(*__xg(ptr)), "0"(old)
-				     : "memory");
-		return prev;
-	case 2:
-		__asm__ __volatile__(LOCK_PREFIX "cmpxchgw %w1,%2"
-				     : "=a"(prev)
-				     : "q"(new), "m"(*__xg(ptr)), "0"(old)
-				     : "memory");
-		return prev;
-	case 4:
-		__asm__ __volatile__(LOCK_PREFIX "cmpxchgl %1,%2"
-				     : "=a"(prev)
-				     : "q"(new), "m"(*__xg(ptr)), "0"(old)
-				     : "memory");
-		return prev;
-	}
-	return old;
-}
-
-#define cmpxchg(ptr,o,n)						\
-  ((__typeof__(*(ptr)))__cmpxchg((ptr),(unsigned long)(o),		\
-				 (unsigned long)(n),sizeof(*(ptr))))
-#endif /* i386 & alpha */
+#endif /* alpha */
 #endif
 #define __REALLY_HAVE_SG	(__HAVE_SG)
 

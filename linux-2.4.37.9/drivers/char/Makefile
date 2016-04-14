@@ -171,6 +171,7 @@ endif
 
 obj-$(CONFIG_VT) += vt.o vc_screen.o consolemap.o consolemap_deftbl.o $(CONSOLE) selection.o
 obj-$(CONFIG_SERIAL) += $(SERIAL)
+obj-$(CONFIG_PARPORT_SERIAL) += parport_serial.o
 obj-$(CONFIG_SERIAL_HCDP) += hcdp_serial.o
 obj-$(CONFIG_SERIAL_21285) += serial_21285.o
 obj-$(CONFIG_SERIAL_SA1100) += serial_sa1100.o
@@ -262,6 +263,7 @@ obj-$(CONFIG_DS1620) += ds1620.o
 obj-$(CONFIG_DS1742) += ds1742.o
 obj-$(CONFIG_INTEL_RNG) += i810_rng.o
 obj-$(CONFIG_AMD_RNG) += amd768_rng.o
+obj-$(CONFIG_GEODE_RNG) += geode-rng.o
 obj-$(CONFIG_HW_RANDOM) += hw_random.o
 obj-$(CONFIG_AMD_PM768) += amd76x_pm.o
 obj-$(CONFIG_BRIQ_PANEL) += briq_panel.o
@@ -320,9 +322,11 @@ obj-$(CONFIG_SC1200_WDT) += sc1200wdt.o
 obj-$(CONFIG_SCx200_WDT) += scx200_wdt.o
 obj-$(CONFIG_WAFER_WDT) += wafer5823wdt.o
 obj-$(CONFIG_SOFT_WATCHDOG) += softdog.o
-obj-$(CONFIG_AMD7XX_TCO) += amd7xx_tco.o
 obj-$(CONFIG_INDYDOG) += indydog.o
+obj-$(CONFIG_GEODE_WDT) += geodewdt.o
 obj-$(CONFIG_8xx_WDT) += mpc8xx_wdt.o
+obj-$(CONFIG_WDT_W83627) += wdt83627.o
+obj-$(CONFIG_W83977EF_WDT) += wdt83977.o
 
 subdir-$(CONFIG_MWAVE) += mwave
 ifeq ($(CONFIG_MWAVE),y)

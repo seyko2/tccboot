@@ -31,8 +31,8 @@ NESTED(handle_sys, PT_SIZE, sp)
 
 	sltiu	t0, v0, MAX_SYSCALL_NO + 1 # check syscall number
 	addiu	t1, 4			# skip to next instruction
-	beqz	t0, illegal_syscall
 	sw	t1, PT_EPC(sp)
+	beqz	t0, illegal_syscall
 
 	/* XXX Put both in one cacheline, should save a bit. */
 	sll	t0, v0, 2

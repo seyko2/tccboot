@@ -40,7 +40,6 @@ typedef struct {
 extern void _spin_lock(spinlock_t *lock);
 extern void _spin_unlock(spinlock_t *lock);
 extern int spin_trylock(spinlock_t *lock);
-extern unsigned long __spin_trylock(volatile unsigned long *lock);
 
 #define spin_lock(lp)			_spin_lock(lp)
 #define spin_unlock(lp)			_spin_unlock(lp)

@@ -33,7 +33,6 @@
 #include <linux/module.h>
 
 #include <linux/version.h>
-#include <linux/config.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/sched.h>
@@ -189,9 +188,7 @@ static int hci_uart_flush(struct hci_dev *hdev)
 		kfree_skb(hu->tx_skb); hu->tx_skb = NULL;
 	}
 
-	/* Flush any pending characters in the driver and discipline. */
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
@@ -284,9 +281,10 @@ static int hci_uart_tty_open(struct tty_struct *tty)
 
 	spin_lock_init(&hu->rx_lock);
 
-	/* Flush any pending characters in the driver and line discipline */
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	/* Flush any pending characters in the driver and line discipline. */
+	/* FIXME: why is this needed. Note don't use ldisc_ref here as the
+	   open path is before the ldisc is referencable */
+	tty_ldisc_flush(tty);
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
@@ -311,7 +309,9 @@ static void hci_uart_tty_close(struct tty_struct *tty)
 
 	if (hu) {
 		struct hci_dev *hdev = &hu->hdev;
-		hci_uart_close(hdev);
+
+		if (hdev)
+			hci_uart_close(hdev);
 
 		if (test_and_clear_bit(HCI_UART_PROTO_SET, &hu->flags)) {
 			hu->proto->close(hu);
@@ -478,6 +478,7 @@ static int hci_uart_tty_ioctl(struct tty_struct *tty, struct file * file,
 			tty->low_latency = 1;
 		} else	
 			return -EBUSY;
+		break;
 
 	case HCIUARTGETPROTO:
 		if (test_bit(HCI_UART_PROTO_SET, &hu->flags))

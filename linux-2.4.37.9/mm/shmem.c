@@ -86,7 +86,7 @@ static void shmem_free_block(struct inode *inode)
 
 static void shmem_removepage(struct page *page)
 {
-	if (!PageLaunder(page))
+	if (!PageLaunder(page) && !PageError(page))
 		shmem_free_block(page->mapping->host);
 }
 
@@ -626,8 +626,11 @@ static int shmem_getpage(struct inode *inode, unsigned long idx, struct page **p
 	swp_entry_t swap;
 	int error = 0;
 
-	if (idx >= SHMEM_MAX_INDEX)
-		return -EFBIG;
+	if (idx >= SHMEM_MAX_INDEX) {
+		error = -EFBIG;
+		goto failed;
+	}
+
 	/*
 	 * Normally, filepage is NULL on entry, and either found
 	 * uptodate immediately, or allocated and zeroed, or read
@@ -781,18 +784,24 @@ repeat:
 	}
 done:
 	if (!*pagep) {
-		if (filepage) {
+		if (filepage)
 			UnlockPage(filepage);
-			*pagep = filepage;
-		} else
-			*pagep = ZERO_PAGE(0);
+		else
+			filepage = ZERO_PAGE(0);
+		*pagep = filepage;
 	}
+	if (PageError(filepage))
+		ClearPageError(filepage);
 	return 0;
 
 failed:
-	if (*pagep != filepage) {
-		UnlockPage(filepage);
-		page_cache_release(filepage);
+	if (filepage) {
+		if (*pagep == filepage)
+			SetPageError(filepage);
+		else {
+			UnlockPage(filepage);
+			page_cache_release(filepage);
+		}
 	}
 	return error;
 }
@@ -964,7 +973,7 @@ shmem_file_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 	struct inode	*inode = file->f_dentry->d_inode;
 	loff_t		pos;
 	unsigned long	written;
-	int		err;
+	ssize_t		err;
 
 	if ((ssize_t) count < 0)
 		return -EINVAL;
@@ -1042,9 +1051,13 @@ static void do_shmem_file_read(struct file *filp, loff_t *ppos, read_descriptor_
 	struct inode *inode = filp->f_dentry->d_inode;
 	struct address_space *mapping = inode->i_mapping;
 	unsigned long index, offset;
+	loff_t pos = *ppos;
 
-	index = *ppos >> PAGE_CACHE_SHIFT;
-	offset = *ppos & ~PAGE_CACHE_MASK;
+	if (unlikely(pos < 0))
+		return;
+
+	index = pos >> PAGE_CACHE_SHIFT;
+	offset = pos & ~PAGE_CACHE_MASK;
 
 	for (;;) {
 		struct page *page = NULL;
@@ -1161,13 +1174,27 @@ static int shmem_statfs(struct super_block *sb, struct statfs *buf)
 }
 
 /*
+ * Retaining negative dentries for an in-memory filesystem just wastes
+ * memory and lookup time: arrange for them to be deleted immediately.
+ */
+static int shmem_delete_dentry(struct dentry *dentry)
+{
+	return 1;
+}
+
+/*
  * Lookup the data. This is trivial - if the dentry didn't already
- * exist, we know it is negative.
+ * exist, we know it is negative.  Set d_op to delete negative dentries.
  */
 static struct dentry *shmem_lookup(struct inode *dir, struct dentry *dentry)
 {
+	static struct dentry_operations shmem_dentry_operations = {
+		.d_delete = shmem_delete_dentry,
+	};
+
 	if (dentry->d_name.len > NAME_MAX)
 		return ERR_PTR(-ENAMETOOLONG);
+	dentry->d_op = &shmem_dentry_operations;
 	d_add(dentry, NULL);
 	return NULL;
 }

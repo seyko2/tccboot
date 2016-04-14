@@ -46,6 +46,34 @@ static int lower_zone_reserve_ratio[MAX_NR_ZONES-1] = { 256, 32 };
 
 int vm_gfp_debug = 0;
 
+static void FASTCALL(__free_pages_ok (struct page *page, unsigned int order));
+
+static spinlock_t free_pages_ok_no_irq_lock = SPIN_LOCK_UNLOCKED;
+struct page * free_pages_ok_no_irq_head;
+
+static void do_free_pages_ok_no_irq(void * arg)
+{
+       struct page * page, * __page;
+
+       spin_lock_irq(&free_pages_ok_no_irq_lock);
+
+       page = free_pages_ok_no_irq_head;
+       free_pages_ok_no_irq_head = NULL;
+
+       spin_unlock_irq(&free_pages_ok_no_irq_lock);
+
+       while (page) {
+               __page = page;
+               page = page->next_hash;
+               __free_pages_ok(__page, __page->index);
+       }
+}
+
+static struct tq_struct free_pages_ok_no_irq_task = {
+       .routine        = do_free_pages_ok_no_irq,
+};
+
+
 /*
  * Temporary debugging check.
  */
@@ -81,8 +109,7 @@ int vm_gfp_debug = 0;
  * -- wli
  */
 
-static void FASTCALL(__free_pages_ok (struct page *page, unsigned int order));
-static void __free_pages_ok (struct page *page, unsigned int order)
+static void fastcall __free_pages_ok (struct page *page, unsigned int order)
 {
 	unsigned long index, page_idx, mask, flags;
 	free_area_t *area;
@@ -94,8 +121,20 @@ static void __free_pages_ok (struct page *page, unsigned int order)
 	 * a reference to a page in order to pin it for io. -ben
 	 */
 	if (PageLRU(page)) {
-		if (unlikely(in_interrupt()))
-			BUG();
+		if (unlikely(in_interrupt())) {
+			unsigned long flags;
+
+			spin_lock_irqsave(&free_pages_ok_no_irq_lock, flags);
+			page->next_hash = free_pages_ok_no_irq_head;
+			free_pages_ok_no_irq_head = page;
+			page->index = order;
+	
+			spin_unlock_irqrestore(&free_pages_ok_no_irq_lock, flags);
+	
+			schedule_task(&free_pages_ok_no_irq_task);
+			return;
+		}
+		
 		lru_cache_del(page);
 	}
 
@@ -200,7 +239,7 @@ static inline struct page * expand (zone_t *zone, struct page *page,
 }
 
 static FASTCALL(struct page * rmqueue(zone_t *zone, unsigned int order));
-static struct page * rmqueue(zone_t *zone, unsigned int order)
+static struct page * fastcall rmqueue(zone_t *zone, unsigned int order)
 {
 	free_area_t * area = zone->free_area + order;
 	unsigned int curr_order = order;
@@ -246,7 +285,7 @@ static struct page * rmqueue(zone_t *zone, unsigned int order)
 }
 
 #ifndef CONFIG_DISCONTIGMEM
-struct page *_alloc_pages(unsigned int gfp_mask, unsigned int order)
+struct page * fastcall _alloc_pages(unsigned int gfp_mask, unsigned int order)
 {
 	return __alloc_pages(gfp_mask, order,
 		contig_page_data.node_zonelists+(gfp_mask & GFP_ZONEMASK));
@@ -254,7 +293,7 @@ struct page *_alloc_pages(unsigned int gfp_mask, unsigned int order)
 #endif
 
 static struct page * FASTCALL(balance_classzone(zone_t *, unsigned int, unsigned int, int *));
-static struct page * balance_classzone(zone_t * classzone, unsigned int gfp_mask, unsigned int order, int * freed)
+static struct page * fastcall balance_classzone(zone_t * classzone, unsigned int gfp_mask, unsigned int order, int * freed)
 {
 	struct page * page = NULL;
 	int __freed;
@@ -332,7 +371,7 @@ static inline unsigned long zone_free_pages(zone_t * zone, unsigned int order)
 /*
  * This is the 'heart' of the zoned buddy allocator:
  */
-struct page * __alloc_pages(unsigned int gfp_mask, unsigned int order, zonelist_t *zonelist)
+struct page * fastcall __alloc_pages(unsigned int gfp_mask, unsigned int order, zonelist_t *zonelist)
 {
 	zone_t **zone, * classzone;
 	struct page * page;
@@ -445,7 +484,7 @@ struct page * __alloc_pages(unsigned int gfp_mask, unsigned int order, zonelist_
 /*
  * Common helper functions.
  */
-unsigned long __get_free_pages(unsigned int gfp_mask, unsigned int order)
+fastcall unsigned long __get_free_pages(unsigned int gfp_mask, unsigned int order)
 {
 	struct page * page;
 
@@ -455,7 +494,7 @@ unsigned long __get_free_pages(unsigned int gfp_mask, unsigned int order)
 	return (unsigned long) page_address(page);
 }
 
-unsigned long get_zeroed_page(unsigned int gfp_mask)
+fastcall unsigned long get_zeroed_page(unsigned int gfp_mask)
 {
 	struct page * page;
 
@@ -468,13 +507,13 @@ unsigned long get_zeroed_page(unsigned int gfp_mask)
 	return 0;
 }
 
-void __free_pages(struct page *page, unsigned int order)
+fastcall void __free_pages(struct page *page, unsigned int order)
 {
 	if (!PageReserved(page) && put_page_testzero(page))
 		__free_pages_ok(page, order);
 }
 
-void free_pages(unsigned long addr, unsigned int order)
+fastcall void free_pages(unsigned long addr, unsigned int order)
 {
 	if (addr != 0)
 		__free_pages(virt_to_page(addr), order);
@@ -512,7 +551,7 @@ unsigned int nr_free_buffer_pages (void)
 		class_idx = zone_idx(zone);
 
 		sum += zone->nr_cache_pages;
-		for (zone = pgdat->node_zones; zone < pgdat->node_zones + MAX_NR_ZONES; zone++) {
+		for (; zone; zone = *zonep++) {
 			int free = zone->free_pages - zone->watermarks[class_idx].high;
 			if (free <= 0)
 				continue;

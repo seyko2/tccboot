@@ -558,7 +558,7 @@ static struct tvnorm tvnorms[] = {
 		.sram           = -1,
 	},{
 		/* PAL-N */
-		.Fsc             35468950,
+		.Fsc            = 35468950,
 		.swidth         = 768,
 		.sheight        = 576,
 		.totalwidth     = 1135,

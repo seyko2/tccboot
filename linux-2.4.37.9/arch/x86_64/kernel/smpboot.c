@@ -964,9 +964,7 @@ void __init smp_boot_cpus(void)
 	 */
 
 	Dprintk("Before bogomips.\n");
-	if (!cpucount) {
-		printk(KERN_ERR "Only one processor found.\n");
-	} else {
+	{
 		unsigned long bogosum = 0;
 		for (cpu = 0; cpu < NR_CPUS; cpu++)
 			if (cpu_online_map & (1<<cpu))

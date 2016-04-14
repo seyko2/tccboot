@@ -48,13 +48,11 @@
 #include <asm/bootsetup.h>
 #include <asm/proto.h>
 
-int acpi_disabled = 0;
-#ifdef	CONFIG_ACPI_BOOT
-int acpi_noirq __initdata = 0;	/* skip ACPI IRQ initialization */
-#endif
-
+int acpi_disabled;
+EXPORT_SYMBOL(acpi_disabled);
 
 int swiotlb;
+EXPORT_SYMBOL(swiotlb);
 
 extern	int phys_proc_id[NR_CPUS];
 
@@ -95,7 +93,8 @@ char saved_command_line[COMMAND_LINE_SIZE];
 struct resource standard_io_resources[] = {
 	{ "dma1", 0x00, 0x1f, IORESOURCE_BUSY },
 	{ "pic1", 0x20, 0x3f, IORESOURCE_BUSY },
-	{ "timer", 0x40, 0x5f, IORESOURCE_BUSY },
+	{ "timer0", 0x40, 0x43, IORESOURCE_BUSY },
+	{ "timer1", 0x50, 0x53, IORESOURCE_BUSY },
 	{ "keyboard", 0x60, 0x6f, IORESOURCE_BUSY },
 	{ "dma page reg", 0x80, 0x8f, IORESOURCE_BUSY },
 	{ "pic2", 0xa0, 0xbf, IORESOURCE_BUSY },
@@ -305,7 +304,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 
 	paging_init();
-#if !defined(CONFIG_SMP) && defined(CONFIG_X86_IO_APIC)
+#if defined(CONFIG_X86_IO_APIC)
 	extern void check_ioapic(void);
 	check_ioapic();
 #endif

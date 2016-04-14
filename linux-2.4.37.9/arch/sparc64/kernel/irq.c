@@ -599,7 +599,7 @@ static void show(char * str)
 #if 0
 #define SYNC_OTHER_ULTRAS(x)	udelay(x+1)
 #else
-#define SYNC_OTHER_ULTRAS(x)	membar("#Sync");
+#define SYNC_OTHER_ULTRAS(x)	membar_safe("#Sync");
 #endif
 
 void synchronize_irq(void)

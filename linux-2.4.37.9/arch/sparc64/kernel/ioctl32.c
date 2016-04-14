@@ -562,6 +562,8 @@ static __inline__ void *alloc_user_space(long len)
 
 	if (!(current->thread.flags & SPARC_FLAG_32BIT))
 		usp += STACK_BIAS;
+	else
+		usp &= 0xffffffffUL;
 
 	return (void *) (usp - len);
 }
@@ -696,6 +698,7 @@ static int dev_ifsioc(unsigned int fd, unsigned int cmd, unsigned long arg)
 	set_fs (old_fs);
 	if (!err) {
 		switch (cmd) {
+		case TUNSETIFF:
 		case SIOCGIFFLAGS:
 		case SIOCGIFMETRIC:
 		case SIOCGIFMTU:
@@ -806,13 +809,15 @@ static int routing_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 		r = (void *) &r4;
 	}
 
-	if (ret)
-		return -EFAULT;
+	if (ret) {
+		ret = -EFAULT;
+		goto out;
+	}
 
 	set_fs (KERNEL_DS);
 	ret = sys_ioctl (fd, cmd, (long) r);
 	set_fs (old_fs);
-
+out:
 	if (mysock)
 		sockfd_put(mysock);
 
@@ -1271,6 +1276,7 @@ static int fd_ioctl_trans(unsigned int fd, unsigned int cmd, unsigned long arg)
 		case FDGETPRM32:
 		{
 			struct floppy_struct *f;
+			u32 u_name;
 
 			f = karg = kmalloc(sizeof(struct floppy_struct), GFP_KERNEL);
 			if (!karg)
@@ -1286,7 +1292,8 @@ static int fd_ioctl_trans(unsigned int fd, unsigned int cmd, unsigned long arg)
 			err |= __get_user(f->rate, &((struct floppy_struct32 *)arg)->rate);
 			err |= __get_user(f->spec1, &((struct floppy_struct32 *)arg)->spec1);
 			err |= __get_user(f->fmt_gap, &((struct floppy_struct32 *)arg)->fmt_gap);
-			err |= __get_user((u64)f->name, &((struct floppy_struct32 *)arg)->name);
+			err |= __get_user(u_name, &((struct floppy_struct32 *)arg)->name);
+			f->name = (void *) (long) u_name;
 			if (err) {
 				err = -EFAULT;
 				goto out;
@@ -2946,7 +2953,7 @@ static int do_lvm_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 	case LV_REMOVE:
 	case LV_RENAME:
 	case LV_STATUS_BYNAME:
-	        err = copy_from_user(&u.pv_status, arg, sizeof(u.pv_status.pv_name));
+	        err = copy_from_user(&u.lv_req, arg, sizeof(u.lv_req.lv_name));
 		if (err)
 			return -EFAULT;
 		if (cmd != LV_REMOVE) {
@@ -2989,7 +2996,7 @@ static int do_lvm_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 
 	case PV_CHANGE:
 	case PV_STATUS:
-		err = copy_from_user(&u.pv_status, arg, sizeof(u.lv_req.lv_name));
+		err = copy_from_user(&u.pv_status, arg, sizeof(u.pv_status.pv_name));
 		if (err)
 			return -EFAULT;
 		err = __get_user(ptr, &((pv_status_req32_t *)arg)->pv);
@@ -3061,7 +3068,7 @@ static int do_lvm_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 	        if (u.lv_bydev.lv) {
 			if (!err)
 				err = copy_lv_t(ptr, u.lv_bydev.lv);
-			put_lv_t(u.lv_byindex.lv);
+			put_lv_t(u.lv_bydev.lv);
 	        }
 	        break;
 
@@ -3810,13 +3817,15 @@ static int blkpg_ioctl_trans(unsigned int fd, unsigned int cmd, struct blkpg_ioc
 {
 	struct blkpg_ioctl_arg a;
 	struct blkpg_partition p;
+	u32 u_data;
 	int err;
 	mm_segment_t old_fs = get_fs();
 	
 	err = get_user(a.op, &arg->op);
 	err |= __get_user(a.flags, &arg->flags);
 	err |= __get_user(a.datalen, &arg->datalen);
-	err |= __get_user((long)a.data, &arg->data);
+	err |= __get_user(u_data, &arg->data);
+	a.data = (void *) (long) u_data;
 	if (err) return err;
 	switch (a.op) {
 	case BLKPG_ADD_PARTITION:
@@ -4416,6 +4425,7 @@ COMPATIBLE_IOCTL(HDIO_SET_NOWERR)
 COMPATIBLE_IOCTL(HDIO_SET_32BIT)
 COMPATIBLE_IOCTL(HDIO_SET_MULTCOUNT)
 COMPATIBLE_IOCTL(HDIO_DRIVE_CMD)
+COMPATIBLE_IOCTL(HDIO_DRIVE_TASK)
 COMPATIBLE_IOCTL(HDIO_SET_PIO_MODE)
 COMPATIBLE_IOCTL(HDIO_SCAN_HWIF)
 COMPATIBLE_IOCTL(HDIO_SET_NICE)
@@ -4913,6 +4923,10 @@ COMPATIBLE_IOCTL(AUTOFS_IOC_CATATONIC)
 COMPATIBLE_IOCTL(AUTOFS_IOC_PROTOVER)
 COMPATIBLE_IOCTL(AUTOFS_IOC_EXPIRE)
 COMPATIBLE_IOCTL(AUTOFS_IOC_EXPIRE_MULTI)
+COMPATIBLE_IOCTL(AUTOFS_IOC_PROTOSUBVER)
+COMPATIBLE_IOCTL(AUTOFS_IOC_ASKREGHOST)
+COMPATIBLE_IOCTL(AUTOFS_IOC_TOGGLEREGHOST)
+COMPATIBLE_IOCTL(AUTOFS_IOC_ASKUMOUNT)
 /* DEVFS */
 COMPATIBLE_IOCTL(DEVFSDIOC_GET_PROTO_REV)
 COMPATIBLE_IOCTL(DEVFSDIOC_SET_EVENT_MASK)
@@ -4923,6 +4937,7 @@ COMPATIBLE_IOCTL(RAW_SETBIND)
 COMPATIBLE_IOCTL(RAW_GETBIND)
 /* SMB ioctls which do not need any translations */
 COMPATIBLE_IOCTL(SMB_IOC_NEWCONN)
+COMPATIBLE_IOCTL(SMB_IOC_GETMOUNTUID32)
 /* NCP ioctls which do not need any translations */
 COMPATIBLE_IOCTL(NCP_IOC_CONN_LOGGED_IN)
 COMPATIBLE_IOCTL(NCP_IOC_SIGN_INIT)

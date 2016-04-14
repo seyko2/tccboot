@@ -33,12 +33,17 @@ extern unsigned long pgd_current[];
 
 #define cpu_context(cpu, mm)	((mm)->context[cpu])
 #define cpu_asid(cpu, mm)	(cpu_context((cpu), (mm)) & ASID_MASK)
-#define asid_cache(cpu)		cpu_data[cpu].asid_cache
+#define asid_cache(cpu)		(cpu_data[cpu].asid_cache)
 
 #if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
 
 #define ASID_INC	0x40
 #define ASID_MASK	0xfc0
+
+#elif defined(CONFIG_CPU_RM9000)
+
+#define ASID_INC	0x1
+#define ASID_MASK	0xfff
 
 #else /* FIXME: not correct for R6000, R8000 */
 
@@ -136,7 +141,7 @@ activate_mm(struct mm_struct *prev, struct mm_struct *next)
 	write_c0_entryhi(cpu_context(cpu, next));
 	TLBMISS_HANDLER_SETUP_PGD(next->pgd);
 
-	/* mark mmu ownership change */	
+	/* mark mmu ownership change */
 	clear_bit(cpu, &prev->cpu_vm_mask);
 	set_bit(cpu, &next->cpu_vm_mask);
 

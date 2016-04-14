@@ -473,7 +473,9 @@ static int svwks_config_drive_xfer_rate (ide_drive_t *drive)
 				int dma = config_chipset_for_dma(drive);
 				if ((id->field_valid & 2) && !dma)
 					goto try_dma_modes;
-			}
+			} else
+				/* UDMA disabled by mask, try other DMA modes */
+				goto try_dma_modes;
 		} else if (id->field_valid & 2) {
 try_dma_modes:
 			if ((id->dma_mword & hwif->mwdma_mask) ||
@@ -490,6 +492,7 @@ try_dma_modes:
 		} else {
 			goto no_dma_set;
 		}
+		return hwif->ide_dma_on(drive);
 	} else if ((id->capability & 8) || (id->field_valid & 2)) {
 fast_ata_pio:
 no_dma_set:
@@ -497,7 +500,8 @@ no_dma_set:
 		//	hwif->tuneproc(drive, 5);
 		return hwif->ide_dma_off_quietly(drive);
 	}
-	return hwif->ide_dma_on(drive);
+	/* IORDY not supported */
+	return 0;
 }
 
 /* This can go soon */
@@ -771,7 +775,7 @@ static void __init init_setup_csb6 (struct pci_dev *dev, ide_pci_device_t *d)
 			return;
 	}
 #if 0
-	if ((IDE_PCI_DEVID_EQ(d->devid, DEVID_CSB6) &&
+	if (IDE_PCI_DEVID_EQ(d->devid, DEVID_CSB6) &&
              (!(PCI_FUNC(dev->devfn) & 1)))
 		d->autodma = AUTODMA;
 #endif

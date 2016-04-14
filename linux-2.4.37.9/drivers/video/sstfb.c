@@ -968,7 +968,6 @@ static int sstfb_ioctl(struct inode *inode, struct file *file,
                        struct fb_info *info)
 {
 #define sst_info	((struct sstfb_info *) info)
-	int i;
 	u_long p;
 	u32 tmp, val;
 	u32 fbiinit0;
@@ -980,12 +979,14 @@ static int sstfb_ioctl(struct inode *inode, struct file *file,
 		
 #if (SST_DEBUG_VAR >0)
 	/* tmp ioctl : dumps fb_display[0-5] */
-	case _IO('F', 0xdb):		/* 0x46db */
+	case _IO('F', 0xdb):		/* 0x46db */ {
+		int i;
 		f_dprintk("dumping fb_display[0-5].var\n");
 		for (i = 0 ; i< 6 ; i++) {
 			print_var(&fb_display[i].var, "var(%d)", i);
 		}
 		return 0;
+	}
 #endif /* (SST_DEBUG_VAR >0) */
 
 	/* fills the lfb up to given count of pixels */

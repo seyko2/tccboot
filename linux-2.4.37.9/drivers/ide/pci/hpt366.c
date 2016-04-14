@@ -123,7 +123,7 @@ static int hpt366_get_info (char *buffer, char **addr, off_t offset, int count)
 				"                             %s\n",
 			(c0 & 0x80) ? "no" : "yes",
 			(c1 & 0x80) ? "no" : "yes");
-
+#if 0
 		if (hpt_minimum_revision(dev, 3)) {
 			u8 cbl;
 			cbl = inb(iobase + 0x7b);
@@ -136,7 +136,7 @@ static int hpt366_get_info (char *buffer, char **addr, off_t offset, int count)
 				(cbl & 0x01) ? 33 : 66);
 			p += sprintf(p, "\n");
 		}
-
+#endif
 		p += sprintf(p, "--------------- drive0 --------- drive1 "
 				"------- drive0 ---------- drive1 -------\n");
 		p += sprintf(p, "DMA capable:    %s              %s" 
@@ -567,13 +567,15 @@ try_dma_modes:
 		} else {
 			goto fast_ata_pio;
 		}
+		return hwif->ide_dma_on(drive);
 	} else if ((id->capability & 8) || (id->field_valid & 2)) {
 fast_ata_pio:
 no_dma_set:
 		hpt3xx_tune_drive(drive, 5);
 		return hwif->ide_dma_off_quietly(drive);
 	}
-	return hwif->ide_dma_on(drive);
+	/* IORDY not supported */
+	return 0;
 }
 
 /*

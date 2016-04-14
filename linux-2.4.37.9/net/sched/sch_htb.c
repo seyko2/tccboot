@@ -77,7 +77,7 @@
 #define HTB_HYSTERESIS 1/* whether to use mode hysteresis for speedup */
 #define HTB_QLOCK(S) spin_lock_bh(&(S)->dev->queue_lock)
 #define HTB_QUNLOCK(S) spin_unlock_bh(&(S)->dev->queue_lock)
-#define HTB_VER 0x30010	/* major must be matched with number suplied by TC as version */
+#define HTB_VER 0x30011	/* major must be matched with number suplied by TC as version */
 
 #if HTB_VER >> 16 != TC_HTB_PROTOVER
 #error "Mismatched sch_htb.c and pkt_sch.h"
@@ -172,6 +172,11 @@ struct htb_class
 	    struct htb_class_inner {
 		    rb_root_t feed[TC_HTB_NUMPRIO];	/* feed trees */
 		    rb_node_t *ptr[TC_HTB_NUMPRIO];	/* current class ptr */
+		    /* When class changes from state 1->2 and disconnects from 
+		       parent's feed then we lost ptr value and start from the
+		       first child again. Here we store classid of the
+		       last valid ptr (used when ptr is NULL). */
+		    u32 last_ptr_id[TC_HTB_NUMPRIO];
 	    } inner;
     } un;
     rb_node_t node[TC_HTB_NUMPRIO];	/* node for self or feed tree */
@@ -218,6 +223,7 @@ struct htb_sched
     rb_root_t row[TC_HTB_MAXDEPTH][TC_HTB_NUMPRIO];
     int row_mask[TC_HTB_MAXDEPTH];
     rb_node_t *ptr[TC_HTB_MAXDEPTH][TC_HTB_NUMPRIO];
+    u32 last_ptr_id[TC_HTB_MAXDEPTH][TC_HTB_NUMPRIO];
 
     /* self wait list - roots of wait PQs per row */
     rb_root_t wait_pq[TC_HTB_MAXDEPTH];
@@ -576,8 +582,13 @@ static void htb_deactivate_prios(struct htb_sched *q, struct htb_class *cl)
 			int prio = ffz(~m);
 			m &= ~(1 << prio);
 			
-			if (p->un.inner.ptr[prio] == cl->node+prio)
-				htb_next_rb_node(p->un.inner.ptr + prio);
+			if (p->un.inner.ptr[prio] == cl->node+prio) {
+				/* we are removing child which is pointed to from
+				   parent feed - forget the pointer but remember
+				   classid */
+				p->un.inner.last_ptr_id[prio] = cl->classid;
+				p->un.inner.ptr[prio] = NULL;
+			}
 			
 			htb_safe_rb_erase(cl->node + prio,p->un.inner.feed + prio);
 			
@@ -908,25 +919,56 @@ static long htb_do_events(struct htb_sched *q,int level)
 	return HZ/10;
 }
 
+/* Returns class->node+prio from id-tree where classe's id is >= id. NULL
+   is no such one exists. */
+static rb_node_t *
+htb_id_find_next_upper(int prio,rb_node_t *n,u32 id)
+{
+	rb_node_t *r = NULL;
+	while (n) {
+		struct htb_class *cl = rb_entry(n,struct htb_class,node[prio]);
+		if (id == cl->classid) return n;
+		
+		if (id > cl->classid) {
+			n = n->rb_right;
+		} else {
+			r = n;
+			n = n->rb_left;
+		}
+	}
+	return r;
+}
+
 /**
  * htb_lookup_leaf - returns next leaf class in DRR order
  *
  * Find leaf where current feed pointers points to.
  */
 static struct htb_class *
-htb_lookup_leaf(rb_root_t *tree,int prio,rb_node_t **pptr)
+htb_lookup_leaf(HTB_ARGQ rb_root_t *tree,int prio,rb_node_t **pptr,u32 *pid)
 {
 	int i;
 	struct {
 		rb_node_t *root;
 		rb_node_t **pptr;
+		u32 *pid;
 	} stk[TC_HTB_MAXDEPTH],*sp = stk;
 	
 	BUG_TRAP(tree->rb_node);
 	sp->root = tree->rb_node;
 	sp->pptr = pptr;
+	sp->pid = pid;
 
 	for (i = 0; i < 65535; i++) {
+		HTB_DBG(4,2,"htb_lleaf ptr=%p pid=%X\n",*sp->pptr,*sp->pid);
+
+		if (!*sp->pptr && *sp->pid) { 
+			/* ptr was invalidated but id is valid - try to recover 
+			   the original or next ptr */
+			*sp->pptr = htb_id_find_next_upper(prio,sp->root,*sp->pid);
+		}
+		*sp->pid = 0; /* ptr is valid now so that remove this hint as it
+			         can become out of date quickly */
 		if (!*sp->pptr) { /* we are at right end; rewind & go up */
 			*sp->pptr = sp->root;
 			while ((*sp->pptr)->rb_left) 
@@ -944,6 +986,7 @@ htb_lookup_leaf(rb_root_t *tree,int prio,rb_node_t **pptr)
 				return cl;
 			(++sp)->root = cl->un.inner.feed[prio].rb_node;
 			sp->pptr = cl->un.inner.ptr+prio;
+			sp->pid = cl->un.inner.last_ptr_id+prio;
 		}
 	}
 	BUG_TRAP(0);
@@ -958,7 +1001,8 @@ htb_dequeue_tree(struct htb_sched *q,int prio,int level)
 	struct sk_buff *skb = NULL;
 	struct htb_class *cl,*start;
 	/* look initial class up in the row */
-	start = cl = htb_lookup_leaf (q->row[level]+prio,prio,q->ptr[level]+prio);
+	start = cl = htb_lookup_leaf (HTB_PASSQ q->row[level]+prio,prio,
+			q->ptr[level]+prio,q->last_ptr_id[level]+prio);
 	
 	do {
 next:
@@ -979,8 +1023,8 @@ next:
 			if ((q->row_mask[level] & (1 << prio)) == 0)
 				return NULL; 
 			
-			next = htb_lookup_leaf (q->row[level]+prio,
-					prio,q->ptr[level]+prio);
+			next = htb_lookup_leaf (HTB_PASSQ q->row[level]+prio,
+					prio,q->ptr[level]+prio,q->last_ptr_id[level]+prio);
 			if (cl == start) /* fix start if we just deleted it */
 				start = next;
 			cl = next;
@@ -995,7 +1039,8 @@ next:
 		}
 		q->nwc_hit++;
 		htb_next_rb_node((level?cl->parent->un.inner.ptr:q->ptr[0])+prio);
-		cl = htb_lookup_leaf (q->row[level]+prio,prio,q->ptr[level]+prio);
+		cl = htb_lookup_leaf (HTB_PASSQ q->row[level]+prio,prio,q->ptr[level]+prio,
+				q->last_ptr_id[level]+prio);
 	} while (cl != start);
 
 	if (likely(skb != NULL)) {
@@ -1017,7 +1062,6 @@ next:
 static void htb_delay_by(struct Qdisc *sch,long delay)
 {
 	struct htb_sched *q = (struct htb_sched *)sch->data;
-	if (netif_queue_stopped(sch->dev)) return;
 	if (delay <= 0) delay = 1;
 	if (unlikely(delay > 5*HZ)) {
 		if (net_ratelimit())
@@ -1187,7 +1231,6 @@ static int htb_init(struct Qdisc *sch, struct rtattr *opt)
 				HTB_VER >> 16,HTB_VER & 0xffff,gopt->version);
 		return -EINVAL;
 	}
-	memset(q,0,sizeof(*q));
 	q->debug = gopt->debug;
 	HTB_DBG(0,1,"htb_init sch=%p handle=%X r2q=%d\n",sch,sch->handle,gopt->rate2quantum);
 
@@ -1244,8 +1287,6 @@ static int htb_dump(struct Qdisc *sch, struct sk_buff *skb)
 	RTA_PUT(skb, TCA_OPTIONS, 0, NULL);
 	RTA_PUT(skb, TCA_HTB_INIT, sizeof(gopt), &gopt);
 	rta->rta_len = skb->tail - b;
-	sch->stats.qlen = sch->q.qlen;
-	RTA_PUT(skb, TCA_STATS, sizeof(sch->stats), &sch->stats);
 	HTB_QUNLOCK(sch);
 	return skb->len;
 rtattr_failure:

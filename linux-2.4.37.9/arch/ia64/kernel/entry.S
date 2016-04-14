@@ -49,8 +49,11 @@
 	 * setup a null register window frame.
 	 */
 ENTRY(ia64_execve)
-	.prologue ASM_UNW_PRLG_RP|ASM_UNW_PRLG_PFS, ASM_UNW_PRLG_GRSAVE(3)
-	alloc loc1=ar.pfs,3,2,4,0
+	/*
+	 * Allocate 8 input registers since ptrace() may clobber them
+	 */
+	.prologue ASM_UNW_PRLG_RP|ASM_UNW_PRLG_PFS, ASM_UNW_PRLG_GRSAVE(8)
+	alloc loc1=ar.pfs,8,2,4,0
 	/* Leave from kernel and restore all pt_regs to correspending registers. This is special 
 	 * because ia32 application needs scratch registers after return from execve.
 	 */
@@ -94,8 +97,11 @@ ENTRY(ia64_execve)
 END(ia64_execve)
 
 GLOBAL_ENTRY(sys_clone2)
-	.prologue ASM_UNW_PRLG_RP|ASM_UNW_PRLG_PFS, ASM_UNW_PRLG_GRSAVE(2)
-	alloc r16=ar.pfs,3,2,4,0
+	/*
+	 * Allocate 8 input registers since ptrace() may clobber them
+	 */
+	.prologue ASM_UNW_PRLG_RP|ASM_UNW_PRLG_PFS, ASM_UNW_PRLG_GRSAVE(8)
+	alloc r16=ar.pfs,8,2,4,0
 	DO_SAVE_SWITCH_STACK
 	mov loc0=rp
 	mov loc1=r16				// save ar.pfs across do_fork
@@ -113,8 +119,11 @@ GLOBAL_ENTRY(sys_clone2)
 END(sys_clone2)
 
 GLOBAL_ENTRY(sys_clone)
-	.prologue ASM_UNW_PRLG_RP|ASM_UNW_PRLG_PFS, ASM_UNW_PRLG_GRSAVE(2)
-	alloc r16=ar.pfs,2,2,4,0
+	/*
+	 * Allocate 8 input registers since ptrace() may clobber them
+	 */
+	.prologue ASM_UNW_PRLG_RP|ASM_UNW_PRLG_PFS, ASM_UNW_PRLG_GRSAVE(8)
+	alloc r16=ar.pfs,8,2,4,0
 	DO_SAVE_SWITCH_STACK
 	mov loc0=rp
 	mov loc1=r16				// save ar.pfs across do_fork
@@ -1091,7 +1100,10 @@ END(sys_rt_sigsuspend)
 
 ENTRY(sys_rt_sigreturn)
 	PT_REGS_UNWIND_INFO(0)
-	alloc r2=ar.pfs,0,0,1,0
+	/*
+	 * Allocate 8 input registers since ptrace() may clobber them
+	 */
+	alloc r2=ar.pfs,8,0,1,0
 	.prologue
 	PT_REGS_SAVES(16)
 	adds sp=-16,sp
@@ -1440,6 +1452,7 @@ sys_call_table:
 	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall			// 1275
+	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall
 	data8 ia64_ni_syscall

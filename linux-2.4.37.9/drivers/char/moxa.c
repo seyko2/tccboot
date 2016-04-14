@@ -294,6 +294,7 @@ static void MoxaPortSendBreak(int, int);
 static int moxa_get_serial_info(struct moxa_str *, struct serial_struct *);
 static int moxa_set_serial_info(struct moxa_str *, struct serial_struct *);
 static void MoxaSetFifo(int port, int enable);
+static unsigned long moxaIntPend[MAX_BOARDS];
 
 #ifdef MODULE
 int init_module(void)
@@ -677,8 +678,8 @@ static void moxa_close(struct tty_struct *tty, struct file *filp)
 
 	if (tty->driver.flush_buffer)
 		tty->driver.flush_buffer(tty);
-	if (tty->ldisc.flush_buffer)
-		tty->ldisc.flush_buffer(tty);
+	tty_ldisc_flush(tty);
+
 	tty->closing = 0;
 	ch->event = 0;
 	ch->tty = 0;
@@ -754,10 +755,7 @@ static void moxa_flush_buffer(struct tty_struct *tty)
 	if (ch == NULL)
 		return;
 	MoxaPortFlushData(ch->port, 1);
-	if ((tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-	    tty->ldisc.write_wakeup)
-		(tty->ldisc.write_wakeup) (tty);
-	wake_up_interruptible(&tty->write_wait);
+	tty_wakeup(tty);
 }
 
 static int moxa_chars_in_buffer(struct tty_struct *tty)
@@ -908,6 +906,8 @@ static int moxa_ioctl(struct tty_struct *tty, struct file *file,
 	case TIOCSSERIAL:
 		return (moxa_set_serial_info(ch, (struct serial_struct *) arg));
 	default:
+		if(!capable(CAP_SYS_RAWIO))
+			return -EPERM;
 		retval = MoxaDriverIoctl(cmd, arg, port);
 	}
 	return (retval);
@@ -996,7 +996,8 @@ static void moxa_poll(unsigned long ignored)
 		return;
 	}
 	for (card = 0; card < MAX_BOARDS; card++) {
-		if ((ports = MoxaPortsOfCard(card)) <= 0)
+		if ((ports = MoxaPortsOfCard(card)) <= 0
+				|| moxaIntPend[card] == 0)
 			continue;
 		ch = &moxaChannels[card * MAX_PORTS_PER_BOARD];
 		for (i = 0; i < ports; i++, ch++) {
@@ -1011,10 +1012,7 @@ static void moxa_poll(unsigned long ignored)
 				if (MoxaPortTxQueue(ch->port) <= WAKEUP_CHARS) {
 					if (!tp->stopped) {
 						ch->statusflags &= ~LOWWAIT;
-						if ((tp->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-						  tp->ldisc.write_wakeup)
-							(tp->ldisc.write_wakeup) (tp);
-						wake_up_interruptible(&tp->write_wait);
+						tty_wakeup(tp);
 					}
 				}
 			}
@@ -1203,10 +1201,7 @@ static void check_xmit_empty(unsigned long data)
 	if (ch->tty && (ch->statusflags & EMPTYWAIT)) {
 		if (MoxaPortTxQueue(ch->port) == 0) {
 			ch->statusflags &= ~EMPTYWAIT;
-			if ((ch->tty->flags & (1 << TTY_DO_WRITE_WAKEUP)) &&
-			    ch->tty->ldisc.write_wakeup)
-				(ch->tty->ldisc.write_wakeup) (ch->tty);
-			wake_up_interruptible(&ch->tty->write_wait);
+			tty_wakeup(ch->tty);
 			return;
 		}
 		moxaEmptyTimer[ch->port].expires = jiffies + HZ;
@@ -1585,7 +1580,6 @@ typedef struct mon_str mon_st;
 
 static unsigned char moxaBuff[10240];
 static unsigned long moxaIntNdx[MAX_BOARDS];
-static unsigned long moxaIntPend[MAX_BOARDS];
 static unsigned long moxaIntTable[MAX_BOARDS];
 static char moxaChkPort[MAX_PORTS];
 static char moxaLineCtrl[MAX_PORTS];
@@ -1769,7 +1763,7 @@ int MoxaDriverIoctl(unsigned int cmd, unsigned long arg, int port)
 
 	if(copy_from_user(&dltmp, (void *)arg, sizeof(struct dl_str)))
 		return -EFAULT;
-	if(dltmp.cardno < 0 || dltmp.cardno >= MAX_BOARDS)
+	if(dltmp.cardno < 0 || dltmp.cardno >= MAX_BOARDS || dltmp.len < 0)
 		return -EINVAL;
 
 	switch(cmd)
@@ -2880,6 +2874,8 @@ static int moxaloadbios(int cardno, unsigned char *tmp, int len)
 	unsigned long baseAddr;
 	int i;
 
+	if(len < 0 || len > sizeof(moxaBuff))
+		return -EINVAL;
 	if(copy_from_user(moxaBuff, tmp, len))
 		return -EFAULT;
 	baseAddr = moxaBaseAddr[cardno];
@@ -2927,7 +2923,7 @@ static int moxaload320b(int cardno, unsigned char * tmp, int len)
 	unsigned long baseAddr;
 	int i;
 
-	if(len > sizeof(moxaBuff))
+	if(len < 0 || len > sizeof(moxaBuff))
 		return -EINVAL;
 	if(copy_from_user(moxaBuff, tmp, len))
 		return -EFAULT;
@@ -2947,6 +2943,8 @@ static int moxaloadcode(int cardno, unsigned char * tmp, int len)
 	unsigned long baseAddr, ofsAddr;
 	int retval, port, i;
 
+	if(len < 0 || len > sizeof(moxaBuff))
+		return -EINVAL;
 	if(copy_from_user(moxaBuff, tmp, len))
 		return -EFAULT;
 	baseAddr = moxaBaseAddr[cardno];

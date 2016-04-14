@@ -742,6 +742,16 @@ static int sg_common_write(Sg_fd * sfp, Sg_request * srp,
     return 0;
 }
 
+static inline unsigned sg_jif_to_ms(int jifs)
+{
+    if (jifs <= 0)
+	return 0U;
+    else {
+	unsigned int j = (unsigned int)jifs;
+	return (j < (UINT_MAX / 1000)) ? ((j * 1000) / HZ) : ((j / HZ) * 1000);
+    }
+}
+
 static int sg_ioctl(struct inode * inode, struct file * filp,
                     unsigned int cmd_in, unsigned long arg)
 {
@@ -1182,7 +1192,7 @@ static int sg_mmap(struct file * filp, struct vm_area_struct *vma)
     	sg_rb_correct4mmap(rsv_schp, 1);  /* do only once per fd lifetime */
 	sfp->mmap_called = 1;
     }
-    vma->vm_flags |= (VM_RESERVED | VM_IO);
+    vma->vm_flags |= VM_RESERVED;
     vma->vm_private_data = sfp;
     vma->vm_ops = &sg_mmap_vm_ops;
     return 0;
@@ -1243,7 +1253,6 @@ static void sg_cmd_done_bh(Scsi_Cmnd * SCpnt)
     SRpnt->sr_request.rq_dev = MKDEV(0, 0);  /* "sg" _disowns_ request blk */
 
     srp->my_cmdp = NULL;
-    srp->done = 1;
     read_unlock(&sg_dev_arr_lock);
 
     SCSI_LOG_TIMEOUT(4, printk("sg...bh: dev=%d, pack_id=%d, res=0x%x\n",
@@ -1306,8 +1315,9 @@ static void sg_cmd_done_bh(Scsi_Cmnd * SCpnt)
     }
     if (sfp && srp) {
 	/* Now wake up any sg_read() that is waiting for this packet. */
-	wake_up_interruptible(&sfp->read_wait);
 	kill_fasync(&sfp->async_qp, SIGPOLL, POLL_IN);
+	srp->done = 1;
+	wake_up_interruptible(&sfp->read_wait);
     }
 }
 
@@ -1638,6 +1648,24 @@ static int sg_build_sgat(Sg_scatter_hold * schp, const Sg_fd * sfp,
     schp->sglist_len = sg_bufflen;
     memset(schp->buffer, 0, sg_bufflen);
     return mx_sc_elems; /* number of scat_gath elements allocated */
+}
+
+static inline int sg_alloc_kiovec(int nr, struct kiobuf **bufp, int *szp)
+{
+#if SG_NEW_KIOVEC
+    return alloc_kiovec_sz(nr, bufp, szp);
+#else
+    return alloc_kiovec(nr, bufp);
+#endif
+}
+
+static inline void sg_free_kiovec(int nr, struct kiobuf **bufp, int *szp)
+{
+#if SG_NEW_KIOVEC
+    free_kiovec_sz(nr, bufp, szp);
+#else
+    free_kiovec(nr, bufp);
+#endif
 }
 
 static void sg_unmap_and(Sg_scatter_hold * schp, int free_also)
@@ -2568,15 +2596,6 @@ static char * sg_malloc(const Sg_fd * sfp, int size, int * retSzp,
     return resp;
 }
 
-static inline int sg_alloc_kiovec(int nr, struct kiobuf **bufp, int *szp)
-{
-#if SG_NEW_KIOVEC
-    return alloc_kiovec_sz(nr, bufp, szp);
-#else
-    return alloc_kiovec(nr, bufp);
-#endif
-}
-
 static void sg_low_free(char * buff, int size, int mem_src)
 {
     if (! buff) return;
@@ -2620,15 +2639,6 @@ static void sg_free(char * buff, int size, int mem_src)
         sg_low_free(buff, size, mem_src);
 }
 
-static inline void sg_free_kiovec(int nr, struct kiobuf **bufp, int *szp)
-{
-#if SG_NEW_KIOVEC
-    free_kiovec_sz(nr, bufp, szp);
-#else
-    free_kiovec(nr, bufp);
-#endif
-}
-
 static int sg_ms_to_jif(unsigned int msecs)
 {
     if ((UINT_MAX / 2U) < msecs)
@@ -2636,16 +2646,6 @@ static int sg_ms_to_jif(unsigned int msecs)
     else
 	return ((int)msecs < (INT_MAX / 1000)) ? (((int)msecs * HZ) / 1000)
 					       : (((int)msecs / 1000) * HZ);
-}
-
-static inline unsigned sg_jif_to_ms(int jifs)
-{
-    if (jifs <= 0)
-	return 0U;
-    else {
-	unsigned int j = (unsigned int)jifs;
-	return (j < (UINT_MAX / 1000)) ? ((j * 1000) / HZ) : ((j / HZ) * 1000);
-    }
 }
 
 static unsigned char allow_ops[] = {TEST_UNIT_READY, REQUEST_SENSE,

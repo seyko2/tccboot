@@ -7,6 +7,10 @@
 OUTPUT_FORMAT("elf64-ia64-little")
 OUTPUT_ARCH(ia64)
 ENTRY(phys_start)
+PHDRS {
+  code   PT_LOAD;
+  data   PT_LOAD;
+}
 SECTIONS
 {
   /* Sections to be discarded */
@@ -23,6 +27,7 @@ SECTIONS
   v = PAGE_OFFSET;	/* this symbol is here to make debugging easier... */
   phys_start = _start - PAGE_OFFSET;
 
+  code : { } :code
   . = KERNEL_START;
 
   _text = .;
@@ -142,6 +147,7 @@ SECTIONS
   .kstrtab : AT(ADDR(.kstrtab) - PAGE_OFFSET)
 	{ *(.kstrtab) }
 
+  data : { } :data
   .data : AT(ADDR(.data) - PAGE_OFFSET)
 	{ *(.data) *(.gnu.linkonce.d*) CONSTRUCTORS }
 
@@ -165,6 +171,7 @@ SECTIONS
   . = ALIGN(64 / 8);
   _end = .;
 
+  code : { } :code
   /* Stabs debugging sections.  */
   .stab 0 : { *(.stab) }
   .stabstr 0 : { *(.stabstr) }

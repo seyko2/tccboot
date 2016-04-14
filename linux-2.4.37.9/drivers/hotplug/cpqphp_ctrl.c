@@ -1726,7 +1726,14 @@ static int event_thread(void* data)
 	
 	//  New name
 	strcpy(current->comm, "phpd_event");
-	
+
+	/* avoid getting signals */
+	spin_lock_irq(&current->sigmask_lock);
+	flush_signals(current);
+	sigfillset(&current->blocked);
+	recalc_sigpending(current);
+	spin_unlock_irq(&current->sigmask_lock);
+
 	unlock_kernel();
 
 	while (1) {

@@ -9,6 +9,7 @@
 
 #include <linux/config.h>
 #include <linux/stddef.h>
+#include <linux/errno.h>
 #include <linux/sysrq.h>
 #include <linux/ctype.h>
 #include <linux/interrupt.h>

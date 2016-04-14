@@ -537,7 +537,10 @@ write_fifo (struct net2280_ep *ep, struct usb_request *req)
 	}
 
 	/* write just one packet at a time */
-	count = min (ep->ep.maxpacket, total);
+	count = ep->ep.maxpacket;
+	if (count > total)	/* min() cannot be used on a bitfield */
+		count = total;
+
 	VDEBUG (ep->dev, "write %s fifo (IN) %d bytes%s req %p\n",
 			ep->ep.name, count,
 			(count != ep->ep.maxpacket) ? " (short)" : "",
@@ -2191,7 +2194,8 @@ static void handle_ep_small (struct net2280_ep *ep)
 		unsigned	len;
 
 		len = req->req.length - req->req.actual;
-		len = min (ep->ep.maxpacket, len);
+		if (len > ep->ep.maxpacket)
+			len = ep->ep.maxpacket;
 		req->req.actual += len;
 
 		/* if we wrote it all, we're usually done */

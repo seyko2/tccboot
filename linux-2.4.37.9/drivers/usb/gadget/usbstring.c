@@ -11,11 +11,12 @@
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/string.h>
-#include <linux/version.h>
+#include <linux/init.h>
 
 #include <linux/usb_ch9.h>
 #include <linux/usb_gadget.h>
 
+#include <asm/byteorder.h>
 #include <asm/unaligned.h>
 
 

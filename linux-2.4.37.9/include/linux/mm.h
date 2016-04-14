@@ -117,6 +117,7 @@ struct vm_area_struct {
 /* read ahead limits */
 extern int vm_min_readahead;
 extern int vm_max_readahead;
+extern unsigned long mmap_min_addr;
 
 /*
  * mapping from the currently active vm_flags protection bits (the
@@ -198,6 +199,11 @@ typedef struct page {
 #define put_page_testzero(p) 	atomic_dec_and_test(&(p)->count)
 #define page_count(p)		atomic_read(&(p)->count)
 #define set_page_count(p,v) 	atomic_set(&(p)->count, v)
+
+static inline struct page *nth_page(struct page *page, int n)
+{
+	return page + n;
+}
 
 /*
  * Various page->flags bits:
@@ -308,11 +314,9 @@ typedef struct page {
 /* Make it prettier to test the above... */
 #define UnlockPage(page)	unlock_page(page)
 #define Page_Uptodate(page)	test_bit(PG_uptodate, &(page)->flags)
-#define SetPageUptodate(page) \
-	do {								\
-		arch_set_page_uptodate(page);				\
-		set_bit(PG_uptodate, &(page)->flags);			\
-	} while (0)
+#ifndef SetPageUptodate
+#define SetPageUptodate(page)	set_bit(PG_uptodate, &(page)->flags)
+#endif
 #define ClearPageUptodate(page)	clear_bit(PG_uptodate, &(page)->flags)
 #define PageDirty(page)		test_bit(PG_dirty, &(page)->flags)
 #define SetPageDirty(page)	set_bit(PG_dirty, &(page)->flags)
@@ -545,7 +549,7 @@ extern void __free_pte(pte_t);
 /* mmap.c */
 extern void lock_vma_mappings(struct vm_area_struct *);
 extern void unlock_vma_mappings(struct vm_area_struct *);
-extern void insert_vm_struct(struct mm_struct *, struct vm_area_struct *);
+extern int insert_vm_struct(struct mm_struct *, struct vm_area_struct *);
 extern void __insert_vm_struct(struct mm_struct *, struct vm_area_struct *);
 extern void build_mmap_rb(struct mm_struct *);
 extern void exit_mmap(struct mm_struct *);
@@ -644,18 +648,38 @@ static inline int expand_stack(struct vm_area_struct * vma, unsigned long addres
 	unsigned long grow;
 
 	/*
-	 * vma->vm_start/vm_end cannot change under us because the caller is required
-	 * to hold the mmap_sem in write mode. We need to get the spinlock only
-	 * before relocating the vma range ourself.
+	 * vma->vm_start/vm_end cannot change under us because the caller
+	 * is required to hold the mmap_sem in read mode.  We need the
+	 * page_table_lock lock to serialize against concurrent expand_stacks.
 	 */
 	address &= PAGE_MASK;
+
+	/* ensure a non-privileged process is not trying to mmap lower pages */
+	if (address < mmap_min_addr && !capable(CAP_SYS_RAWIO))
+		return -EPERM;
+
  	spin_lock(&vma->vm_mm->page_table_lock);
+
+	/* already expanded while we were spinning? */
+	if (vma->vm_start <= address) {
+		spin_unlock(&vma->vm_mm->page_table_lock);
+		return 0;
+	}
+
 	grow = (vma->vm_start - address) >> PAGE_SHIFT;
 	if (vma->vm_end - address > current->rlim[RLIMIT_STACK].rlim_cur ||
 	    ((vma->vm_mm->total_vm + grow) << PAGE_SHIFT) > current->rlim[RLIMIT_AS].rlim_cur) {
 		spin_unlock(&vma->vm_mm->page_table_lock);
 		return -ENOMEM;
 	}
+
+	if ((vma->vm_flags & VM_LOCKED) &&
+      	    ((vma->vm_mm->locked_vm + grow) << PAGE_SHIFT) > current->rlim[RLIMIT_MEMLOCK].rlim_cur) {
+		spin_unlock(&vma->vm_mm->page_table_lock);
+		return -ENOMEM;
+	}
+
+
 	vma->vm_start = address;
 	vma->vm_pgoff -= grow;
 	vma->vm_mm->total_vm += grow;

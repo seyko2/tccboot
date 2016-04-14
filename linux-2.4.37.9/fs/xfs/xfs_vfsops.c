@@ -118,7 +118,7 @@ xfs_init(void)
 	xfs_ili_zone = kmem_zone_init(sizeof(xfs_inode_log_item_t), "xfs_ili");
 	xfs_chashlist_zone = kmem_zone_init(sizeof(xfs_chashlist_t),
 					    "xfs_chashlist");
-	_ACL_ZONE_INIT(xfs_acl_zone, "xfs_acl");
+	xfs_acl_zone_init(xfs_acl_zone, "xfs_acl");
 
 	/*
 	 * Allocate global trace buffers.
@@ -170,6 +170,7 @@ xfs_cleanup(void)
 	xfs_cleanup_procfs();
 	xfs_sysctl_unregister();
 	xfs_refcache_destroy();
+	xfs_acl_zone_destroy(xfs_acl_zone);
 
 #ifdef XFS_DIR2_TRACE
 	ktrace_free(xfs_dir2_trace_buf);
@@ -202,7 +203,6 @@ xfs_cleanup(void)
 	kmem_cache_destroy(xfs_ifork_zone);
 	kmem_cache_destroy(xfs_ili_zone);
 	kmem_cache_destroy(xfs_chashlist_zone);
-	_ACL_ZONE_DESTROY(xfs_acl_zone);
 }
 
 /*
@@ -213,9 +213,9 @@ xfs_cleanup(void)
  */
 STATIC int
 xfs_start_flags(
+	struct vfs		*vfs,
 	struct xfs_mount_args	*ap,
-	struct xfs_mount	*mp,
-	int			ronly)
+	struct xfs_mount	*mp)
 {
 	/* Values are in BBs */
 	if ((ap->flags & XFSMNT_NOALIGN) != XFSMNT_NOALIGN) {
@@ -279,6 +279,9 @@ xfs_start_flags(
 	if (ap->flags & XFSMNT_NOALIGN)
 		mp->m_flags |= XFS_MOUNT_NOALIGN;
 
+	if (ap->flags & XFSMNT_SWALLOC)
+		mp->m_flags |= XFS_MOUNT_SWALLOC;
+
 	if (ap->flags & XFSMNT_OSYNCISOSYNC)
 		mp->m_flags |= XFS_MOUNT_OSYNCISOSYNC;
 
@@ -305,7 +308,7 @@ xfs_start_flags(
 	 * no recovery flag requires a read-only mount
 	 */
 	if (ap->flags & XFSMNT_NORECOVERY) {
-		if (!ronly) {
+		if (!(vfs->vfs_flag & VFS_RDONLY)) {
 			cmn_err(CE_WARN,
 	"XFS: tried to mount a FS read-write without recovery!");
 			return XFS_ERROR(EINVAL);
@@ -327,10 +330,12 @@ xfs_start_flags(
  */
 STATIC int
 xfs_finish_flags(
+	struct vfs		*vfs,
 	struct xfs_mount_args	*ap,
-	struct xfs_mount	*mp,
-	int			ronly)
+	struct xfs_mount	*mp)
 {
+	int			ronly = (vfs->vfs_flag & VFS_RDONLY);
+
 	/* Fail a mount where the logbuf is smaller then the log stripe */
 	if (XFS_SB_VERSION_HASLOGV2(&mp->m_sb)) {
 		if ((ap->logbufsize == -1) &&
@@ -420,11 +425,20 @@ xfs_mount(
 	struct bhv_desc		*p;
 	struct xfs_mount	*mp = XFS_BHVTOM(bhvp);
 	struct block_device	*ddev, *logdev, *rtdev;
-	int			ronly = (vfsp->vfs_flag & VFS_RDONLY);
 	int			flags = 0, error;
 
 	ddev = vfsp->vfs_super->s_bdev;
 	logdev = rtdev = NULL;
+
+	/*
+	 * Setup xfs_mount function vectors from available behaviors
+	 */
+	p = vfs_bhv_lookup(vfsp, VFS_POSITION_DM);
+	mp->m_dm_ops = p ? *(xfs_dmops_t *) vfs_bhv_custom(p) : xfs_dmcore_stub;
+	p = vfs_bhv_lookup(vfsp, VFS_POSITION_QM);
+	mp->m_qm_ops = p ? *(xfs_qmops_t *) vfs_bhv_custom(p) : xfs_qmcore_stub;
+	p = vfs_bhv_lookup(vfsp, VFS_POSITION_IO);
+	mp->m_io_ops = p ? *(xfs_ioops_t *) vfs_bhv_custom(p) : xfs_iocore_xfs;
 
 	/*
 	 * Open real time and log devices - order is important.
@@ -451,68 +465,73 @@ xfs_mount(
 	}
 
 	/*
-	 * Setup xfs_mount function vectors from available behaviors
-	 */
-	p = vfs_bhv_lookup(vfsp, VFS_POSITION_DM);
-	mp->m_dm_ops = p ? *(xfs_dmops_t *) vfs_bhv_custom(p) : xfs_dmcore_stub;
-	p = vfs_bhv_lookup(vfsp, VFS_POSITION_QM);
-	mp->m_qm_ops = p ? *(xfs_qmops_t *) vfs_bhv_custom(p) : xfs_qmcore_stub;
-	p = vfs_bhv_lookup(vfsp, VFS_POSITION_IO);
-	mp->m_io_ops = p ? *(xfs_ioops_t *) vfs_bhv_custom(p) : xfs_iocore_xfs;
-
-	/*
 	 * Setup xfs_mount buffer target pointers
 	 */
+	error = ENOMEM;
 	mp->m_ddev_targp = xfs_alloc_buftarg(ddev);
-	if (rtdev)
+	if (!mp->m_ddev_targp) {
+		xfs_blkdev_put(logdev);
+		xfs_blkdev_put(rtdev);
+		return error;
+	}
+	if (rtdev) {
 		mp->m_rtdev_targp = xfs_alloc_buftarg(rtdev);
+		if (!mp->m_rtdev_targp)
+			goto error0;
+	}
 	mp->m_logdev_targp = (logdev && logdev != ddev) ?
 				xfs_alloc_buftarg(logdev) : mp->m_ddev_targp;
+	if (!mp->m_logdev_targp)
+		goto error0;
 
 	/*
 	 * Setup flags based on mount(2) options and then the superblock
 	 */
-	error = xfs_start_flags(args, mp, ronly);
+	error = xfs_start_flags(vfsp, args, mp);
 	if (error)
-		goto error;
+		goto error1;
 	error = xfs_readsb(mp);
 	if (error)
-		goto error;
-	error = xfs_finish_flags(args, mp, ronly);
-	if (error) {
-		xfs_freesb(mp);
-		goto error;
-	}
+		goto error1;
+	error = xfs_finish_flags(vfsp, args, mp);
+	if (error)
+		goto error2;
 
 	/*
 	 * Setup xfs_mount buffer target pointers based on superblock
 	 */
-	xfs_setsize_buftarg(mp->m_ddev_targp, mp->m_sb.sb_blocksize,
-			    mp->m_sb.sb_sectsize);
-	if (logdev && logdev != ddev) {
+	error = xfs_setsize_buftarg(mp->m_ddev_targp, mp->m_sb.sb_blocksize,
+				    mp->m_sb.sb_sectsize);
+	if (!error && logdev && logdev != ddev) {
 		unsigned int	log_sector_size = BBSIZE;
 
 		if (XFS_SB_VERSION_HASSECTOR(&mp->m_sb))
 			log_sector_size = mp->m_sb.sb_logsectsize;
-		xfs_setsize_buftarg(mp->m_logdev_targp, mp->m_sb.sb_blocksize,
-				    log_sector_size);
+		error = xfs_setsize_buftarg(mp->m_logdev_targp,
+					    mp->m_sb.sb_blocksize,
+					    log_sector_size);
 	}
-	if (rtdev)
-		xfs_setsize_buftarg(mp->m_rtdev_targp, mp->m_sb.sb_blocksize,
-				    mp->m_sb.sb_blocksize);
+	if (!error && rtdev)
+		error = xfs_setsize_buftarg(mp->m_rtdev_targp,
+					    mp->m_sb.sb_blocksize,
+					    mp->m_sb.sb_sectsize);
+	if (error)
+		goto error2;
 
-	if (!(error = XFS_IOINIT(vfsp, args, flags)))
+	error = XFS_IOINIT(vfsp, args, flags);
+	if (!error)
 		return 0;
-
- error:
+error2:
+	if (mp->m_sb_bp)
+		xfs_freesb(mp);
+error1:
 	xfs_binval(mp->m_ddev_targp);
-	if (logdev != NULL && logdev != ddev) {
+	if (logdev && logdev != ddev)
 		xfs_binval(mp->m_logdev_targp);
-	}
-	if (rtdev != NULL) {
+	if (rtdev)
 		xfs_binval(mp->m_rtdev_targp);
-	}
-	xfs_unmountfs_close(mp, NULL);
+error0:
+	xfs_unmountfs_close(mp, credp);
 	return error;
 }
 
@@ -535,7 +554,7 @@ xfs_unmount(
 	rvp = XFS_ITOV(rip);
 
 	if (vfsp->vfs_flag & VFS_DMI) {
-		error = XFS_SEND_NAMESP(mp, DM_EVENT_PREUNMOUNT,
+		error = XFS_SEND_PREUNMOUNT(mp, vfsp,
 				rvp, DM_RIGHT_NULL, rvp, DM_RIGHT_NULL,
 				NULL, NULL, 0, 0,
 				(mp->m_dmevmask & (1<<DM_EVENT_PREUNMOUNT))?
@@ -624,7 +643,7 @@ xfs_mntupdate(
 
 	if (*flags & MS_RDONLY) {
 		xfs_refcache_purge_mp(mp);
-		pagebuf_delwri_flush(mp->m_ddev_targp, 0, NULL);
+		xfs_flush_buftarg(mp->m_ddev_targp, 0);
 		xfs_finish_reclaim_all(mp, 0);
 
 		/* This loop must run at least twice.
@@ -636,9 +655,11 @@ xfs_mntupdate(
 		 */ 
 		do {
 			VFS_SYNC(vfsp, REMOUNT_READONLY_FLAGS, NULL, error);
-			pagebuf_delwri_flush(mp->m_ddev_targp, PBDF_WAIT,
-								&pincount);
-			if(0 == pincount) { delay(50); count++; }
+			pincount = xfs_flush_buftarg(mp->m_ddev_targp, 1);
+			if (!pincount) {
+				delay(50);
+				count++;
+			}
 		} while (count < 2);
 
 		/* Ok now write out an unmount record */
@@ -1029,6 +1050,11 @@ xfs_sync_inodes(
 				xfs_iunlock(ip, XFS_ILOCK_EXCL);
 				ip = ip->i_mnext;
 			}
+			continue;
+		}
+
+		if (VN_BAD(vp)) {
+			ip = ip->i_mnext;
 			continue;
 		}
 
@@ -1502,7 +1528,10 @@ xfs_syncsub(
 	 * eventually kicked out of the cache.
 	 */
 	if (flags & SYNC_REFCACHE) {
-		xfs_refcache_purge_some(mp);
+		if (flags & SYNC_WAIT)
+			xfs_refcache_purge_mp(mp);
+		else
+			xfs_refcache_purge_some(mp);
 	}
 
 	/*
@@ -1551,7 +1580,7 @@ xfs_syncsub(
 }
 
 /*
- * xfs_vget - called by DMAPI to get vnode from file handle
+ * xfs_vget - called by DMAPI and NFSD to get vnode from file handle
  */
 STATIC int
 xfs_vget(
@@ -1559,37 +1588,41 @@ xfs_vget(
 	vnode_t		**vpp,
 	fid_t		*fidp)
 {
-	xfs_fid_t	*xfid;
+	xfs_mount_t	*mp = XFS_BHVTOM(bdp);
+	xfs_fid_t	*xfid = (struct xfs_fid *)fidp;
 	xfs_inode_t	*ip;
 	int		error;
 	xfs_ino_t	ino;
 	unsigned int	igen;
-	xfs_mount_t	*mp;
 
-	xfid  = (struct xfs_fid *)fidp;
-	if (xfid->xfs_fid_len == sizeof(*xfid) - sizeof(xfid->xfs_fid_len)) {
-		ino  = xfid->xfs_fid_ino;
-		igen = xfid->xfs_fid_gen;
-	} else {
-		/*
-		 * Invalid.  Since handles can be created in user space
-		 * and passed in via gethandle(), this is not cause for
-		 * a panic.
-		 */
+	/*
+	 * Invalid.  Since handles can be created in user space and passed in
+	 * via gethandle(), this is not cause for a panic.
+	 */
+	if (xfid->xfs_fid_len != sizeof(*xfid) - sizeof(xfid->xfs_fid_len))
 		return XFS_ERROR(EINVAL);
-	}
-	mp = XFS_BHVTOM(bdp);
-	error = xfs_iget(mp, NULL, ino, XFS_ILOCK_SHARED, &ip, 0);
+
+	ino  = xfid->xfs_fid_ino;
+	igen = xfid->xfs_fid_gen;
+
+	/*
+	 * NFS can sometimes send requests for ino 0.  Fail them gracefully.
+	 */
+	if (ino == 0)
+		return XFS_ERROR(ESTALE);
+
+	error = xfs_iget(mp, NULL, ino, 0, XFS_ILOCK_SHARED, &ip, 0);
 	if (error) {
 		*vpp = NULL;
 		return error;
 	}
+
 	if (ip == NULL) {
 		*vpp = NULL;
 		return XFS_ERROR(EIO);
 	}
 
-	if (ip->i_d.di_mode == 0 || (igen && (ip->i_d.di_gen != igen))) {
+	if (ip->i_d.di_mode == 0 || ip->i_d.di_gen != igen) {
 		xfs_iput_new(ip, XFS_ILOCK_SHARED);
 		*vpp = NULL;
 		return XFS_ERROR(ENOENT);
@@ -1609,6 +1642,7 @@ xfs_vget(
 #define MNTOPT_WSYNC	"wsync"		/* safe-mode nfs compatible mount */
 #define MNTOPT_INO64	"ino64"		/* force inodes into 64-bit range */
 #define MNTOPT_NOALIGN	"noalign"	/* turn off stripe alignment */
+#define MNTOPT_SWALLOC	"swalloc"	/* turn on stripe width allocation */
 #define MNTOPT_SUNIT	"sunit"		/* data volume stripe unit */
 #define MNTOPT_SWIDTH	"swidth"	/* data volume stripe width */
 #define MNTOPT_NOUUID	"nouuid"	/* ignore filesystem UUID */
@@ -1716,6 +1750,8 @@ xfs_parseargs(
 #endif
 		} else if (!strcmp(this_char, MNTOPT_NOALIGN)) {
 			args->flags |= XFSMNT_NOALIGN;
+		} else if (!strcmp(this_char, MNTOPT_SWALLOC)) {
+			args->flags |= XFSMNT_SWALLOC;
 		} else if (!strcmp(this_char, MNTOPT_SUNIT)) {
 			if (!value || !*value) {
 				printk("XFS: %s option requires an argument\n",
@@ -1810,6 +1846,7 @@ xfs_showargs(
 		{ XFS_MOUNT_WSYNC,		"," MNTOPT_WSYNC },
 		{ XFS_MOUNT_INO64,		"," MNTOPT_INO64 },
 		{ XFS_MOUNT_NOALIGN,		"," MNTOPT_NOALIGN },
+		{ XFS_MOUNT_SWALLOC,		"," MNTOPT_SWALLOC },
 		{ XFS_MOUNT_NOUUID,		"," MNTOPT_NOUUID },
 		{ XFS_MOUNT_NORECOVERY,		"," MNTOPT_NORECOVERY },
 		{ XFS_MOUNT_OSYNCISOSYNC,	"," MNTOPT_OSYNCISOSYNC },
@@ -1856,6 +1893,20 @@ xfs_showargs(
 	return 0;
 }
 
+STATIC void
+xfs_freeze(
+	bhv_desc_t	*bdp)
+{
+	xfs_mount_t	*mp = XFS_BHVTOM(bdp);
+
+	while (atomic_read(&mp->m_active_trans) > 0)
+		delay(100);
+
+	/* Push the superblock and write an unmount record */
+	xfs_log_unmount_write(mp);
+	xfs_unmountfs_writesb(mp);
+}
+
 
 vfsops_t xfs_vfsops = {
 	BHV_IDENTITY_INIT(VFS_BHV_XFS,VFS_POSITION_XFS),
@@ -1873,4 +1924,5 @@ vfsops_t xfs_vfsops = {
 	.vfs_get_inode		= xfs_get_inode,
 	.vfs_init_vnode		= xfs_initialize_vnode,
 	.vfs_force_shutdown	= xfs_do_force_shutdown,
+	.vfs_freeze		= xfs_freeze,
 };

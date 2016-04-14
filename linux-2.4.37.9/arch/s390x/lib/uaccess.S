@@ -19,8 +19,8 @@ __copy_from_user_asm:
 	sacf	512
 0:	mvcle	%r2,%r4,0
 	jo	0b
-1:	sacf	0
 	lgr	%r2,%r5
+1:	sacf	0
 	br	%r14
 2:	lghi	%r1,-4096
 	lgr	%r3,%r4
@@ -28,17 +28,23 @@ __copy_from_user_asm:
 	ngr	%r3,%r1      # %r3 = (%r4 + 4096) & -4096
 	slgr	%r3,%r4      # %r3 = #bytes to next user page boundary
 	clgr	%r5,%r3      # copy crosses next page boundary ?
-	jnh	1b           # no, this page fauled
+	jnh	4f           # no, this page faulted
 	# The page after the current user page might have faulted.
-	# We cant't find out which page because the program check handler
-	# might have callled schedule, destroying all lowcore information.
+	# We can't find out which page because the program check handler
+	# might have called schedule, destroying all lowcore information.
 	# We retry with the shortened length.
 3:	mvcle	%r2,%r4,0
 	jo	3b
+4:	lgr	%r1,%r5      # pad remaining bytes with 0
+	lgr	%r3,%r5
+	slgr	%r5,%r5
+5:	mvcle	%r2,%r4,0
+	jo	5b
+	lgr	%r2,%r1
 	j	1b
         .section __ex_table,"a"
 	.quad	0b,2b
-	.quad	3b,1b
+	.quad	3b,4b
         .previous
 
         .align 4

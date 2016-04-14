@@ -1223,7 +1223,7 @@ static int radeon_cp_dispatch_texture( drm_device_t *dev,
 		/* Update the input parameters for next time */
 		image->y += height;
 		image->height -= height;
-		(const u8 *)image->data += size;
+		image->data = (const u8 *)image->data + size;
 	} while (image->height > 0);
 
 	/* Flush the pixel cache after the blit completes.  This ensures

@@ -87,7 +87,7 @@ static inline void modify_cp0_intmask(unsigned clr_mask_in, unsigned set_mask_in
         set_mask = 0xff & set_mask_in;
         status = read_c0_status();
         status &= ~((clr_mask & 0xFF) << 8);
-        status |= (set_mask & 0xFF) << 8 | 0x0000FF00;
+        status |= (set_mask & 0xFF) << 8;
         write_c0_status(status);
 
         /* do the high 8 bits */
@@ -96,6 +96,7 @@ static inline void modify_cp0_intmask(unsigned clr_mask_in, unsigned set_mask_in
         status = read_32bit_cp0_set1_register(CP0_S1_INTCONTROL);
         status &= ~((clr_mask & 0xFF) << 8);
         status |= (set_mask & 0xFF) << 8;
+	status |= (1 << 13);
         write_32bit_cp0_set1_register(CP0_S1_INTCONTROL, status);
 }
 
@@ -224,6 +225,17 @@ done:
 		do_IRQ(irq, regs);	
 }
 
+static struct irqaction unused_irq =
+	{ no_action, SA_INTERRUPT, 0, "unused", NULL, NULL };
+
+extern unsigned long exception_handlers[32];
+
+#ifdef CONFIG_KGDB
+extern void init_second_port(void);
+extern void breakpoint(void);
+extern void set_debug_traps(void);
+#endif
+
 /*
  * Initialize the next level interrupt handler
  */
@@ -237,11 +249,37 @@ void __init init_IRQ(void)
 	set_except_vector(0, titan_handle_int);
 	init_generic_irq();
 
-	for (i = 0; i < 13; i++) {
+	for (i = 0; i < 12; i++) {
                 irq_desc[i].status      = IRQ_DISABLED;
                 irq_desc[i].action      = 0;
                 irq_desc[i].depth       = 1;
                 irq_desc[i].handler     = &rm9000_hpcdma_irq_type;
         }
+
+#ifdef CONFIG_KGDB
+	/* At this point, initialize the second serial port */
+	init_second_port();
+	printk("Start kgdb ... \n");
+	set_debug_traps();
+	breakpoint();
+#endif
+
+#ifdef CONFIG_GDB_CONSOLE
+	register_gdb_console();
+#endif
 }
 
+#ifdef CONFIG_KGDB
+/* 
+ * The 16550 DUART has two ports, but is allocated one IRQ 
+ * for the serial console. Hence, a generic framework for
+ * serial IRQ routing in place. Currently, just calls the 
+ * do_IRQ fuction. But, going in the future, need to check
+ * DUART registers for channel A and B, then decide the 
+ * appropriate action
+ */
+asmlinkage void yosemite_kgdb_irq(int irq, struct pt_regs *regs)
+{
+	do_IRQ(irq, regs);
+}
+#endif

@@ -137,7 +137,7 @@ extern unsigned long DMA_MODE_WRITE, DMA_MODE_READ;
 #define DMA_TCE_ENABLE     (1<<(8-DMA_CR_OFFSET))
 #define SET_DMA_TCE(x)     (((x)&0x1)<<(8-DMA_CR_OFFSET))
 
-#define DMA_DEC            (1<<(2)	/* Address Decrement */
+#define DMA_DEC            (1<<(2))	/* Address Decrement */
 #define SET_DMA_DEC(x)     (((x)&0x1)<<2)
 #define GET_DMA_DEC(x)     (((x)&DMA_DEC)>>2)
 

@@ -71,7 +71,7 @@ good_area:
 		if (!vma || vma->vm_start != start)
 			goto bad_area;
 		if (!(vma->vm_flags & VM_WRITE))
-			goto bad_area;;
+			goto bad_area;
 	}
 	return 1;
 

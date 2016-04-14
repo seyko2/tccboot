@@ -185,7 +185,6 @@ int __init select_idle_routine(struct cpuinfo_x86 *c)
 		}
 		return 1;
 	}
-	pm_idle = default_idle;
 	return 1;
 }
 
@@ -527,10 +526,10 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long rsp,
 	p->thread.fs = me->thread.fs;
 	p->thread.gs = me->thread.gs;
 
-	asm("movl %%gs,%0" : "=m" (p->thread.gsindex));
-	asm("movl %%fs,%0" : "=m" (p->thread.fsindex));
-	asm("movl %%es,%0" : "=m" (p->thread.es));
-	asm("movl %%ds,%0" : "=m" (p->thread.ds));
+	asm("mov %%gs,%0" : "=m" (p->thread.gsindex));
+	asm("mov %%fs,%0" : "=m" (p->thread.fsindex));
+	asm("mov %%es,%0" : "=m" (p->thread.es));
+	asm("mov %%ds,%0" : "=m" (p->thread.ds));
 
 	unlazy_fpu(current);	
 	p->thread.i387 = current->thread.i387;
@@ -565,8 +564,6 @@ struct task_struct *__switch_to(struct task_struct *prev_p, struct task_struct *
 				 *next = &next_p->thread;
 	struct tss_struct *tss = init_tss + smp_processor_id();
 
-	unlazy_fpu(prev_p);
-
 	/*
 	 * Reload rsp0, LDT and the page table pointer:
 	 */
@@ -575,20 +572,25 @@ struct task_struct *__switch_to(struct task_struct *prev_p, struct task_struct *
 	/* 
 	 * Switch DS and ES.	 
 	 */
-	asm volatile("movl %%es,%0" : "=m" (prev->es)); 
+	asm volatile("mov %%es,%0" : "=m" (prev->es)); 
 	if (unlikely(next->es | prev->es))
 		loadsegment(es, next->es); 
 	
-	asm volatile ("movl %%ds,%0" : "=m" (prev->ds)); 
+	asm volatile ("mov %%ds,%0" : "=m" (prev->ds)); 
 	if (unlikely(next->ds | prev->ds))
 		loadsegment(ds, next->ds);
+
+	/* 
+  	 * Must be after DS reload for AMD workaround.
+	 */
+	unlazy_fpu(prev_p);
 
 	/* 
 	 * Switch FS and GS.
 	 */
 	{ 
 		unsigned fsindex;
-		asm volatile("movl %%fs,%0" : "=g" (fsindex)); 
+		asm volatile("movl %%fs,%0" : "=r" (fsindex)); 
 		/* segment register != 0 always requires a reload. 
 		   also reload when it has changed. 
 		   when prev process used 64bit base always reload
@@ -609,7 +611,7 @@ struct task_struct *__switch_to(struct task_struct *prev_p, struct task_struct *
 	}
 	{
 		unsigned gsindex;
-		asm volatile("movl %%gs,%0" : "=g" (gsindex)); 
+		asm volatile("movl %%gs,%0" : "=r" (gsindex)); 
 		if (unlikely((gsindex | next->gsindex) || prev->gs)) {
 			load_gs_index(next->gsindex);
 			if (gsindex)

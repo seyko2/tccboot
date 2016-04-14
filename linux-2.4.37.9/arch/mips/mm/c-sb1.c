@@ -2,6 +2,7 @@
  * Copyright (C) 1996 David S. Miller (dm@engr.sgi.com)
  * Copyright (C) 1997, 2001 Ralf Baechle (ralf@gnu.org)
  * Copyright (C) 2000, 2001, 2002, 2003 Broadcom Corporation
+ * Copyright (C) 2004  Maciej W. Rozycki
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,17 +32,17 @@ extern void sb1_dma_init(void);
 static unsigned long icache_size;
 static unsigned long dcache_size;
 
-static unsigned long icache_line_size;
-static unsigned long dcache_line_size;
+static unsigned short icache_line_size;
+static unsigned short dcache_line_size;
 
 static unsigned int icache_index_mask;
 static unsigned int dcache_index_mask;
 
-static unsigned long icache_assoc;
-static unsigned long dcache_assoc;
+static unsigned short icache_assoc;
+static unsigned short dcache_assoc;
 
-static unsigned int icache_sets;
-static unsigned int dcache_sets;
+static unsigned short icache_sets;
+static unsigned short dcache_sets;
 
 static unsigned int icache_range_cutoff;
 static unsigned int dcache_range_cutoff;
@@ -231,8 +232,8 @@ static void sb1_flush_cache_page(struct vm_area_struct *vma, unsigned long addr)
 	local_sb1_flush_cache_page(vma, addr);
 }
 #else
-void sb1_flush_cache_page(struct vm_area_struct *vma, unsigned long addr);
-asm("sb1_flush_cache_page = local_sb1_flush_cache_page");
+void sb1_flush_cache_page(struct vm_area_struct *vma, unsigned long addr)
+	__attribute__((alias("local_sb1_flush_cache_page")));
 #endif
 
 /*
@@ -280,8 +281,8 @@ static void local_sb1___flush_cache_all(void)
 }
 
 #ifdef CONFIG_SMP
-extern void sb1___flush_cache_all_ipi(void *ignored);
-asm("sb1___flush_cache_all_ipi = local_sb1___flush_cache_all");
+void sb1___flush_cache_all_ipi(void *ignored)
+	__attribute__((alias("local_sb1___flush_cache_all")));
 
 static void sb1___flush_cache_all(void)
 {
@@ -289,8 +290,8 @@ static void sb1___flush_cache_all(void)
 	local_sb1___flush_cache_all();
 }
 #else
-extern void sb1___flush_cache_all(void);
-asm("sb1___flush_cache_all = local_sb1___flush_cache_all");
+void sb1___flush_cache_all(void)
+	__attribute__((alias("local_sb1___flush_cache_all")));
 #endif
 
 /*
@@ -340,8 +341,8 @@ void sb1_flush_icache_range(unsigned long start, unsigned long end)
 	local_sb1_flush_icache_range(start, end);
 }
 #else
-void sb1_flush_icache_range(unsigned long start, unsigned long end);
-asm("sb1_flush_icache_range = local_sb1_flush_icache_range");
+void sb1_flush_icache_range(unsigned long start, unsigned long end)
+	__attribute__((alias("local_sb1_flush_icache_range")));
 #endif
 
 /*
@@ -398,8 +399,8 @@ static void sb1_flush_icache_page(struct vm_area_struct *vma,
 	local_sb1_flush_icache_page(vma, page);
 }
 #else
-void sb1_flush_icache_page(struct vm_area_struct *vma, struct page *page);
-asm("sb1_flush_icache_page = local_sb1_flush_icache_page");
+void sb1_flush_icache_page(struct vm_area_struct *vma, struct page *page)
+	__attribute__((alias("local_sb1_flush_icache_page")));
 #endif
 
 /*
@@ -447,8 +448,8 @@ static void sb1_flush_cache_sigtramp(unsigned long addr)
 	smp_call_function(sb1_flush_cache_sigtramp_ipi, (void *) addr, 1, 1);
 }
 #else
-void sb1_flush_cache_sigtramp(unsigned long addr);
-asm("sb1_flush_cache_sigtramp = local_sb1_flush_cache_sigtramp");
+void sb1_flush_cache_sigtramp(unsigned long addr)
+	__attribute__((alias("local_sb1_flush_cache_sigtramp")));
 #endif
 
 
@@ -516,6 +517,11 @@ static unsigned int decode_cache_line_size(unsigned int config_field)
  * 9:7   Dcache Associativity
  */
 
+static char *way_string[] = {
+	"direct mapped", "2-way", "3-way", "4-way",
+	"5-way", "6-way", "7-way", "8-way",
+};
+
 static __init void probe_cache_sizes(void)
 {
 	u32 config1;
@@ -540,6 +546,13 @@ static __init void probe_cache_sizes(void)
 	 */
 	icache_range_cutoff = icache_sets * icache_line_size;
 	dcache_range_cutoff = (dcache_sets / 2) * icache_line_size;
+
+	printk("Primary instruction cache %ldkB, %s, linesize %d bytes.\n",
+	       icache_size >> 10, way_string[icache_assoc - 1],
+	       icache_line_size);
+	printk("Primary data cache %ldkB, %s, linesize %d bytes.\n",
+	       dcache_size >> 10, way_string[dcache_assoc - 1],
+	       dcache_line_size);
 }
 
 /*

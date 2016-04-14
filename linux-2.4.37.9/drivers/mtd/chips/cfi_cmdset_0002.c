@@ -461,7 +461,6 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 	unsigned int dq6, dq5;	
 	struct cfi_private *cfi = map->fldrv_priv;
 	DECLARE_WAITQUEUE(wait, current);
-	int ret = 0;
 
  retry:
 	cfi_spin_lock(chip->mutex);
@@ -511,7 +510,7 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 	   or tells us why it failed. */        
 	dq6 = CMD(1<<6);
 	dq5 = CMD(1<<5);
-	timeo = jiffies + (HZ/1000); /* setting timeout to 1ms for now */
+	timeo = jiffies + (HZ/1000) + 1; /* setting timeout to 1ms for now */
 		
 	oldstatus = cfi_read(map, adr);
 	status = cfi_read(map, adr);
@@ -548,13 +547,13 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 				printk(KERN_WARNING "Internal flash device timeout occurred or write operation was performed while flash was programming.\n" );
 			}
 		} else {
-			printk(KERN_WARNING "Waiting for write to complete timed out in do_write_oneword.");        
+			printk(KERN_WARNING "Waiting for write to complete timed out in do_write_oneword.\n");
 			
 			chip->state = FL_READY;
 			wake_up(&chip->wq);
 			cfi_spin_unlock(chip->mutex);
 			DISABLE_VPP(map);
-			ret = -EIO;
+			return -EIO;
 		}
 	}
 
@@ -563,7 +562,7 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 	wake_up(&chip->wq);
 	cfi_spin_unlock(chip->mutex);
 
-	return ret;
+	return 0;
 }
 
 static int cfi_amdstd_write (struct mtd_info *mtd, loff_t to , size_t len, size_t *retlen, const u_char *buf)
@@ -826,7 +825,7 @@ static inline int do_erase_chip(struct map_info *map, struct flchip *chip)
 		chip->state = FL_READY;
 		wake_up(&chip->wq);
 		cfi_spin_unlock(chip->mutex);
-		printk("waiting for erase to complete timed out.");
+		printk("waiting for erase to complete timed out.\n");
 		DISABLE_VPP(map);
 		return -EIO;
 	}
@@ -964,7 +963,7 @@ static inline int do_erase_oneblock(struct map_info *map, struct flchip *chip, u
 		}
         else
         {
-		    printk( "Waiting for erase to complete timed out in do_erase_oneblock.");        
+		    printk( "Waiting for erase to complete timed out in do_erase_oneblock.\n");
 		    
 		chip->state = FL_READY;
 		wake_up(&chip->wq);
@@ -1173,6 +1172,7 @@ static void cfi_amdstd_sync (struct mtd_info *mtd)
 
 		default:
 			/* Not an idle state */
+			set_current_state(TASK_UNINTERRUPTIBLE);
 			add_wait_queue(&chip->wq, &wait);
 			
 			cfi_spin_unlock(chip->mutex);

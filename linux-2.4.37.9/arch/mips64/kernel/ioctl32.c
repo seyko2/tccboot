@@ -44,6 +44,7 @@
 #include <linux/blkpg.h>
 #include <linux/blk.h>
 #include <linux/elevator.h>
+#include <linux/file.h>
 #include <linux/rtc.h>
 #include <linux/pci.h>
 #if defined(CONFIG_BLK_DEV_LVM) || defined(CONFIG_BLK_DEV_LVM_MODULE)
@@ -1817,7 +1818,6 @@ static struct ioctl32_list ioctl32_handler_table[] = {
 	IOCTL32_DEFAULT(_IOR('v' , BASE_VIDIOCPRIVATE+6, int)),
 	IOCTL32_DEFAULT(_IOR('v' , BASE_VIDIOCPRIVATE+7, int)),
 
-#ifdef CONFIG_NET
 	/* Socket level stuff */
 	IOCTL32_DEFAULT(FIOSETOWN),
 	IOCTL32_DEFAULT(SIOCSPGRP),
@@ -2079,6 +2079,7 @@ static struct ioctl32_list ioctl32_handler_table[] = {
 	IOCTL32_DEFAULT(SOUND_MIXER_SETLEVELS),
 	IOCTL32_DEFAULT(OSS_GETVERSION),
 
+#ifdef CONFIG_NET
 	/* And these ioctls need translation */
 	IOCTL32_HANDLER(SIOCGIFNAME, dev_ifname32),
 	IOCTL32_HANDLER(SIOCGIFCONF, dev_ifconf),
@@ -2120,7 +2121,6 @@ static struct ioctl32_list ioctl32_handler_table[] = {
 	 */
 	IOCTL32_HANDLER(SIOCRTMSG, ret_einval),
 	IOCTL32_HANDLER(SIOCGSTAMP, do_siocgstamp),
-
 #endif /* CONFIG_NET */
 
 	IOCTL32_HANDLER(BLKRAGET, w_long),
@@ -2352,6 +2352,10 @@ static struct ioctl32_list ioctl32_handler_table[] = {
 	IOCTL32_HANDLER(AUTOFS_IOC_SETTIMEOUT32, ioc_settimeout),
 	IOCTL32_DEFAULT(AUTOFS_IOC_EXPIRE),
 	IOCTL32_DEFAULT(AUTOFS_IOC_EXPIRE_MULTI),
+	IOCTL32_DEFAULT(AUTOFS_IOC_PROTSUBVER),
+	IOCTL32_DEFAULT(AUTOFS_IOC_ASKREGHOST),
+	IOCTL32_DEFAULT(AUTOFS_IOC_TOGGLEREGHOST),
+	IOCTL32_DEFAULT(AUTOFS_IOC_ASKUMOUNT),
 
 	/* DEVFS */
 	IOCTL32_DEFAULT(DEVFSDIOC_GET_PROTO_REV),

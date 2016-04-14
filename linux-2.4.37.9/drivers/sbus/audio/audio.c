@@ -65,6 +65,14 @@
 #define tprintk(x)
 #endif
 
+static int  audio_input_buffers = 8;
+MODULE_PARM(audio_input_buffers, "i");
+MODULE_PARM_DESC(audio_input_buffers,"Number of input 8KB buffers.");
+
+static int  audio_output_buffers = 8;
+MODULE_PARM(audio_output_buffers, "i");
+MODULE_PARM_DESC(audio_output_buffers,"Number of output 8KB buffer.");
+
 static short lis_get_elist_ent( strevent_t *list, pid_t pid );
 static int lis_add_to_elist( strevent_t **list, pid_t pid, short events );
 static int lis_del_from_elist( strevent_t **list, pid_t pid, short events );
@@ -438,7 +446,7 @@ static int sparcaudio_mixer_ioctl(struct inode * inode, struct file * file,
                         m = drv->ops->get_input_balance(drv);
                 i = OSS_TO_GAIN(k);
                 j = OSS_TO_BAL(k);
-                oprintk((" for stereo to do %d (bal %d):", i, j));
+                oprintk((" for stereo to do %ld (bal %ld):", i, j));
                 if (drv->ops->set_input_volume)
                         drv->ops->set_input_volume(drv, i);
                 if (drv->ops->set_input_balance)
@@ -488,7 +496,7 @@ static int sparcaudio_mixer_ioctl(struct inode * inode, struct file * file,
                 oprintk((" started as (0x%x)\n", BAL_TO_OSS(l,m)));
                 i = OSS_TO_GAIN(k);
                 j = OSS_TO_BAL(k);
-                oprintk((" for stereo to %d (bal %d)\n", i, j));
+                oprintk((" for stereo to %ld (bal %ld)\n", i, j));
                 if (drv->ops->set_output_volume)
                         drv->ops->set_output_volume(drv, i);
                 if (drv->ops->set_output_balance)
@@ -565,7 +573,7 @@ static int sparcaudio_mixer_ioctl(struct inode * inode, struct file * file,
           if (k & SOUND_MASK_CD) j = AUDIO_CD;
           if (k & SOUND_MASK_LINE) j = AUDIO_LINE_IN;
           if (k & SOUND_MASK_MIC) j = AUDIO_MICROPHONE;
-          oprintk(("setting inport to %d\n", j));
+          oprintk(("setting inport to %ld\n", j));
           i = drv->ops->set_input_port(drv, j);
     
           return put_user(i, (int *)arg);
@@ -798,7 +806,7 @@ static int sparcaudio_ioctl(struct inode * inode, struct file * file,
                                 retval = -EINVAL;
                                 break;
                         }
-                        get_user(i, (int *)arg)
+                        get_user(i, (int *)arg);
                         tprintk(("setting speed to %d\n", i));
                         drv->ops->set_input_rate(drv, i);
                         drv->ops->set_output_rate(drv, i);
@@ -1955,8 +1963,6 @@ int register_sparcaudio_driver(struct sparcaudio_driver *drv, int duplex)
          * Input buffers, on the other hand, always fill completely,
          * so we don't need input counts - each contains input_buffer_size
          * bytes of audio data.
-         *
-         * TODO: Make number of input/output buffers tunable parameters
          */
 
         init_waitqueue_head(&drv->open_wait);
@@ -1964,7 +1970,7 @@ int register_sparcaudio_driver(struct sparcaudio_driver *drv, int duplex)
         init_waitqueue_head(&drv->output_drain_wait);
         init_waitqueue_head(&drv->input_read_wait);
 
-        drv->num_output_buffers = 8;
+        drv->num_output_buffers = audio_output_buffers;
 	drv->output_buffer_size = (4096 * 2);
 	drv->playing_count = 0;
 	drv->output_offset = 0;
@@ -1997,7 +2003,7 @@ int register_sparcaudio_driver(struct sparcaudio_driver *drv, int duplex)
         }
 
         /* Setup the circular queue of input buffers. */
-        drv->num_input_buffers = 8;
+        drv->num_input_buffers = audio_input_buffers;
 	drv->input_buffer_size = (4096 * 2);
 	drv->recording_count = 0;
         drv->input_front = 0;

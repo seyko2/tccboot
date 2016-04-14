@@ -2054,7 +2054,8 @@ idi_faxdata_send(eicon_card *ccard, eicon_chan *chan, struct sk_buff *skb)
 				OutBuf.Len++;
 			} else {
 				*OutBuf.Next++ = 0;
-				*((__u16 *) OutBuf.Next)++ = (__u16) LineBuf.Len;
+				*(__u16 *) OutBuf.Next = (__u16) LineBuf.Len;
+				OutBuf.Next += sizeof(__u16);
 				OutBuf.Len += 3;
 			}
 			memcpy(OutBuf.Next, LineBuf.Data, LineBuf.Len);

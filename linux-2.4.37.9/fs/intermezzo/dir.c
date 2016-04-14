@@ -300,10 +300,7 @@ struct dentry *presto_lookup(struct inode * dir, struct dentry *dentry)
         /* some file systems have no read_inode: set methods here */
         if (dentry->d_inode)
                 presto_set_ops(dentry->d_inode, cache->cache_filter);
-
-        filter_setup_dentry_ops(cache->cache_filter,
-                                dentry->d_op, &presto_dentry_ops);
-        dentry->d_op = filter_c2udops(cache->cache_filter);
+		/* dentry->d_op is now hooked in dcache.c:presto_set_dd */
 
         /* In lookup we will tolerate EROFS return codes from presto_set_dd
          * to placate NFS. EROFS indicates that a fileset was not found but

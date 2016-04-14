@@ -567,10 +567,10 @@ void __init parse_mem_cmdline (char ** cmdline_p)
 			acpi_strict = 1;
 		}
 
-		else if (!memcmp(from, "pci=noacpi", 10)) {
+		else if (!memcmp(from, "pci=noacpi", 10))
+			acpi_disable_pci();
+		else if (!memcmp(from, "acpi=noirq", 10))
 			acpi_noirq_set();
-		}
-
 		else if (!memcmp(from, "acpi_sci=edge", 13))
 			acpi_sci_flags.trigger =  1;
 		else if (!memcmp(from, "acpi_sci=level", 14))
@@ -594,7 +594,10 @@ void __init parse_mem_cmdline (char ** cmdline_p)
 			ioapic_force = 1;
 			skip_ioapic_setup = 0;
 		}
-		
+		else if (!memcmp(from, "noexec=", 7)) { 
+			extern int nonx_setup(char *);
+			nonx_setup(from + 7);
+		}					
 	next:
 		c = *(from++);
 		if (!c)

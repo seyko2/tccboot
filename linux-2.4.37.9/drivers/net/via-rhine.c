@@ -28,10 +28,10 @@
 
 
 	Linux kernel version history:
-	
+
 	LK1.1.0:
 	- Jeff Garzik: softnet 'n stuff
-	
+
 	LK1.1.1:
 	- Justin Guyett: softnet and locking fixes
 	- Jeff Garzik: use PCI interface
@@ -58,7 +58,7 @@
 	LK1.1.6:
 	- Urban Widmark: merges from Beckers 1.08b version (VT6102 + mdio)
 	                 set netif_running_on/off on startup, del_timer_sync
-	
+
 	LK1.1.7:
 	- Manfred Spraul: added reset into tx_timeout
 
@@ -83,7 +83,7 @@
 	LK1.1.13 (jgarzik):
 	- Add ethtool support
 	- Replace some MII-related magic numbers with constants
-	
+
 	LK1.1.14 (Ivan G.):
  	- fixes comments for Rhine-III
 	- removes W_MAX_TIMEOUT (unused)
@@ -92,7 +92,7 @@
 	- sends chip_id as a parameter to wait_for_reset since np is not
 	  initialized on first call
 	- changes mmio "else if (chip_id==VT6102)" to "else" so it will work
-	  for Rhine-III's (documentation says same bit is correct)		
+	  for Rhine-III's (documentation says same bit is correct)
 	- transmit frame queue message is off by one - fixed
 	- adds IntrNormalSummary to "Something Wicked" exclusion list
 	  so normal interrupts will not trigger the message (src: Donald Becker)
@@ -124,6 +124,7 @@
 
 	LK1.1.19 (Roger Luethi)
 	- Increase Tx threshold for unspecified errors
+	- Craig Brind: Zero padded aligned buffers for short packets
 
 */
 
@@ -316,10 +317,10 @@ IIId. Synchronization
 
 The driver runs as two independent, single-threaded flows of control.  One
 is the send-packet routine, which enforces single-threaded use by the
-dev->priv->lock spinlock. The other thread is the interrupt handler, which 
+dev->priv->lock spinlock. The other thread is the interrupt handler, which
 is single threaded by the hardware and interrupt handling software.
 
-The send packet thread has partial control over the Tx ring. It locks the 
+The send packet thread has partial control over the Tx ring. It locks the
 dev->priv->lock whenever it's queuing a Tx packet. If the next slot in the ring
 is not available it stops the transmit queue by calling netif_stop_queue.
 
@@ -529,7 +530,7 @@ struct netdev_private {
 	/* MII transceiver section. */
 	unsigned char phys[MAX_MII_CNT];			/* MII device addresses. */
 	unsigned int mii_cnt;			/* number of MIIs found, but only the first one is used */
-	u16 mii_status;						/* last read MII status */
+	int last_duplex;					/* last checked duplex */
 	struct mii_if_info mii_if;
 };
 
@@ -615,6 +616,15 @@ static void __devinit reload_eeprom(long ioaddr)
 			break;
 }
 
+#ifdef CONFIG_NET_POLL_CONTROLLER
+static void via_rhine_poll(struct net_device *dev)
+{
+	disable_irq(dev->irq);
+	via_rhine_interrupt(dev->irq, (void *)dev, NULL);
+	enable_irq(dev->irq);
+}
+#endif
+
 static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 					 const struct pci_device_id *ent)
 {
@@ -630,7 +640,7 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 #ifdef USE_MEM
 	long ioaddr0;
 #endif
-	
+
 /* when built into the kernel, we only print version if device is found */
 #ifndef MODULE
 	static int printed_version;
@@ -651,7 +661,7 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 		printk(KERN_ERR "32-bit PCI DMA addresses not supported by the card!?\n");
 		goto err_out;
 	}
-	
+
 	/* sanity check */
 	if ((pci_resource_len (pdev, 0) < io_size) ||
 	    (pci_resource_len (pdev, 1) < io_size)) {
@@ -671,7 +681,8 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 		goto err_out;
 	}
 	SET_MODULE_OWNER(dev);
-	
+	SET_NETDEV_DEV(dev, &pdev->dev);
+
 	if (pci_request_regions(pdev, shortname))
 		goto err_out_free_netdev;
 
@@ -783,6 +794,9 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 	dev->ethtool_ops = &netdev_ethtool_ops;
 	dev->tx_timeout = via_rhine_tx_timeout;
 	dev->watchdog_timeo = TX_TIMEOUT;
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	dev->poll_controller = via_rhine_poll;
+#endif
 	if (np->drv_flags & ReqTxAlign)
 		dev->features |= NETIF_F_SG|NETIF_F_HW_CSUM;
 
@@ -794,11 +808,11 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 	/* The lower four bits are the media type. */
 	if (option > 0) {
 		if (option & 0x220)
-			np->mii_if.full_duplex = 1;
+			np->last_duplex = np->mii_if.full_duplex = 1;
 		np->default_port = option & 15;
 	}
 	if (card_idx < MAX_UNITS  &&  full_duplex[card_idx] > 0)
-		np->mii_if.full_duplex = 1;
+		np->last_duplex = np->mii_if.full_duplex = 1;
 
 	if (np->mii_if.full_duplex) {
 		printk(KERN_INFO "%s: Set to forced full duplex, autonegotiation"
@@ -834,6 +848,8 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 					netif_carrier_on(dev);
 				else
 					netif_carrier_off(dev);
+
+				break;
 			}
 		}
 		np->mii_cnt = phy_idx;
@@ -843,7 +859,7 @@ static int __devinit via_rhine_init_one (struct pci_dev *pdev,
 	/* Allow forcing the media type. */
 	if (option > 0) {
 		if (option & 0x220)
-			np->mii_if.full_duplex = 1;
+			np->last_duplex = np->mii_if.full_duplex = 1;
 		np->default_port = option & 0x3ff;
 		if (np->default_port & 0x330) {
 			/* FIXME: shouldn't someone check this variable? */
@@ -867,7 +883,7 @@ err_out_free_res:
 #endif
 	pci_release_regions(pdev);
 err_out_free_netdev:
-	kfree (dev);
+	free_netdev (dev);
 err_out:
 	return -ENODEV;
 }
@@ -878,7 +894,7 @@ static int alloc_ring(struct net_device* dev)
 	void *ring;
 	dma_addr_t ring_dma;
 
-	ring = pci_alloc_consistent(np->pdev, 
+	ring = pci_alloc_consistent(np->pdev,
 				    RX_RING_SIZE * sizeof(struct rx_desc) +
 				    TX_RING_SIZE * sizeof(struct tx_desc),
 				    &ring_dma);
@@ -890,7 +906,7 @@ static int alloc_ring(struct net_device* dev)
 		np->tx_bufs = pci_alloc_consistent(np->pdev, PKT_BUF_SZ * TX_RING_SIZE,
 								   &np->tx_bufs_dma);
 		if (np->tx_bufs == NULL) {
-			pci_free_consistent(np->pdev, 
+			pci_free_consistent(np->pdev,
 				    RX_RING_SIZE * sizeof(struct rx_desc) +
 				    TX_RING_SIZE * sizeof(struct tx_desc),
 				    ring, ring_dma);
@@ -910,7 +926,7 @@ void free_ring(struct net_device* dev)
 {
 	struct netdev_private *np = dev->priv;
 
-	pci_free_consistent(np->pdev, 
+	pci_free_consistent(np->pdev,
 			    RX_RING_SIZE * sizeof(struct rx_desc) +
 			    TX_RING_SIZE * sizeof(struct tx_desc),
 			    np->rx_ring, np->rx_ring_dma);
@@ -935,7 +951,7 @@ static void alloc_rbufs(struct net_device *dev)
 	np->rx_buf_sz = (dev->mtu <= 1500 ? PKT_BUF_SZ : dev->mtu + 32);
 	np->rx_head_desc = &np->rx_ring[0];
 	next = np->rx_ring_dma;
-	
+
 	/* Init the ring entries */
 	for (i = 0; i < RX_RING_SIZE; i++) {
 		np->rx_ring[i].rx_status = 0;
@@ -1042,6 +1058,7 @@ static void init_registers(struct net_device *dev)
 	np->tx_thresh = 0x20;
 	np->rx_thresh = 0x60;			/* Written in via_rhine_set_rx_mode(). */
 	np->mii_if.full_duplex = 0;
+	np->last_duplex = 0;
 
 	if (dev->if_port == 0)
 		dev->if_port = np->default_port;
@@ -1103,7 +1120,7 @@ static void mdio_write(struct net_device *dev, int phy_id, int regnum, int value
 			if (value & 0x9000)			/* Autonegotiation. */
 				np->mii_if.force_media = 0;
 			else
-				np->mii_if.full_duplex = (value & 0x0100) ? 1 : 0;
+				np->last_duplex = np->mii_if.full_duplex = (value & 0x0100) ? 1 : 0;
 			break;
 		case MII_ADVERTISE:
 			np->mii_if.advertising = value;
@@ -1138,7 +1155,7 @@ static int via_rhine_open(struct net_device *dev)
 	if (debug > 1)
 		printk(KERN_DEBUG "%s: via_rhine_open() irq %d.\n",
 			   dev->name, np->pdev->irq);
-	
+
 	i = alloc_ring(dev);
 	if (i)
 		return i;
@@ -1168,20 +1185,20 @@ static void via_rhine_check_duplex(struct net_device *dev)
 {
 	struct netdev_private *np = dev->priv;
 	long ioaddr = dev->base_addr;
-	int mii_lpa = mdio_read(dev, np->phys[0], MII_LPA);
-	int negotiated = mii_lpa & np->mii_if.advertising;
-	int duplex;
 
-	if (np->mii_if.force_media  ||  mii_lpa == 0xffff)
+	if (np->mii_if.force_media)
 		return;
-	duplex = (negotiated & 0x0100) || (negotiated & 0x01C0) == 0x0040;
-	if (np->mii_if.full_duplex != duplex) {
-		np->mii_if.full_duplex = duplex;
+
+	mii_check_media(&np->mii_if, debug, 0);
+
+	if (np->last_duplex != np->mii_if.full_duplex) {
+		np->last_duplex = np->mii_if.full_duplex;
 		if (debug)
 			printk(KERN_INFO "%s: Setting %s-duplex based on MII #%d link"
 				   " partner capability of %4.4x.\n", dev->name,
-				   duplex ? "full" : "half", np->phys[0], mii_lpa);
-		if (duplex)
+				   np->mii_if.full_duplex ? "full" : "half", np->phys[0],
+			           mdio_read(dev, np->phys[0], MII_LPA));
+		if (np->mii_if.full_duplex)
 			np->chip_cmd |= CmdFDuplex;
 		else
 			np->chip_cmd &= ~CmdFDuplex;
@@ -1195,8 +1212,7 @@ static void via_rhine_timer(unsigned long data)
 	struct net_device *dev = (struct net_device *)data;
 	struct netdev_private *np = dev->priv;
 	long ioaddr = dev->base_addr;
-	int next_tick = 10*HZ;
-	int mii_status;
+	int next_tick = 2*HZ/10;
 
 	if (debug > 3) {
 		printk(KERN_DEBUG "%s: VIA Rhine monitor tick, status %4.4x.\n",
@@ -1206,16 +1222,6 @@ static void via_rhine_timer(unsigned long data)
 	spin_lock_irq (&np->lock);
 
 	via_rhine_check_duplex(dev);
-
-	/* make IFF_RUNNING follow the MII status bit "Link established" */
-	mii_status = mdio_read(dev, np->phys[0], MII_BMSR);
-	if ( (mii_status & BMSR_LSTATUS) != (np->mii_status & BMSR_LSTATUS) ) {
-		if (mii_status & BMSR_LSTATUS)
-			netif_carrier_on(dev);
-		else
-			netif_carrier_off(dev);
-	}
-	np->mii_status = mii_status;
 
 	spin_unlock_irq (&np->lock);
 
@@ -1253,7 +1259,7 @@ static void via_rhine_tx_timeout (struct net_device *dev)
 	/* Reinitialize the hardware. */
 	wait_for_reset(dev, np->chip_id, dev->name);
 	init_registers(dev);
-	
+
 	spin_unlock(&np->lock);
 	enable_irq(np->pdev->irq);
 
@@ -1293,17 +1299,21 @@ static int via_rhine_start_tx(struct sk_buff *skb, struct net_device *dev)
 			np->stats.tx_dropped++;
 			return 0;
 		}
+		/* Padding is not copied and so must be redone. */
 		skb_copy_and_csum_dev(skb, np->tx_buf[entry]);
+		if (skb->len < ETH_ZLEN)
+			memset(np->tx_buf[entry] + skb->len, 0,
+			       ETH_ZLEN - skb->len);
 		np->tx_skbuff_dma[entry] = 0;
 		np->tx_ring[entry].addr = cpu_to_le32(np->tx_bufs_dma +
-										  (np->tx_buf[entry] - np->tx_bufs));
+					  (np->tx_buf[entry] - np->tx_bufs));
 	} else {
 		np->tx_skbuff_dma[entry] =
 			pci_map_single(np->pdev, skb->data, skb->len, PCI_DMA_TODEVICE);
 		np->tx_ring[entry].addr = cpu_to_le32(np->tx_skbuff_dma[entry]);
 	}
 
-	np->tx_ring[entry].desc_length = 
+	np->tx_ring[entry].desc_length =
 		cpu_to_le32(TXDESC | (skb->len >= ETH_ZLEN ? skb->len : ETH_ZLEN));
 
 	/* lock eth irq */
@@ -1351,7 +1361,7 @@ static irqreturn_t via_rhine_interrupt(int irq, void *dev_instance, struct pt_re
 	int handled = 0;
 
 	ioaddr = dev->base_addr;
-	
+
 	while ((intr_status = get_intr_status(dev))) {
 		handled = 1;
 
@@ -1569,7 +1579,7 @@ static void via_rhine_rx(struct net_device *dev)
 				break;			/* Better luck next round. */
 			skb->dev = dev;			/* Mark as being used by this device. */
 			np->rx_skbuff_dma[entry] =
-				pci_map_single(np->pdev, skb->tail, np->rx_buf_sz, 
+				pci_map_single(np->pdev, skb->tail, np->rx_buf_sz,
 							   PCI_DMA_FROMDEVICE);
 			np->rx_ring[entry].addr = cpu_to_le32(np->rx_skbuff_dma[entry]);
 		}
@@ -1877,7 +1887,7 @@ static int via_rhine_close(struct net_device *dev)
 static void __devexit via_rhine_remove_one (struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
-	
+
 	unregister_netdev(dev);
 
 	pci_release_regions(pdev);
@@ -1886,7 +1896,7 @@ static void __devexit via_rhine_remove_one (struct pci_dev *pdev)
 	iounmap((char *)(dev->base_addr));
 #endif
 
-	kfree(dev);
+	free_netdev(dev);
 	pci_disable_device(pdev);
 	pci_set_drvdata(pdev, NULL);
 }

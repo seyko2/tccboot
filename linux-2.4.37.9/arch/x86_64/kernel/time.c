@@ -51,6 +51,127 @@ static inline void rdtscll_sync(unsigned long *tsc)
  * triggered by hardware. 
  */
 
+extern spinlock_t i8259A_lock;
+
+/* This function must be called with interrupts disabled
+ * It was inspired by Steve McCanne's microtime-i386 for BSD.  -- jrs
+ *
+ * However, the pc-audio speaker driver changes the divisor so that
+ * it gets interrupted rather more often - it loads 64 into the
+ * counter rather than 11932! This has an adverse impact on
+ * do_gettimeoffset() -- it stops working! What is also not
+ * good is that the interval that our timer function gets called
+ * is no longer 10.0002 ms, but 9.9767 ms. To get around this
+ * would require using a different timing source. Maybe someone
+ * could use the RTC - I know that this can interrupt at frequencies
+ * ranging from 8192Hz to 2Hz. If I had the energy, I'd somehow fix
+ * it so that at startup, the timer code in sched.c would select
+ * using either the RTC or the 8253 timer. The decision would be
+ * based on whether there was any other device around that needed
+ * to trample on the 8253. I'd set up the RTC to interrupt at 1024 Hz,
+ * and then do some jiggery to have a version of do_timer that
+ * advanced the clock by 1/1024 s. Every time that reached over 1/100
+ * of a second, then do all the old code. If the time was kept correct
+ * then do_gettimeoffset could just return 0 - there is no low order
+ * divider that can be accessed.
+ *
+ * Ideally, you would be able to use the RTC for the speaker driver,
+ * but it appears that the speaker driver really needs interrupt more
+ * often than every 120 us or so.
+ *
+ * Anyway, this needs more thought....		pjsg (1993-08-28)
+ *
+ * If you are really that interested, you should be reading
+ * comp.protocols.time.ntp!
+ *
+ * X86_64 port from arch/i386/kernel/time.c - KS (2007-03-12)
+ */
+
+static unsigned long do_slow_gettimeoffset(void)
+{
+	int count;
+
+	static int count_p = -1;    /* for the first call after boot */
+	static unsigned long jiffies_p = 0;
+
+	/*
+	 * cache volatile jiffies temporarily; we have IRQs turned off.
+	 */
+	unsigned long jiffies_t;
+
+	if (count_p < 0)
+		count_p = LATCH;    /* LATCH is not a constant on x86_64 */
+
+	/* gets recalled with irq locally disabled */
+	spin_lock(&i8253_lock);
+	/* timer count may underflow right here */
+	outb_p(0x00, 0x43);	/* latch the count ASAP */
+
+	count = inb_p(0x40);	/* read the latched count */
+
+	/*
+	 * We do this guaranteed double memory access instead of a _p
+	 * postfix in the previous port access. Wheee, hackady hack
+	 */
+	jiffies_t = jiffies;
+
+	count |= inb_p(0x40) << 8;
+
+        /* VIA686a test code... reset the latch if count > max + 1 */
+        if (count > LATCH) {
+                outb_p(0x34, 0x43);
+                outb_p(LATCH & 0xff, 0x40);
+                outb(LATCH >> 8, 0x40);
+                count = LATCH - 1;
+        }
+
+	spin_unlock(&i8253_lock);
+
+	/*
+	 * avoiding timer inconsistencies (they are rare, but they happen)...
+	 * there are two kinds of problems that must be avoided here:
+	 *  1. the timer counter underflows
+	 *  2. hardware problem with the timer, not giving us continuous time,
+	 *     the counter does small "jumps" upwards on some Pentium systems,
+	 *     (see c't 95/10 page 335 for Neptun bug.)
+	 */
+
+	if( jiffies_t == jiffies_p ) {
+		if( count > count_p ) {
+			/* the nutcase */
+
+			int i;
+
+			spin_lock(&i8259A_lock);
+			/*
+			 * This is tricky when I/O APICs are used;
+			 * see do_timer_interrupt().
+			 */
+			i = inb(0x20);
+			spin_unlock(&i8259A_lock);
+
+			/* assumption about timer being IRQ0 */
+			if (i & 0x01) {
+				/*
+				 * We cannot detect lost timer interrupts ...
+				 * well, that's why we call them lost, don't we? :)
+				 * [hmm, on the Pentium and Alpha we can ... sort of]
+				 */
+				count -= LATCH;
+			} else
+				printk("do_slow_gettimeoffset(): hardware timer problem?\n");
+		}
+	} else
+		jiffies_p = jiffies_t;
+
+	count_p = count;
+
+	count = ((LATCH-1) - count) * tick;
+	count = (count + LATCH/2) / LATCH;
+
+	return count;
+}
+
 static unsigned int do_gettimeoffset_tsc(void)
 {
 	unsigned long t;
@@ -63,9 +184,13 @@ static unsigned int do_gettimeoffset_hpet(void)
 	return ((hpet_readl(HPET_COUNTER) - vxtime.last) * vxtime.quot) >> 32;
 }
 
-static unsigned int do_gettimeoffset_nop(void)
+static unsigned int do_gettimeoffset_pit(void)
 {
-	return 0;
+	unsigned long usec, flags;
+	read_lock_irqsave(&xtime_lock, flags);
+	usec = do_slow_gettimeoffset();
+	read_unlock_irqrestore(&xtime_lock, flags);
+	return usec;
 }
 
 unsigned int (*do_gettimeoffset)(void) = do_gettimeoffset_tsc;
@@ -552,7 +677,7 @@ void __init time_init_smp(void)
 		if (notsc) { 
 			timetype = "PIT"; 
 			vxtime.mode = VXTIME_STUPID; 
-			do_gettimeoffset = do_gettimeoffset_nop;
+			do_gettimeoffset = do_gettimeoffset_pit;
 		} else { 
 			timetype = "PIT/TSC";
 			vxtime.mode = VXTIME_TSC;

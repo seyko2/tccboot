@@ -2491,7 +2491,7 @@ _static int process_interrupt (uhci_t *s, struct urb *urb)
 			((urb_priv_t*)urb->hcpriv)->flags=0;		       			
 		}
 		
-		if ((urb->status != -ECONNABORTED) && (urb->status != ECONNRESET) &&
+		if ((urb->status != -ECONNABORTED) && (urb->status != -ECONNRESET) &&
 			    (urb->status != -ENOENT)) {
 
 			urb->status = -EINPROGRESS;
@@ -2746,13 +2746,8 @@ _static void uhci_interrupt (int irq, void *__uhci, struct pt_regs *regs)
 	dbg("interrupt");
 
 	if (status != 1) {
-		// Avoid too much error messages at a time
-		if (time_after(jiffies, s->last_error_time + ERROR_SUPPRESSION_TIME)) {
-			warn("interrupt, status %x, frame# %i", status, 
-			     UHCI_GET_CURRENT_FRAME(s));
-			s->last_error_time = jiffies;
-		}
-		
+		dbg("status %x, frame# %i", status, UHCI_GET_CURRENT_FRAME(s));
+
 		// remove host controller halted state
 		if ((status&0x20) && (s->running)) {
 			err("Host controller halted, trying to restart.");

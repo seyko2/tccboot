@@ -444,6 +444,7 @@ sddr09_test_unit_ready(struct us_data *us) {
  * byte 0: opcode: 03
  * byte 4: data length
  */
+#if 0
 static int
 sddr09_request_sense(struct us_data *us, unsigned char *sensebuf, int buflen) {
 	unsigned char command[12] = {
@@ -465,7 +466,7 @@ sddr09_request_sense(struct us_data *us, unsigned char *sensebuf, int buflen) {
 
 	return result;
 }
-
+#endif
 /*
  * Read Command: 12 bytes.
  * byte 0: opcode: E8

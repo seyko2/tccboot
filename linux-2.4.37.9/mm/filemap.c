@@ -1,7 +1,7 @@
 /*
  *	linux/mm/filemap.c
  *
- * Copyright (C) 1994-1999  Linus Torvalds
+ * Copyright (C) 1994-2006  Linus Torvalds
  */
 
 /*
@@ -68,7 +68,7 @@ spinlock_cacheline_t pagemap_lru_lock_cacheline = {SPIN_LOCK_UNLOCKED};
 #define CLUSTER_OFFSET(x)	(((x) >> page_cluster) << page_cluster)
 
 static void FASTCALL(add_page_to_hash_queue(struct page * page, struct page **p));
-static void add_page_to_hash_queue(struct page * page, struct page **p)
+static void fastcall add_page_to_hash_queue(struct page * page, struct page **p)
 {
 	struct page *next = *p;
 
@@ -151,7 +151,7 @@ static inline int sync_page(struct page *page)
 /*
  * Add a page to the dirty page list.
  */
-void set_page_dirty(struct page *page)
+void fastcall set_page_dirty(struct page *page)
 {
 	if (!test_and_set_bit(PG_dirty, &page->flags)) {
 		struct address_space *mapping = page->mapping;
@@ -260,7 +260,7 @@ static void truncate_complete_page(struct page *page)
 }
 
 static int FASTCALL(truncate_list_pages(struct list_head *, unsigned long, unsigned *));
-static int truncate_list_pages(struct list_head *head, unsigned long start, unsigned *partial)
+static int fastcall truncate_list_pages(struct list_head *head, unsigned long start, unsigned *partial)
 {
 	struct list_head *curr;
 	struct page * page;
@@ -382,7 +382,7 @@ static inline int invalidate_this_page2(struct page * page,
 }
 
 static int FASTCALL(invalidate_list_pages2(struct list_head *));
-static int invalidate_list_pages2(struct list_head *head)
+static int fastcall invalidate_list_pages2(struct list_head *head)
 {
 	struct list_head *curr;
 	struct page * page;
@@ -755,7 +755,7 @@ int add_to_page_cache_unique(struct page * page,
  * and schedules an I/O to read in its contents from disk.
  */
 static int FASTCALL(page_cache_read(struct file * file, unsigned long offset));
-static int page_cache_read(struct file * file, unsigned long offset)
+static int fastcall page_cache_read(struct file * file, unsigned long offset)
 {
 	struct address_space *mapping = file->f_dentry->d_inode->i_mapping;
 	struct page **hash = page_hash(mapping, offset);
@@ -790,7 +790,7 @@ static int page_cache_read(struct file * file, unsigned long offset)
  */
 static int FASTCALL(read_cluster_nonblocking(struct file * file, unsigned long offset,
 					     unsigned long filesize));
-static int read_cluster_nonblocking(struct file * file, unsigned long offset,
+static int fastcall read_cluster_nonblocking(struct file * file, unsigned long offset,
 	unsigned long filesize)
 {
 	unsigned long pages = CLUSTER_PAGES;
@@ -871,7 +871,7 @@ static inline wait_queue_head_t *page_waitqueue(struct page *page)
  * callbacks that would result into the blkdev layer waking
  * up the page after a queue unplug.
  */
-void wakeup_page_waiters(struct page * page)
+void fastcall wakeup_page_waiters(struct page * page)
 {
 	wait_queue_head_t * head;
 
@@ -927,7 +927,7 @@ void ___wait_on_page(struct page *page)
  * of the waiters for all of the pages in the appropriate
  * wait queue are woken.
  */
-void unlock_page(struct page *page)
+void fastcall unlock_page(struct page *page)
 {
 	wait_queue_head_t *waitqueue = page_waitqueue(page);
 	ClearPageLaunder(page);
@@ -974,7 +974,7 @@ static void __lock_page(struct page *page)
  * Get an exclusive lock on the page, optimistically
  * assuming it's not locked..
  */
-void lock_page(struct page *page)
+void fastcall lock_page(struct page *page)
 {
 	if (TryLockPage(page))
 		__lock_page(page);
@@ -1025,7 +1025,7 @@ struct page *find_trylock_page(struct address_space *mapping, unsigned long offs
  * during blocking operations..
  */
 static struct page * FASTCALL(__find_lock_page_helper(struct address_space *, unsigned long, struct page *));
-static struct page * __find_lock_page_helper(struct address_space *mapping,
+static struct page * fastcall __find_lock_page_helper(struct address_space *mapping,
 					unsigned long offset, struct page *hash)
 {
 	struct page *page;
@@ -1388,7 +1388,7 @@ static void generic_file_readahead(int reada_ok,
  * If it was already so marked, move it to the active queue and drop
  * the referenced bit.  Otherwise, just mark it for future action..
  */
-void mark_page_accessed(struct page *page)
+void fastcall mark_page_accessed(struct page *page)
 {
 	if (!PageActive(page) && PageReferenced(page)) {
 		activate_page(page);
@@ -1639,8 +1639,9 @@ static inline int do_call_directIO(int rw, struct file *filp, struct kiobuf *iob
 
 static ssize_t generic_file_direct_IO(int rw, struct file * filp, char * buf, size_t count, loff_t offset)
 {
-	ssize_t retval;
-	int new_iobuf, chunk_size, blocksize_mask, blocksize, blocksize_bits, iosize, progress;
+	ssize_t retval, progress;
+	int new_iobuf, chunk_size, blocksize_mask, blocksize, blocksize_bits;
+	ssize_t iosize;
 	struct kiobuf * iobuf;
 	struct address_space * mapping = filp->f_dentry->d_inode->i_mapping;
 	struct inode * inode = mapping->host;
@@ -1869,7 +1870,7 @@ static ssize_t common_sendfile(int out_fd, int in_fd, loff_t *offset, size_t cou
 		goto fput_in;
 	if (!in_inode->i_mapping->a_ops->readpage)
 		goto fput_in;
-	retval = locks_verify_area(FLOCK_VERIFY_READ, in_inode, in_file, in_file->f_pos, count);
+	retval = rw_verify_area(READ, in_file, &in_file->f_pos, count);
 	if (retval)
 		goto fput_in;
 
@@ -1886,7 +1887,7 @@ static ssize_t common_sendfile(int out_fd, int in_fd, loff_t *offset, size_t cou
 	if (!out_file->f_op || !out_file->f_op->write)
 		goto fput_out;
 	out_inode = out_file->f_dentry->d_inode;
-	retval = locks_verify_area(FLOCK_VERIFY_WRITE, out_inode, out_file, out_file->f_pos, count);
+	retval = rw_verify_area(WRITE, out_file, &out_file->f_pos, count);
 	if (retval)
 		goto fput_out;
 
@@ -2588,7 +2589,7 @@ static long madvise_willneed(struct vm_area_struct * vma,
 	long error = -EBADF;
 	struct file * file;
 	struct inode * inode;
-	unsigned long size, rlim_rss;
+	unsigned long size;
 
 	/* Doesn't work if there's no mapped file. */
 	if (!vma->vm_file)
@@ -2604,12 +2605,7 @@ static long madvise_willneed(struct vm_area_struct * vma,
 		end = vma->vm_end;
 	end = ((end - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
 
-	/* Make sure this doesn't exceed the process's max rss. */
 	error = -EIO;
-	rlim_rss = current->rlim ?  current->rlim[RLIMIT_RSS].rlim_cur :
-				LONG_MAX; /* default: see resource.h */
-	if ((vma->vm_mm->rss + (end - start)) > rlim_rss)
-		return error;
 
 	/* round to cluster boundaries if this isn't a "random" area. */
 	if (!VM_RandomReadHint(vma)) {
@@ -2812,46 +2808,51 @@ static unsigned char mincore_page(struct vm_area_struct * vma,
 	return present;
 }
 
-static long mincore_vma(struct vm_area_struct * vma,
-	unsigned long start, unsigned long end, unsigned char * vec)
+/*
+ * Do a chunk of "sys_mincore()". We've already checked
+ * all the arguments, we hold the mmap semaphore: we should
+ * just return the amount of info we're asked for.
+ */
+static long do_mincore(unsigned long addr, unsigned char *vec, unsigned long pages)
 {
-	long error, i, remaining;
-	unsigned char * tmp;
+	unsigned long i, nr, pgoff;
+	struct vm_area_struct *vma = find_vma(current->mm, addr);
 
-	error = -ENOMEM;
+	/*
+	 * find_vma() didn't find anything above us, or we're
+	 * in an unmapped hole in the address space: ENOMEM.
+	 */
+	if (!vma || addr < vma->vm_start)
+		return -ENOMEM;
+
+	/*
+	 * Ok, got it. But check whether it's a segment we support
+	 * mincore() on. Right now, we don't do any anonymous mappings.
+	 *
+	 * FIXME: This is just stupid. And returning ENOMEM is 
+	 * stupid too. We should just look at the page tables. But
+	 * this is what we've traditionally done, so we'll just
+	 * continue doing it.
+	 */
 	if (!vma->vm_file)
-		return error;
+		return -ENOMEM;
 
-	start = ((start - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
-	if (end > vma->vm_end)
-		end = vma->vm_end;
-	end = ((end - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
+	/*
+	 * Calculate how many pages there are left in the vma, and
+	 * what the pgoff is for our address.
+	 */
+	nr = (vma->vm_end - addr) >> PAGE_SHIFT;
+	if (nr > pages)
+		nr = pages;
 
-	error = -EAGAIN;
-	tmp = (unsigned char *) __get_free_page(GFP_KERNEL);
-	if (!tmp)
-		return error;
+	pgoff = (addr - vma->vm_start) >> PAGE_SHIFT;
+	pgoff += vma->vm_pgoff;
 
-	/* (end - start) is # of pages, and also # of bytes in "vec */
-	remaining = (end - start),
+	/* And then we just fill the sucker in.. */
+	for (i = 0 ; i < nr; i++, pgoff++)
+		vec[i] = mincore_page(vma, pgoff);
 
-	error = 0;
-	for (i = 0; remaining > 0; remaining -= PAGE_SIZE, i++) {
-		int j = 0;
-		long thispiece = (remaining < PAGE_SIZE) ?
-						remaining : PAGE_SIZE;
-
-		while (j < thispiece)
-			tmp[j++] = mincore_page(vma, start++);
-
-		if (copy_to_user(vec + PAGE_SIZE * i, tmp, thispiece)) {
-			error = -EFAULT;
-			break;
-		}
-	}
-
-	free_page((unsigned long) tmp);
-	return error;
+	return nr;
 }
 
 /*
@@ -2871,77 +2872,61 @@ static long mincore_vma(struct vm_area_struct * vma,
  * return values:
  *  zero    - success
  *  -EFAULT - vec points to an illegal address
- *  -EINVAL - addr is not a multiple of PAGE_CACHE_SIZE,
- *		or len has a nonpositive value
+ *  -EINVAL - addr is not a multiple of PAGE_CACHE_SIZE
  *  -ENOMEM - Addresses in the range [addr, addr + len] are
  *		invalid for the address space of this process, or
  *		specify one or more pages which are not currently
  *		mapped
  *  -EAGAIN - A kernel resource was temporarily unavailable.
  */
-asmlinkage long sys_mincore(unsigned long start, size_t len,
-	unsigned char * vec)
+asmlinkage long sys_mincore(unsigned long start, size_t len, unsigned char *vec)
 {
-	int index = 0;
-	unsigned long end;
-	struct vm_area_struct * vma;
-	int unmapped_error = 0;
-	long error = -EINVAL;
+	long retval;
+	unsigned long pages;
+	unsigned char *tmp;
 
-	down_read(&current->mm->mmap_sem);
+	/* Check the start address: needs to be page-aligned.. */
+ 	if (start & ~PAGE_CACHE_MASK)
+		return -EINVAL;
 
-	if (start & ~PAGE_CACHE_MASK)
-		goto out;
-	len = (len + ~PAGE_CACHE_MASK) & PAGE_CACHE_MASK;
-	end = start + len;
-	if (end < start)
-		goto out;
+	/* ..and we need to be passed a valid user-space range */
+	if (!access_ok(VERIFY_READ, (void *) start, len))
+		return -ENOMEM;
 
-	error = 0;
-	if (end == start)
-		goto out;
+	/* This also avoids any overflows on PAGE_CACHE_ALIGN */
+	pages = len >> PAGE_SHIFT;
+	pages += (len & ~PAGE_MASK) != 0;
 
-	/*
-	 * If the interval [start,end) covers some unmapped address
-	 * ranges, just ignore them, but return -ENOMEM at the end.
-	 */
-	vma = find_vma(current->mm, start);
-	for (;;) {
-		/* Still start < end. */
-		error = -ENOMEM;
-		if (!vma)
-			goto out;
+	if (!access_ok(VERIFY_WRITE, vec, pages))
+		return -EFAULT;
 
-		/* Here start < vma->vm_end. */
-		if (start < vma->vm_start) {
-			unmapped_error = -ENOMEM;
-			start = vma->vm_start;
+	tmp = (void *) __get_free_page(GFP_USER);
+	if (!tmp)
+		return -EAGAIN;
+
+	retval = 0;
+	while (pages) {
+		/*
+		 * Do at most PAGE_SIZE entries per iteration, due to
+		 * the temporary buffer size.
+		 */
+		down_read(&current->mm->mmap_sem);
+		retval = do_mincore(start, tmp, min(pages, PAGE_SIZE));
+		up_read(&current->mm->mmap_sem);
+
+		if (retval <= 0)
+			break;
+		if (copy_to_user(vec, tmp, retval)) {
+			retval = -EFAULT;
+			break;
 		}
-
-		/* Here vma->vm_start <= start < vma->vm_end. */
-		if (end <= vma->vm_end) {
-			if (start < end) {
-				error = mincore_vma(vma, start, end,
-							&vec[index]);
-				if (error)
-					goto out;
-			}
-			error = unmapped_error;
-			goto out;
-		}
-
-		/* Here vma->vm_start <= start < vma->vm_end < end. */
-		error = mincore_vma(vma, start, vma->vm_end, &vec[index]);
-		if (error)
-			goto out;
-		index += (vma->vm_end - start) >> PAGE_CACHE_SHIFT;
-		start = vma->vm_end;
-		vma = vma->vm_next;
+		pages -= retval;
+		vec += retval;
+		start += retval << PAGE_SHIFT;
+		retval = 0;
 	}
-
-out:
-	up_read(&current->mm->mmap_sem);
-	return error;
+	free_page((unsigned long) tmp);
+	return retval;
 }
 
 static inline

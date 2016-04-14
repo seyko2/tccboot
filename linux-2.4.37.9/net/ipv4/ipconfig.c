@@ -689,6 +689,8 @@ static void __init ic_bootp_send_if(struct ic_device *d, unsigned long jiffies_d
 		b->htype = dev->type;
 	else if (dev->type == ARPHRD_IEEE802_TR) /* fix for token ring */
 		b->htype = ARPHRD_IEEE802;
+	else if (dev->type == ARPHRD_FDDI)
+		b->htype = ARPHRD_ETHER;
 	else {
 		printk("Unknown ARP type 0x%04x for device %s\n", dev->type, dev->name);
 		b->htype = dev->type; /* can cause undefined behavior */
@@ -899,6 +901,9 @@ static int __init ic_bootp_recv(struct sk_buff *skb, struct net_device *dev, str
 				break;
 
 			case DHCPACK:
+				if (memcmp(dev->dev_addr, b->hw_addr, dev->addr_len) != 0)
+					goto drop;
+
 				/* Yeah! */
 				break;
 
@@ -1029,8 +1034,8 @@ static int __init ic_dynamic(void)
 
 		jiff = jiffies + (d->next ? CONF_INTER_TIMEOUT : timeout);
 		while (time_before(jiffies, jiff) && !ic_got_reply) {
-			barrier();
-			cpu_relax();
+			__set_current_state(TASK_UNINTERRUPTIBLE);
+			schedule_timeout(1);
 		}
 #ifdef IPCONFIG_DHCP
 		/* DHCP isn't done until we get a DHCPACK. */
@@ -1157,7 +1162,7 @@ u32 __init root_nfs_parse_addr(char *name)
 		if (*cp == ':')
 			*cp++ = '\0';
 		addr = in_aton(name);
-		strcpy(name, cp);
+		memmove(name, cp, strlen(cp) + 1);
 	} else
 		addr = INADDR_NONE;
 

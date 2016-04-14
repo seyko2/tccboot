@@ -169,9 +169,8 @@ Just look at the list of fixes in the source files.
 
 CONTACT
 
-For asking about problems and fixes, use the linux-usb-users mailing list. For
-patches, linux-usb-devel should be used. Information on both lists can be
-found on http://www.linux-usb.org/.
+For discussion and patches, use the linux-usb mailing list. Information
+about the list can be found on http://www.linux-usb.org/.
 
 
 CHANGES

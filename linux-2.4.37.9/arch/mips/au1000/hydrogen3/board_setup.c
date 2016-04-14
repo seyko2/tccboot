@@ -44,9 +44,12 @@
 #include <asm/reboot.h>
 #include <asm/pgtable.h>
 #include <asm/au1000.h>
-#include <asm/db1x00.h>
 
 extern struct rtc_ops no_rtc_ops;
+
+void board_reset (void)
+{
+}
 
 void __init board_setup(void)
 {

@@ -25,4 +25,9 @@ obj-$(CONFIG_AIRO)		+= airo.o
 obj-$(CONFIG_AIRO_CS)		+= airo_cs.o airo.o
 obj-$(CONFIG_PCMCIA_ATMEL)	+= atmel_cs.o atmel.o
 
+ifeq ($(CONFIG_PRISM54),y)
+obj-$(CONFIG_PRISM54)		+= prism54/prism54.o
+endif
+subdir-$(CONFIG_PRISM54)	+= prism54
+
 include $(TOPDIR)/Rules.make

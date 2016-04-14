@@ -21,7 +21,7 @@
  *
  *      (see mptbase.c)
  *
- *  Copyright (c) 1999-2002 LSI Logic Corporation
+ *  Copyright (c) 1999-2004 LSI Logic Corporation
  *  Original author: Steven J. Ralston
  *  (mailto:sjralston1@netscape.net)
  *  (mailto:mpt_linux_developer@lsil.com)
@@ -217,7 +217,6 @@ static struct notifier_block mptscsih_notifier = {
  */
 
 static int	mpt_scsi_hosts = 0;
-static atomic_t	queue_depth;
 
 static int	ScsiDoneCtx = -1;
 static int	ScsiTaskCtx = -1;
@@ -741,8 +740,6 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 	if (sc == NULL) {
 		MPIHeader_t *hdr = (MPIHeader_t *)mf;
 
-		atomic_dec(&queue_depth);
-
 		/* Remark: writeSDP1 will use the ScsiDoneCtx
 		 * If a SCSI I/O cmd, device disabled by OS and
 		 * completion done. Cannot touch sc struct. Just free mem.
@@ -756,8 +753,6 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 
 	dmfprintk((MYIOC_s_INFO_FMT "ScsiDone (mf=%p,mr=%p,sc=%p,idx=%d)\n",
 			ioc->name, mf, mr, sc, req_idx));
-
-	atomic_dec(&queue_depth);
 
 	sc->result = DID_OK << 16;		/* Set default reply as OK */
 	pScsiReq = (SCSIIORequest_t *) mf;
@@ -788,23 +783,21 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 
 		/* If regular Inquiry cmd - save inquiry data
 		 */
-		if (pScsiReq->CDB[0] == INQUIRY && !(pScsiReq->CDB[1] & 0x3)) {
+		if (pScsiReq->CDB[0] == INQUIRY) {
 			int	 dlen;
 
 			dlen = le32_to_cpu(pScsiReq->DataLength);
-			if (dlen >= SCSI_STD_INQUIRY_BYTES) {
-				mptscsih_initTarget(hd,
-						sc->channel,
-						sc->target,
-						pScsiReq->LUN[1],
-						sc->buffer,
-						dlen);
-			}
+			mptscsih_initTarget(hd,
+					sc->channel,
+					sc->target,
+					pScsiReq->LUN[1],
+					sc->buffer,
+					dlen);
 		}
 	} else {
 		u32	 xfer_cnt;
 		u16	 status;
-		u8	 scsi_state;
+		u8	 scsi_state, scsi_status;
 
 		status = le16_to_cpu(pScsiReply->IOCStatus) & MPI_IOCSTATUS_MASK;
 		scsi_state = pScsiReply->SCSIState;
@@ -819,14 +812,6 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 
 		if (scsi_state & MPI_SCSI_STATE_AUTOSENSE_VALID)
 			copy_sense_data(sc, hd, mf, pScsiReply);
-
-		/*
-		 *  Look for + dump FCP ResponseInfo[]!
-		 */
-		if (scsi_state & MPI_SCSI_STATE_RESPONSE_INFO_VALID) {
-			dprintk((KERN_NOTICE "  FCP_ResponseInfo=%08xh\n",
-					     le32_to_cpu(pScsiReply->ResponseInfo)));
-		}
 
 		switch(status) {
 		case MPI_IOCSTATUS_BUSY:			/* 0x0002 */
@@ -877,35 +862,45 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 				mptscsih_no_negotiate(hd, sc->target);
 			break;
 
+		case MPI_IOCSTATUS_SCSI_RESIDUAL_MISMATCH:	/* 0x0049 */
+			sc->result = (DRIVER_SENSE << 24) | (DID_OK << 16) | 
+					(CHECK_CONDITION << 1);
+			sc->sense_buffer[0] = 0x70;
+			sc->sense_buffer[2] = NO_SENSE;
+			sc->sense_buffer[12] = 0;
+			sc->sense_buffer[13] = 0;
+			dprintk((KERN_NOTICE "RESIDUAL_MISMATCH: result=%x on id=%d\n", sc->result, sc->target));
+			break;
+
 		case MPI_IOCSTATUS_SCSI_DATA_UNDERRUN:		/* 0x0045 */
 			/*
-			 *  YIKES!  I just discovered that SCSI IO which
-			 *  returns check condition, SenseKey=05 (ILLEGAL REQUEST)
-			 *  and ASC/ASCQ=94/01 (LSI Logic RAID vendor specific),
-			 *  comes down this path!
 			 *  Do upfront check for valid SenseData and give it
 			 *  precedence!
 			 */
-			sc->result = (DID_OK << 16) | pScsiReply->SCSIStatus;
-			if (scsi_state == 0) {
-				;
-			} else if (scsi_state & MPI_SCSI_STATE_AUTOSENSE_VALID) {
+			scsi_status = pScsiReply->SCSIStatus;
+			sc->result = (DID_OK << 16) | scsi_status;
+			xfer_cnt = le32_to_cpu(pScsiReply->TransferCount);
+			if (scsi_state & MPI_SCSI_STATE_AUTOSENSE_VALID) {
 				/* Have already saved the status and sense data
 				 */
 				;
-			} else if (scsi_state & (MPI_SCSI_STATE_AUTOSENSE_FAILED | MPI_SCSI_STATE_NO_SCSI_STATUS)) {
-				/* What to do?
-				 */
-				sc->result = DID_SOFT_ERROR << 16;
-			}
-			else if (scsi_state & MPI_SCSI_STATE_TERMINATED) {
-				/*  Not real sure here either...  */
-				sc->result = DID_RESET << 16;
+			} else {
+				if ( (xfer_cnt == 0) || (sc->underflow > xfer_cnt)) {
+					sc->result = DID_SOFT_ERROR << 16;
+				}
+				if (scsi_state & (MPI_SCSI_STATE_AUTOSENSE_FAILED | MPI_SCSI_STATE_NO_SCSI_STATUS)) {
+					/* What to do?
+				 	*/
+					sc->result = DID_SOFT_ERROR << 16;
+				}
+				else if (scsi_state & MPI_SCSI_STATE_TERMINATED) {
+					/*  Not real sure here either...  */
+					sc->result = DID_RESET << 16;
+				}
 			}
 
 			/* Give report and update residual count.
 			 */
-			xfer_cnt = le32_to_cpu(pScsiReply->TransferCount);
 			dprintk((KERN_NOTICE "  sc->underflow={report ERR if < %02xh bytes xfer'd}\n",
 					sc->underflow));
 			dprintk((KERN_NOTICE "  ActBytesXferd=%02xh\n", xfer_cnt));
@@ -914,22 +909,15 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 			sc->resid = sc->request_bufflen - xfer_cnt;
 			dprintk((KERN_NOTICE "  SET sc->resid=%02xh\n", sc->resid));
 #endif
-			if((xfer_cnt == 0 ) || (sc->underflow > xfer_cnt)) {
-				sc->result = DID_SOFT_ERROR << 16;
-			}
-
 			/* Report Queue Full
 			 */
-			if (sc->result == MPI_SCSI_STATUS_TASK_SET_FULL)
+			if (scsi_status == MPI_SCSI_STATUS_TASK_SET_FULL)
 				mptscsih_report_queue_full(sc, pScsiReply, pScsiReq);
 
 			/* If regular Inquiry cmd and some data was transferred,
 			 * save inquiry data
 			 */
-			if (    pScsiReq->CDB[0] == INQUIRY
-			     && !(pScsiReq->CDB[1] & 0x3)
-			     && xfer_cnt >= SCSI_STD_INQUIRY_BYTES
-			   ) {
+			if ( (pScsiReq->CDB[0] == INQUIRY) && xfer_cnt ) {
 				mptscsih_initTarget(hd,
 						sc->channel,
 						sc->target,
@@ -1006,11 +994,9 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 			/* If regular Inquiry cmd - save inquiry data
 			 */
 			xfer_cnt = le32_to_cpu(pScsiReply->TransferCount);
-			if (    sc->result == (DID_OK << 16)
-			     && pScsiReq->CDB[0] == INQUIRY
-			     && !(pScsiReq->CDB[1] & 0x3)
-			     && xfer_cnt >= SCSI_STD_INQUIRY_BYTES
-			   ) {
+			if ( (sc->result == (DID_OK << 16))
+			     && xfer_cnt
+			     && pScsiReq->CDB[0] == INQUIRY ) {
 				mptscsih_initTarget(hd,
 						sc->channel,
 						sc->target,
@@ -1037,7 +1023,6 @@ mptscsih_io_done(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 		case MPI_IOCSTATUS_INVALID_STATE:		/* 0x0008 */
 		case MPI_IOCSTATUS_SCSI_DATA_OVERRUN:		/* 0x0044 */
 		case MPI_IOCSTATUS_SCSI_IO_DATA_ERROR:		/* 0x0046 */
-		case MPI_IOCSTATUS_SCSI_RESIDUAL_MISMATCH:	/* 0x0049 */
 		case MPI_IOCSTATUS_SCSI_TASK_MGMT_FAILED:	/* 0x004A */
 		default:
 			/*
@@ -1371,11 +1356,9 @@ mptscsih_flush_running_cmds(MPT_SCSI_HOST *hd)
 #endif
 
 			/* Search pendingQ, if found,
-			 * delete from Q. If found, do not decrement
-			 * queue_depth, command never posted.
+			 * delete from Q.
 			 */
-			if (mptscsih_search_pendingQ(hd, ii) == NULL)
-				atomic_dec(&queue_depth);
+			mptscsih_search_pendingQ(hd, ii);
 
 			/* Null ScsiLookup index
 			 */
@@ -2429,7 +2412,6 @@ int mptscsih_proc_info(char *buffer, char **start, off_t offset,
 
 
 /*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
-	static int max_qd = 1;
 #if 0
 static int index_log[128];
 static int index_ent = 0;
@@ -2443,32 +2425,6 @@ static __inline__ void ADD_INDEX_LOG(int req_ent)
 #define ADD_INDEX_LOG(req_ent)	do { } while(0)
 #endif
 
-/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
-/*
- *	mptscsih_put_msgframe - Wrapper routine to post message frame to F/W.
- *	@context: Call back context (ScsiDoneCtx, ScsiScanDvCtx)
- *	@id: IOC id number
- *	@mf: Pointer to message frame
- *
- *	Handles the call to mptbase for posting request and queue depth
- *	tracking.
- *
- *	Returns none.
- */
-static inline void
-mptscsih_put_msgframe(int context, int id, MPT_FRAME_HDR *mf)
-{
-	/* Main banana... */
-	atomic_inc(&queue_depth);
-	if (atomic_read(&queue_depth) > max_qd) {
-		max_qd = atomic_read(&queue_depth);
-		dprintk((KERN_INFO MYNAM ": Queue depth now %d.\n", max_qd));
-	}
-
-	mpt_put_msg_frame(context, id, mf);
-
-	return;
-}
 
 /*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 /**
@@ -2599,7 +2555,6 @@ mptscsih_qcmd(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *))
 
 	/*
 	 *  Write SCSI CDB into the message
-	 *  Should write from cmd_len up to 16, but skip for performance reasons.
 	 */
 	cmd_len = SCpnt->cmd_len;
 	for (ii=0; ii < cmd_len; ii++)
@@ -2639,17 +2594,6 @@ mptscsih_qcmd(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *))
 			int dvStatus = hd->ioc->spi_data.dvStatus[target];
 
 			if (dvStatus || hd->ioc->spi_data.forceDv) {
-
-				/* Write SDP1 on this I/O to this target */
-				if (dvStatus & MPT_SCSICFG_NEGOTIATE) {
-					mptscsih_writeSDP1(hd, 0, target, hd->negoNvram);
-					dvStatus &= ~MPT_SCSICFG_NEGOTIATE;
-					hd->ioc->spi_data.dvStatus[target] =  dvStatus;
-				} else if (dvStatus & MPT_SCSICFG_BLK_NEGO) {
-					mptscsih_writeSDP1(hd, 0, target, MPT_SCSICFG_BLK_NEGO);
-					dvStatus &= ~MPT_SCSICFG_BLK_NEGO;
-					hd->ioc->spi_data.dvStatus[target] =  dvStatus;
-				}
 
 #ifndef MPTSCSIH_DISABLE_DOMAIN_VALIDATION
 				if ((dvStatus & MPT_SCSICFG_NEED_DV) ||
@@ -2698,7 +2642,7 @@ mptscsih_qcmd(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *))
 #endif
 
 		if (issueCmd) {
-			mptscsih_put_msgframe(ScsiDoneCtx, hd->ioc->id, mf);
+			mpt_put_msg_frame(ScsiDoneCtx, hd->ioc->id, mf);
 			dmfprintk((MYIOC_s_INFO_FMT "Issued SCSI cmd (%p) mf=%p idx=%d\n",
 					hd->ioc->name, SCpnt, mf, my_idx));
 		} else {
@@ -3073,8 +3017,8 @@ mptscsih_abort(Scsi_Cmnd * SCpnt)
 	if (hd->resetPending)
 		return FAILED;
 
-	printk(KERN_WARNING MYNAM ": %s: >> Attempting task abort! (sc=%p, numIOs=%d)\n",
-	       hd->ioc->name, SCpnt, atomic_read(&queue_depth));
+	printk(KERN_WARNING MYNAM ": %s: >> Attempting task abort! (sc=%p)\n",
+	       hd->ioc->name, SCpnt);
 
 	if (hd->timeouts < -1)
 		hd->timeouts++;
@@ -3099,7 +3043,7 @@ mptscsih_abort(Scsi_Cmnd * SCpnt)
 	 * and then following up with the reset request.
 	 */
 	if ((mf = mptscsih_search_pendingQ(hd, scpnt_idx)) != NULL) {
-		mptscsih_put_msgframe(ScsiDoneCtx, hd->ioc->id, mf);
+		mpt_put_msg_frame(ScsiDoneCtx, hd->ioc->id, mf);
 		post_pendingQ_commands(hd);
 		nehprintk((KERN_WARNING MYNAM ": %s: mptscsih_abort: "
 			   "Posting pended cmd! (sc=%p)\n",
@@ -3164,8 +3108,8 @@ mptscsih_dev_reset(Scsi_Cmnd * SCpnt)
 	if (hd->resetPending)
 		return FAILED;
 
-	printk(KERN_WARNING MYNAM ": %s: >> Attempting target reset! (sc=%p, numIOs=%d)\n",
-	       hd->ioc->name, SCpnt, atomic_read(&queue_depth));
+	printk(KERN_WARNING MYNAM ": %s: >> Attempting target reset! (sc=%p)\n",
+	       hd->ioc->name, SCpnt);
 
 	/* Unsupported for SCSI. Supported for FCP
 	 */
@@ -3211,8 +3155,8 @@ mptscsih_bus_reset(Scsi_Cmnd * SCpnt)
 		return FAILED;
 	}
 
-	printk(KERN_WARNING MYNAM ": %s: >> Attempting bus reset! (sc=%p, numIOs=%d)\n",
-	       hd->ioc->name, SCpnt, atomic_read(&queue_depth));
+	printk(KERN_WARNING MYNAM ": %s: >> Attempting bus reset! (sc=%p)\n",
+	       hd->ioc->name, SCpnt);
 
 	if (hd->timeouts < -1)
 		hd->timeouts++;
@@ -3262,8 +3206,6 @@ mptscsih_host_reset(Scsi_Cmnd *SCpnt)
 
 	printk(KERN_WARNING MYNAM ": %s: >> Attempting host reset! (sc=%p)\n",
 	       hd->ioc->name, SCpnt);
-	printk(KERN_WARNING MYNAM ": %s: IOs outstanding = %d\n",
-	       hd->ioc->name, atomic_read(&queue_depth));
 
 	/*  If our attempts to reset the host failed, then return a failed
 	 *  status.  The host will be taken off line by the SCSI mid-layer.
@@ -3339,7 +3281,6 @@ mptscsih_old_abort(Scsi_Cmnd *SCpnt)
 	int			 scpnt_idx;
 
 	printk(KERN_WARNING MYNAM ": OldAbort scheduling ABORT SCSI IO (sc=%p)\n", (void *) SCpnt);
-	printk(KERN_WARNING "  IOs outstanding = %d\n", atomic_read(&queue_depth));
 
 	if ((hd = (MPT_SCSI_HOST *) SCpnt->host->hostdata) == NULL) {
 		printk(KERN_WARNING "  WARNING - OldAbort, NULL hostdata ptr!!\n");
@@ -3366,7 +3307,7 @@ mptscsih_old_abort(Scsi_Cmnd *SCpnt)
 		 */
 #ifndef MPTSCSIH_DBG_TIMEOUT
 		if ((mf = mptscsih_search_pendingQ(hd, scpnt_idx)) != NULL) {
-			mptscsih_put_msgframe(ScsiDoneCtx, hd->ioc->id, mf);
+			mpt_put_msg_frame(ScsiDoneCtx, hd->ioc->id, mf);
 			post_pendingQ_commands(hd);
 		}
 #endif
@@ -3472,7 +3413,6 @@ mptscsih_old_reset(Scsi_Cmnd *SCpnt, unsigned int reset_flags)
 	int			 scpnt_idx;
 
 	printk(KERN_WARNING MYNAM ": OldReset scheduling BUS_RESET (sc=%p)\n", (void *) SCpnt);
-	printk(KERN_WARNING "  IOs outstanding = %d\n", atomic_read(&queue_depth));
 
 	if ((hd = (MPT_SCSI_HOST *) SCpnt->host->hostdata) == NULL) {
 		SCpnt->result = DID_ERROR << 16;
@@ -3498,7 +3438,7 @@ mptscsih_old_reset(Scsi_Cmnd *SCpnt, unsigned int reset_flags)
 		 */
 #ifndef MPTSCSIH_DBG_TIMEOUT
 		if ((mf = mptscsih_search_pendingQ(hd, scpnt_idx)) != NULL) {
-			mptscsih_put_msgframe(ScsiDoneCtx, hd->ioc->id, mf);
+			mpt_put_msg_frame(ScsiDoneCtx, hd->ioc->id, mf);
 			post_pendingQ_commands(hd);
 		}
 #endif
@@ -3740,7 +3680,6 @@ mptscsih_taskmgmt_bh(void *sc)
 						": WARNING[1] - IOC error processing TaskMgmt request (sc=%p)\n", (void *) SCpnt);
 
 					if (hd->ScsiLookup[scpnt_idx] != NULL) {
-						atomic_dec(&queue_depth);
 						SCpnt->result = DID_SOFT_ERROR << 16;
                                                 MPT_HOST_LOCK(flags);
 						SCpnt->scsi_done(SCpnt);
@@ -3937,7 +3876,6 @@ mptscsih_select_queue_depths(struct Scsi_Host *sh, Scsi_Device *sdList)
 			continue;
 
 		if (hd->Targets != NULL) {
-			pTarget = NULL;
 			if (device->id > sh->max_id) {
 				/* error case, should never happen */
 				device->queue_depth = 1;
@@ -3949,25 +3887,27 @@ mptscsih_select_queue_depths(struct Scsi_Host *sh, Scsi_Device *sdList)
 			if (pTarget == NULL) {
 				/* error case - don't know about this device */
 				device->queue_depth = 1;
-			} else if (pTarget->tflags & MPT_TARGET_FLAGS_VALID_INQUIRY) {
-				if (!(pTarget->tflags & MPT_TARGET_FLAGS_Q_YES))
-					device->queue_depth = 1;
-				else if (((pTarget->inq_data[0] & 0x1f) == 0x00)
-					 && (pTarget->minSyncFactor <= MPT_ULTRA160 || !hd->is_spi)){
-					device->queue_depth = MPT_SCSI_CMD_PER_DEV_HIGH;
-				} else
-					device->queue_depth = MPT_SCSI_CMD_PER_DEV_LOW;
-
 			} else {
-				/* error case - No Inq. Data */
-				device->queue_depth = 1;
+				device->queue_depth = MPT_SCSI_CMD_PER_DEV_HIGH;
+				if ( hd->is_spi ) {
+					if (pTarget->tflags & MPT_TARGET_FLAGS_VALID_INQUIRY) {
+						if (!(pTarget->tflags & MPT_TARGET_FLAGS_Q_YES))
+							device->queue_depth = 1;
+						else if (((pTarget->inq_data[0] & 0x1f) == 0x00) && (pTarget->minSyncFactor <= MPT_ULTRA160 )){
+							device->queue_depth = MPT_SCSI_CMD_PER_DEV_HIGH;
+						} else
+							device->queue_depth = MPT_SCSI_CMD_PER_DEV_LOW;
+					} else {
+						/* error case - No Inq. Data */
+						device->queue_depth = 1;
+					}
+				}
 			}
 
 			if (pTarget != NULL) {
 				dprintk((MYIOC_s_INFO_FMT
-					 "scsi%d: Id=%d Lun=%d: Queue depth=%d\n",
-					 hd->ioc->name, 
-					 device->id, device->lun, device->queue_depth));
+					 "scsi%d: Id=%d Lun=%d: Queue depth=%d tflags=%x\n",
+					 hd->ioc->name, device->id, pTarget->target_id, device->lun, device->queue_depth, pTarget->tflags));
 
 				dprintk((MYIOC_s_INFO_FMT
 					 "Id = %d, sync factor = %x\n",
@@ -4172,7 +4112,7 @@ post_pendingQ_commands(MPT_SCSI_HOST *hd)
 			continue;
 		}
 
-		mptscsih_put_msgframe(ScsiDoneCtx, hd->ioc->id, mf);
+		mpt_put_msg_frame(ScsiDoneCtx, hd->ioc->id, mf);
 
 #if defined(MPT_DEBUG_DV) || defined(MPT_DEBUG_DV_TINY)
 		{
@@ -4239,7 +4179,6 @@ mptscsih_ioc_reset(MPT_ADAPTER *ioc, int reset_phase)
 		if (hd->cmdPtr) {
 			del_timer(&hd->timer);
 			mpt_free_msg_frame(ScsiScanDvCtx, ioc->id, hd->cmdPtr);
-			atomic_dec(&queue_depth);
 		}
 
 		/* 2d. If a task management has not completed,
@@ -4978,31 +4917,41 @@ mptscsih_initTarget(MPT_SCSI_HOST *hd, int bus_id, int target_id, u8 lun, char *
 {
 	int		indexed_lun, lun_index;
 	VirtDevice	*vdev;
+	char		data_56;
 
-	dprintk((MYIOC_s_INFO_FMT "initTarget (%d,%d,%d) called, hd=%p\n",
+	dprintk((MYIOC_s_INFO_FMT "initTarget bus=%d id=%d lun=%d hd=%p\n",
 			hd->ioc->name, bus_id, target_id, lun, hd));
+
+	/* Is LUN supported? If so, upper 3 bits will be 0
+	* in first byte of inquiry data.
+	*/
+	if (data[0] & 0xe0)
+		return;
 
 	if ((vdev = hd->Targets[target_id]) == NULL) {
 		if ((vdev = kmalloc(sizeof(VirtDevice), GFP_ATOMIC)) == NULL) {
 			printk(MYIOC_s_ERR_FMT "initTarget kmalloc(%d) FAILED!\n",
 					hd->ioc->name, (int)sizeof(VirtDevice));
 			return;
-		} else {
-			memset(vdev, 0, sizeof(VirtDevice));
-			rwlock_init(&vdev->VdevLock);
-			Q_INIT(&vdev->WaitQ, void);
-			Q_INIT(&vdev->SentQ, void);
-			Q_INIT(&vdev->DoneQ, void);
-			vdev->tflags = 0;
-			vdev->ioc_id = hd->ioc->id;
-			vdev->target_id = target_id;
-			vdev->bus_id = bus_id;
-
-			hd->Targets[target_id] = vdev;
-			dprintk((KERN_INFO "  *NEW* Target structure (id %d) @ %p\n",
-					target_id, vdev));
 		}
+		memset(vdev, 0, sizeof(VirtDevice));
+		rwlock_init(&vdev->VdevLock);
+		Q_INIT(&vdev->WaitQ, void);
+		Q_INIT(&vdev->SentQ, void);
+		Q_INIT(&vdev->DoneQ, void);
+		vdev->tflags = 0;
+		vdev->ioc_id = hd->ioc->id;
+		vdev->target_id = target_id;
+		vdev->bus_id = bus_id;
+
+		hd->Targets[target_id] = vdev;
+		dprintk((KERN_INFO "  *NEW* Target structure (id %d) @ %p\n",
+			target_id, vdev));
 	}
+
+	lun_index = (lun >> 5);  /* 32 luns per lun_index */
+	indexed_lun = (lun % 32);
+	vdev->luns[lun_index] |= (1 << indexed_lun);
 
 	vdev->raidVolume = 0;
 	if (hd->is_spi) {
@@ -5013,10 +4962,20 @@ mptscsih_initTarget(MPT_SCSI_HOST *hd, int bus_id, int target_id, u8 lun, char *
 	}
 
 	if (!(vdev->tflags & MPT_TARGET_FLAGS_VALID_INQUIRY)) {
-		/* Copy the inquiry data  - if we haven't yet.
-		*/
-
-		memcpy (vdev->inq_data, data, 8);
+		if ( dlen > 8 ) {
+			memcpy (vdev->inq_data, data, 8);
+		} else {
+			memcpy (vdev->inq_data, data, dlen);
+		}
+		vdev->tflags |= MPT_TARGET_FLAGS_VALID_INQUIRY;
+		
+		/* If LUN 0, tape and have not done DV, set the DV flag.
+		 */
+		if (hd->is_spi && (lun == 0) && (data[0] == SCSI_TYPE_TAPE)) {
+			ScsiCfgData *pSpi = &hd->ioc->spi_data;
+			if (pSpi->dvStatus[target_id] & MPT_SCSICFG_DV_NOT_DONE)
+				pSpi->dvStatus[target_id] |= MPT_SCSICFG_NEED_DV;
+		}
 
 		if ( (data[0] == SCSI_TYPE_PROC) && 
 			!(vdev->tflags & MPT_TARGET_FLAGS_SAF_TE_ISSUED )) {
@@ -5039,35 +4998,18 @@ mptscsih_initTarget(MPT_SCSI_HOST *hd, int bus_id, int target_id, u8 lun, char *
 					mptscsih_writeIOCPage4(hd, target_id, bus_id);
 				}
 			}
-		} else 
-			vdev->tflags |= MPT_TARGET_FLAGS_VALID_INQUIRY;
+		} 
 
-		if ((dlen > 56) && (!(vdev->tflags & MPT_TARGET_FLAGS_VALID_56))) {
+		data_56 = 0x0F;  /* Default to full capabilities if Inq data length is < 57 */
+		if (dlen > 56) {
+			if ( (!(vdev->tflags & MPT_TARGET_FLAGS_VALID_56))) {
 			/* Update the target capabilities
 			 */
-			if (dlen > 56) {
-				mptscsih_setTargetNegoParms(hd, vdev, data[56]);
+				data_56 = data[56];
 				vdev->tflags |= MPT_TARGET_FLAGS_VALID_56;
-			} else
-				mptscsih_setTargetNegoParms(hd, vdev, 0);
-
-			/* If LUN 0, tape and have not done DV, set the DV flag.
-			 */
-			if (hd->is_spi && (lun == 0) && ((data[0] & 0x1F) == 0x01)) {
-				ScsiCfgData *pSpi = &hd->ioc->spi_data;
-				if (pSpi->dvStatus[target_id] & MPT_SCSICFG_DV_NOT_DONE)
-					pSpi->dvStatus[target_id] |= MPT_SCSICFG_NEED_DV;
 			}
 		}
-	}
-
-	/* Is LUN supported? If so, upper 3 bits will be 0
-	 * in first byte of inquiry data.
-	 */
-	if ((*data & 0xe0) == 0) {
-		lun_index = (lun >> 5);  /* 32 luns per lun_index */
-		indexed_lun = (lun % 32);
-		vdev->luns[lun_index] |= (1 << indexed_lun);
+		mptscsih_setTargetNegoParms(hd, vdev, data_56);
 	}
 
 	dprintk((KERN_INFO "  target = %p\n", vdev));
@@ -5093,7 +5035,7 @@ void mptscsih_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtDevice *target, char byt
 	u8 offset = 0;
 	u8 version, nfactor;
 	u8 noQas = 1;
-
+	
 	if (!hd->is_spi) {
 		if (target->tflags & MPT_TARGET_FLAGS_VALID_INQUIRY) {
 			if (target->inq_data[7] & 0x02)
@@ -5123,14 +5065,16 @@ void mptscsih_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtDevice *target, char byt
 			}
 
 			if (target->inq_data[7] & 0x10) {
-				/* bits 2 & 3 show DT support
+				/* bits 2 & 3 show Clocking support
 				 */
-				if ((byte56 & 0x04) == 0)
+				if ((byte56 & 0x0C) == 0)
 					factor = MPT_ULTRA2;
-				else if ((byte56 & 0x03) == 0)
-					factor = MPT_ULTRA160;
-				else
-					factor = MPT_ULTRA320;
+				else {
+					if ((byte56 & 0x03) == 0)
+						factor = MPT_ULTRA160;
+					else
+						factor = MPT_ULTRA320;
+				}
 				offset = pspi_data->maxSyncOffset;
 
 				/* If RAID, never disable QAS
@@ -5139,8 +5083,9 @@ void mptscsih_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtDevice *target, char byt
 				 * bit 1 QAS support, non-raid only
 				 * bit 0 IU support
 				 */
-				if ((target->raidVolume == 1) || ((byte56 & 0x02) != 0))
+				if ((target->raidVolume == 1) || (byte56 & 0x02)) {
 					noQas = 0;
+				}
 			} else {
 				factor = MPT_ASYNC;
 				offset = 0;
@@ -5218,7 +5163,7 @@ void mptscsih_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtDevice *target, char byt
 				/* Disable QAS in a mixed configuration case
 		 		*/
 
-//				ddvtprintk((KERN_INFO "Disabling QAS!\n"));
+				ddvtprintk((KERN_INFO "Disabling QAS due to noQas=%02x on id=%d!\n", noQas, id));
 				for (ii = 0; ii < id; ii++) {
 					if ( (vdev = hd->Targets[ii]) ) {
 						vdev->negoFlags |= MPT_TARGET_NO_NEGO_QAS;
@@ -5226,8 +5171,17 @@ void mptscsih_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtDevice *target, char byt
 				}
 			}
 		}
+	
+		/* Write SDP1 on this I/O to this target */
+		if (pspi_data->dvStatus[id] & MPT_SCSICFG_NEGOTIATE) {
+			mptscsih_writeSDP1(hd, 0, id, hd->negoNvram);
+			pspi_data->dvStatus[id] &= ~MPT_SCSICFG_NEGOTIATE;
+		} else if (pspi_data->dvStatus[id] & MPT_SCSICFG_BLK_NEGO) {
+			mptscsih_writeSDP1(hd, 0, id, MPT_SCSICFG_BLK_NEGO);
+			pspi_data->dvStatus[id] &= ~MPT_SCSICFG_BLK_NEGO;
+		}
+	
 	}
-
 	return;
 }
 
@@ -5488,9 +5442,8 @@ mptscsih_writeSDP1(MPT_SCSI_HOST *hd, int portnum, int target_id, int flags)
 		pReq->Reserved = 0;
 		pReq->ChainOffset = 0;
 		pReq->Function = MPI_FUNCTION_CONFIG;
-		pReq->Reserved1[0] = 0;
-		pReq->Reserved1[1] = 0;
-		pReq->Reserved1[2] = 0;
+		pReq->ExtPageLength = 0;
+		pReq->ExtPageType = 0;
 		pReq->MsgFlags = 0;
 		for (ii=0; ii < 8; ii++) {
 			pReq->Reserved2[ii] = 0;
@@ -5522,7 +5475,7 @@ mptscsih_writeSDP1(MPT_SCSI_HOST *hd, int portnum, int target_id, int flags)
 				ioc->name, id, (id | (bus<<8)),
 				requested, configuration));
 
-		mptscsih_put_msgframe(ScsiDoneCtx, ioc->id, mf);
+		mpt_put_msg_frame(ScsiDoneCtx, ioc->id, mf);
 	}
 
 	return 0;
@@ -5576,9 +5529,8 @@ mptscsih_writeIOCPage4(MPT_SCSI_HOST *hd, int target_id, int bus)
 	pReq->Reserved = 0;
 	pReq->ChainOffset = 0;
 	pReq->Function = MPI_FUNCTION_CONFIG;
-	pReq->Reserved1[0] = 0;
-	pReq->Reserved1[1] = 0;
-	pReq->Reserved1[2] = 0;
+	pReq->ExtPageLength = 0;
+	pReq->ExtPageType = 0;
 	pReq->MsgFlags = 0;
 	for (ii=0; ii < 8; ii++) {
 		pReq->Reserved2[ii] = 0;
@@ -5603,7 +5555,7 @@ mptscsih_writeIOCPage4(MPT_SCSI_HOST *hd, int target_id, int bus)
 		"writeIOCPage4: pgaddr 0x%x\n",
 			ioc->name, (target_id | (bus<<8))));
 
-	mptscsih_put_msgframe(ScsiDoneCtx, ioc->id, mf);
+	mpt_put_msg_frame(ScsiDoneCtx, ioc->id, mf);
 
 	return 0;
 }
@@ -5703,8 +5655,6 @@ mptscsih_scandv_complete(MPT_ADAPTER *ioc, MPT_FRAME_HDR *mf, MPT_FRAME_HDR *mr)
 
 	ddvprintk((MYIOC_s_INFO_FMT "ScanDvComplete (mf=%p,mr=%p,idx=%d)\n",
 			hd->ioc->name, mf, mr, req_idx));
-
-	atomic_dec(&queue_depth);
 
 	hd->pLocal = &hd->localReply;
 	hd->pLocal->scsiStatus = 0;
@@ -5948,7 +5898,7 @@ mptscsih_do_raid(MPT_SCSI_HOST *hd, u8 action, INTERNAL_CMD *io)
 			hd->ioc->name, action, io->id));
 
 	hd->pLocal = NULL;
-	hd->timer.expires = jiffies + HZ*2; /* 2 second timeout */
+	hd->timer.expires = jiffies + HZ*10; /* 10 second timeout */
 	scandv_wait_done = 0;
 
 	/* Save cmd pointer, for resource free if timeout or
@@ -5957,7 +5907,7 @@ mptscsih_do_raid(MPT_SCSI_HOST *hd, u8 action, INTERNAL_CMD *io)
 	hd->cmdPtr = mf;
 
 	add_timer(&hd->timer);
-	mptscsih_put_msgframe(ScsiScanDvCtx, hd->ioc->id, mf);
+	mpt_put_msg_frame(ScsiScanDvCtx, hd->ioc->id, mf);
 	wait_event(scandv_waitq, scandv_wait_done);
 
 	if ((hd->pLocal == NULL) || (hd->pLocal->completion != MPT_SCANDV_GOOD))
@@ -6194,7 +6144,7 @@ mptscsih_do_cmd(MPT_SCSI_HOST *hd, INTERNAL_CMD *io)
 	hd->cmdPtr = mf;
 
 	add_timer(&hd->timer);
-	mptscsih_put_msgframe(ScsiScanDvCtx, hd->ioc->id, mf);
+	mpt_put_msg_frame(ScsiScanDvCtx, hd->ioc->id, mf);
 	wait_event(scandv_waitq, scandv_wait_done);
 
 	if (hd->pLocal) {
@@ -6638,8 +6588,8 @@ mptscsih_doDv(MPT_SCSI_HOST *hd, int bus_number, int id)
 	lun = 0;
 	bus = (u8) bus_number;
 	ddvtprintk((MYIOC_s_NOTE_FMT
-			"DV started: numIOs %d bus=%d, id %d dv @ %p\n",
-			ioc->name, atomic_read(&queue_depth), bus, id, &dv));
+			"DV started: bus=%d, id %d dv @ %p\n",
+			ioc->name, bus, id, &dv));
 
 	/* Prep DV structure
 	 */
@@ -6818,7 +6768,7 @@ mptscsih_doDv(MPT_SCSI_HOST *hd, int bus_number, int id)
 	sz = SCSI_STD_INQUIRY_BYTES;
 	rc = MPT_SCANDV_GOOD;
 	while (1) {
-		ddvprintk((MYIOC_s_NOTE_FMT "DV: Start Basic test.\n", ioc->name));
+		ddvprintk((MYIOC_s_NOTE_FMT "DV: Start Basic test on id=%d\n", ioc->name, id));
 		retcode = 0;
 		dv.cmd = MPT_SET_MIN;
 		mptscsih_dv_parms(hd, &dv, (void *)pcfg1Data);
@@ -7010,7 +6960,7 @@ mptscsih_doDv(MPT_SCSI_HOST *hd, int bus_number, int id)
 			firstPass = 0;
 		}
 	}
-	ddvprintk((MYIOC_s_NOTE_FMT "DV: Basic test completed OK.\n", ioc->name));
+	ddvprintk((MYIOC_s_NOTE_FMT "DV: Basic test on id=%d completed OK.\n", ioc->name, id));
 	inq0 = (*pbuf1) & 0x1F;
 
 	/* Continue only for disks
@@ -7461,8 +7411,8 @@ target_done:
 	if (pDvBuf)
 		pci_free_consistent(ioc->pcidev, dv_alloc, pDvBuf, dvbuf_dma);
 
-	ddvtprintk((MYIOC_s_INFO_FMT "DV Done. IOs outstanding = %d\n",
-			ioc->name, atomic_read(&queue_depth)));
+	ddvtprintk((MYIOC_s_INFO_FMT "DV Done.\n",
+			ioc->name));
 
 	return retcode;
 }
@@ -7631,7 +7581,6 @@ mptscsih_dv_parms(MPT_SCSI_HOST *hd, DVPARAMETERS *dv,void *pPage)
 				factor = MPT_ULTRA;
 				width = MPT_WIDE;
 			} else if ((factor == MPT_ULTRA) && width) {
-				factor = MPT_ULTRA;
 				width = MPT_NARROW;
 			} else if (factor < MPT_FAST) {
 				factor = MPT_FAST;

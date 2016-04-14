@@ -92,7 +92,7 @@ xxs1500_pcmcia_socket_state(unsigned sock, struct pcmcia_state *state)
 	gpio = au_readl(SYS_PINSTATERD);
 	gpio2 = au_readl(GPIO2_PINSTATE);
 
-	vs = gpio2 & ((1<<8) | (1<<9));
+	vs = (gpio2 >> 8) & 0x3;
 	inserted = (!(gpio & 0x1) && !(gpio & 0x2));
 
 	state->ready = 0;
@@ -110,8 +110,7 @@ xxs1500_pcmcia_socket_state(unsigned sock, struct pcmcia_state *state)
 			case 3: /* 5V */
 			default:
 				/* return without setting 'detect' */
-				printk(KERN_ERR "au1x00_cs: unsupported VS\n",
-						vs);
+				printk(KERN_ERR "au1x00_cs: bad VS %d\n", vs);
 				return;
 		}
 		state->detect = 1;
@@ -156,7 +155,8 @@ xxs1500_pcmcia_configure_socket(const struct pcmcia_configure *configure)
 			break;
 		case 50: /* Vcc 5V */
 		default: /* what's this ? */
-			printk(KERN_ERR "au1x00_cs: unsupported VCC\n");
+			printk(KERN_ERR "au1x00_cs: bad VCC %d\n", 
+					configure->vcc);
 		case 0:  /* Vcc 0 */
 			/* turn off power */
 			au_sync_delay(100);
@@ -182,7 +182,7 @@ xxs1500_pcmcia_configure_socket(const struct pcmcia_configure *configure)
 	return 0;
 }
 
-struct pcmcia_low_level xxs1500_pcmcia_ops = { 
+struct pcmcia_low_level au1x00_pcmcia_ops = { 
 	xxs1500_pcmcia_init,
 	xxs1500_pcmcia_shutdown,
 	xxs1500_pcmcia_socket_state,

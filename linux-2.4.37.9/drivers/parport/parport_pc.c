@@ -1,6 +1,6 @@
 /* Low-level parallel-port routines for 8255-based PC-style hardware.
  * 
- * Authors: Phil Blundell <Philip.Blundell@pobox.com>
+ * Authors: Phil Blundell <philb@gnu.org>
  *          Tim Waugh <tim@cyberelk.demon.co.uk>
  *	    Jose Renau <renau@acm.org>
  *          David Campbell <campbell@torque.net>
@@ -266,95 +266,6 @@ static void parport_pc_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 	parport_generic_irq(irq, (struct parport *) dev_id, regs);
 }
 
-void parport_pc_write_data(struct parport *p, unsigned char d)
-{
-	outb (d, DATA (p));
-}
-
-unsigned char parport_pc_read_data(struct parport *p)
-{
-	return inb (DATA (p));
-}
-
-void parport_pc_write_control(struct parport *p, unsigned char d)
-{
-	const unsigned char wm = (PARPORT_CONTROL_STROBE |
-				  PARPORT_CONTROL_AUTOFD |
-				  PARPORT_CONTROL_INIT |
-				  PARPORT_CONTROL_SELECT);
-
-	/* Take this out when drivers have adapted to the newer interface. */
-	if (d & 0x20) {
-		printk (KERN_DEBUG "%s (%s): use data_reverse for this!\n",
-			p->name, p->cad->name);
-		parport_pc_data_reverse (p);
-	}
-
-	__parport_pc_frob_control (p, wm, d & wm);
-}
-
-unsigned char parport_pc_read_control(struct parport *p)
-{
-	const unsigned char wm = (PARPORT_CONTROL_STROBE |
-				  PARPORT_CONTROL_AUTOFD |
-				  PARPORT_CONTROL_INIT |
-				  PARPORT_CONTROL_SELECT);
-	const struct parport_pc_private *priv = p->physport->private_data;
-	return priv->ctr & wm; /* Use soft copy */
-}
-
-unsigned char parport_pc_frob_control (struct parport *p, unsigned char mask,
-				       unsigned char val)
-{
-	const unsigned char wm = (PARPORT_CONTROL_STROBE |
-				  PARPORT_CONTROL_AUTOFD |
-				  PARPORT_CONTROL_INIT |
-				  PARPORT_CONTROL_SELECT);
-
-	/* Take this out when drivers have adapted to the newer interface. */
-	if (mask & 0x20) {
-		printk (KERN_DEBUG "%s (%s): use data_%s for this!\n",
-			p->name, p->cad->name,
-			(val & 0x20) ? "reverse" : "forward");
-		if (val & 0x20)
-			parport_pc_data_reverse (p);
-		else
-			parport_pc_data_forward (p);
-	}
-
-	/* Restrict mask and val to control lines. */
-	mask &= wm;
-	val &= wm;
-
-	return __parport_pc_frob_control (p, mask, val);
-}
-
-unsigned char parport_pc_read_status(struct parport *p)
-{
-	return inb (STATUS (p));
-}
-
-void parport_pc_disable_irq(struct parport *p)
-{
-	__parport_pc_frob_control (p, 0x10, 0);
-}
-
-void parport_pc_enable_irq(struct parport *p)
-{
-	if (p->irq != PARPORT_IRQ_NONE)
-		__parport_pc_frob_control (p, 0x10, 0x10);
-}
-
-void parport_pc_data_forward (struct parport *p)
-{
-	__parport_pc_frob_control (p, 0x20, 0);
-}
-
-void parport_pc_data_reverse (struct parport *p)
-{
-	__parport_pc_frob_control (p, 0x20, 0x20);
-}
-
 void parport_pc_init_state(struct pardevice *dev, struct parport_state *s)
 {
 	s->u.pc.ctr = 0xc;
@@ -414,7 +325,8 @@ static size_t parport_pc_epp_read_data (struct parport *port, void *buf,
 				left -= 16;
 			} else {
 				/* grab single byte from the warp fifo */
-				*((char *)buf)++ = inb (EPPDATA (port));
+				*((char *)buf) = inb (EPPDATA (port));
+				buf++;
 				got++;
 				left--;
 			}
@@ -441,7 +353,8 @@ static size_t parport_pc_epp_read_data (struct parport *port, void *buf,
 		return length;
 	}
 	for (; got < length; got++) {
-		*((char*)buf)++ = inb (EPPDATA(port));
+		*((char*)buf) = inb (EPPDATA(port));
+		buf++;
 		if (inb (STATUS (port)) & 0x01) {
 			/* EPP timeout */
 			clear_epp_timeout (port);
@@ -470,7 +383,8 @@ static size_t parport_pc_epp_write_data (struct parport *port, const void *buf,
 		return length;
 	}
 	for (; written < length; written++) {
-		outb (*((char*)buf)++, EPPDATA(port));
+		outb (*((char*)buf), EPPDATA(port));
+		buf++;
 		if (inb (STATUS(port)) & 0x01) {
 			clear_epp_timeout (port);
 			break;
@@ -494,7 +408,8 @@ static size_t parport_pc_epp_read_addr (struct parport *port, void *buf,
 		return length;
 	}
 	for (; got < length; got++) {
-		*((char*)buf)++ = inb (EPPADDR (port));
+		*((char*)buf) = inb (EPPADDR (port));
+		buf++;
 		if (inb (STATUS (port)) & 0x01) {
 			clear_epp_timeout (port);
 			break;
@@ -519,7 +434,8 @@ static size_t parport_pc_epp_write_addr (struct parport *port,
 		return length;
 	}
 	for (; written < length; written++) {
-		outb (*((char*)buf)++, EPPADDR (port));
+		outb (*((char*)buf), EPPADDR (port));
+		buf++;
 		if (inb (STATUS (port)) & 0x01) {
 			clear_epp_timeout (port);
 			break;
@@ -2692,6 +2608,7 @@ enum parport_pc_pci_cards {
 	syba_2p_epp,
 	syba_1p_ecp,
 	titan_010l,
+	titan_1284p1,
 	titan_1284p2,
 	avlab_1p,
 	avlab_2p,
@@ -2699,6 +2616,10 @@ enum parport_pc_pci_cards {
 	oxsemi_840,
 	aks_0100,
 	mobility_pp,
+	netmos_9705,
+	netmos_9805,
+	netmos_9815,
+	netmos_9855,
 };
 
 
@@ -2759,6 +2680,7 @@ static struct parport_pc_pci {
 	/* syba_2p_epp AP138B */	{ 2, { { 0, 0x078 }, { 0, 0x178 }, } },
 	/* syba_1p_ecp W83787 */	{ 1, { { 0, 0x078 }, } },
 	/* titan_010l */		{ 1, { { 3, -1 }, } },
+	/* titan_1284p1 */              { 1, { { 0, 1 }, } },
 	/* titan_1284p2 */		{ 2, { { 0, 1 }, { 2, 3 }, } },
 	/* avlab_1p		*/	{ 1, { { 0, 1}, } },
 	/* avlab_2p		*/	{ 2, { { 0, 1}, { 2, 3 },} },
@@ -2768,6 +2690,10 @@ static struct parport_pc_pci {
 	/* oxsemi_840 */		{ 1, { { 0, -1 }, } },
 	/* aks_0100 */			{ 1, { { 0, -1 }, } },
 	/* mobility_pp */		{ 1, { { 0, 1 }, } },
+	/* netmos_9705 */               { 1, { { 0, -1 }, } }, /* untested */
+	/* netmos_9805 */               { 1, { { 0, -1 }, } }, /* untested */
+	/* netmos_9815 */               { 2, { { 0, -1 }, { 2, -1 }, } }, /* untested */
+	/* netmos_9855 */               { 2, { { 0, -1 }, { 2, -1 }, } }, /* untested */
 };
 
 static struct pci_device_id parport_pc_pci_tbl[] __devinitdata = {
@@ -2826,6 +2752,7 @@ static struct pci_device_id parport_pc_pci_tbl[] __devinitdata = {
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, syba_1p_ecp },
 	{ PCI_VENDOR_ID_TITAN, PCI_DEVICE_ID_TITAN_010L,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, titan_010l },
+	{ 0x9710, 0x9805, 0x1000, 0x0010, 0, 0, titan_1284p1 },
 	{ 0x9710, 0x9815, 0x1000, 0x0020, 0, 0, titan_1284p2 },
 	/* PCI_VENDOR_ID_AVLAB/Intek21 has another bunch of cards ...*/
 	{ 0x14db, 0x2120, PCI_ANY_ID, PCI_ANY_ID, 0, 0, avlab_1p}, /* AFAVLAB_TK9902 */
@@ -2836,6 +2763,15 @@ static struct pci_device_id parport_pc_pci_tbl[] __devinitdata = {
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, oxsemi_840 },
 	{ PCI_VENDOR_ID_AKS, PCI_DEVICE_ID_AKS_ALADDINCARD,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, aks_0100 },
+	/* NetMos communication controllers */
+	{ PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9705,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, netmos_9705 },
+	{ PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9805,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, netmos_9805 },
+	{ PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9815,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, netmos_9815 },
+	{ PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9855,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, netmos_9855 },
 	{ 0, } /* terminate list */
 };
 MODULE_DEVICE_TABLE(pci,parport_pc_pci_tbl);

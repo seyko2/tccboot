@@ -29,7 +29,6 @@
 #include <net/checksum.h>
 #include <net/tcp.h>
 
-#include <linux/netfilter_ipv4/lockhelp.h>
 #include <linux/netfilter_ipv4/ip_conntrack_helper.h>
 #include <linux/netfilter_ipv4/ip_conntrack_irc.h>
 
@@ -61,7 +60,6 @@ struct dccproto dccprotos[NUM_DCCPROTO] = {
 };
 #define MINMATCHLEN	5
 
-DECLARE_LOCK(ip_irc_lock);
 struct module *ip_conntrack_irc = THIS_MODULE;
 
 #if 0
@@ -208,8 +206,6 @@ static int help(const struct iphdr *iph, size_t len,
 			
 			memset(&expect, 0, sizeof(expect));
 
-			LOCK_BH(&ip_irc_lock);
-
 			/* save position of address in dcc string,
 			 * neccessary for NAT */
 			DEBUGP("tcph->seq = %u\n", tcph->seq);
@@ -236,8 +232,6 @@ static int help(const struct iphdr *iph, size_t len,
 				ntohs(exp->tuple.dst.u.tcp.port));
 
 			ip_conntrack_expect_related(ct, &expect);
-			UNLOCK_BH(&ip_irc_lock);
-
 			return NF_ACCEPT;
 		} /* for .. NUM_DCCPROTO */
 	} /* while data < ... */
@@ -314,8 +308,6 @@ static void fini(void)
 		ip_conntrack_helper_unregister(&irc_helpers[i]);
 	}
 }
-
-EXPORT_SYMBOL(ip_irc_lock);
 
 module_init(init);
 module_exit(fini);

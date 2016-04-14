@@ -1,5 +1,5 @@
 /*
- *   Copyright (C) International Business Machines Corp., 2000-2003
+ *   Copyright (C) International Business Machines Corp., 2000-2005
  *   Portions Copyright (C) Christoph Hellwig, 2001-2002
  *
  *   This program is free software;  you can redistribute it and/or modify
@@ -155,8 +155,10 @@ static void jfs_put_super(struct super_block *sb)
 	rc = jfs_umount(sb);
 	if (rc)
 		jfs_err("jfs_umount failed with return code %d", rc);
-	unload_nls(sbi->nls_tab);
-	sbi->nls_tab = NULL;
+	if (sbi->nls_tab) {
+		unload_nls(sbi->nls_tab);
+		sbi->nls_tab = NULL;
+	}
 
 	kfree(sbi);
 }
@@ -182,7 +184,7 @@ s64 jfs_get_volume_size(struct super_block *sb)
 static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 			 int *flag)
 {
-	void *nls_map = NULL;
+	void *nls_map = (void *)-1;	/* -1: no change;  NULL: none */
 	char *this_char;
 	char *value;
 	struct jfs_sb_info *sbi = JFS_SBI(sb);
@@ -222,13 +224,12 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 		} else if (!strcmp(this_char, "iocharset")) {
 			if (!value || !*value)
 				goto needs_arg;
-			if (nls_map)	/* specified iocharset twice! */
+			if (nls_map && nls_map != (void *) -1)
 				unload_nls(nls_map);
-			nls_map = load_nls(value);
-			if (!nls_map) {
-				printk(KERN_ERR "JFS: charset not found\n");
-				goto cleanup;
-			}
+			if (!strcmp(value, "none"))
+				nls_map = NULL;
+			else
+				nls_map = load_nls(value);
 		} else if (!strcmp(this_char, "resize")) {
 			if (!value || !*value) {
 				*newLVSize = jfs_get_volume_size(sb);
@@ -250,9 +251,9 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 			goto cleanup;
 		}
 	}
-	if (nls_map) {
+	if (nls_map != (void *) -1) {
 		/* Discard old (if remount) */
-		if (sbi->nls_tab)
+		if (sbi->nls_tab && sbi->nls_tab != (void *) -1)
 			unload_nls(sbi->nls_tab);
 		sbi->nls_tab = nls_map;
 	}
@@ -260,7 +261,7 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 needs_arg:
 	printk(KERN_ERR "JFS: %s needs an argument\n", this_char);
 cleanup:
-	if (nls_map)
+	if (nls_map && nls_map != (void *) -1)
 		unload_nls(nls_map);
 	return 0;
 }
@@ -328,6 +329,8 @@ static struct super_block *jfs_read_super(struct super_block *sb,
 	/* initialize the mount flag and determine the default error handler */
 	flag = JFS_ERR_REMOUNT_RO;
 
+	/* nls_tab will be set to NULL if no character mapping is requested */
+	sbi->nls_tab = (void *) -1;
 	if (!parse_options((char *) data, sb, &newLVSize, &flag)) {
 		kfree(sbi);
 		return NULL;
@@ -378,7 +381,7 @@ static struct super_block *jfs_read_super(struct super_block *sb,
 	if (!sb->s_root)
 		goto out_no_root;
 
-	if (!sbi->nls_tab)
+	if (sbi->nls_tab == (void *) -1)
 		sbi->nls_tab = load_nls_default();
 
 	/* logical blocks are represented by 40 bits in pxd_t, etc. */
@@ -404,7 +407,7 @@ out_no_rw:
 		jfs_err("jfs_umount failed with return code %d", rc);
 	}
 out_kfree:
-	if (sbi->nls_tab)
+	if (sbi->nls_tab && sbi->nls_tab != (void *) -1)
 		unload_nls(sbi->nls_tab);
 	kfree(sbi);
 	return NULL;
@@ -485,6 +488,7 @@ static void init_once(void *foo, kmem_cache_t * cachep, unsigned long flags)
 		INIT_LIST_HEAD(&jfs_ip->anon_inode_list);
 		init_rwsem(&jfs_ip->rdwrlock);
 		init_MUTEX(&jfs_ip->commit_sem);
+		spin_lock_init(&jfs_ip->ag_lock);
 		jfs_ip->active_ag = -1;
 	}
 }

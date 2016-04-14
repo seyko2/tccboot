@@ -290,6 +290,7 @@ static int vif_delete(int vifi)
 static void ipmr_destroy_unres(struct mfc_cache *c)
 {
 	struct sk_buff *skb;
+	struct nlmsgerr *e;
 
 	atomic_dec(&cache_resolve_queue_len);
 
@@ -299,7 +300,9 @@ static void ipmr_destroy_unres(struct mfc_cache *c)
 			nlh->nlmsg_type = NLMSG_ERROR;
 			nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct nlmsgerr));
 			skb_trim(skb, nlh->nlmsg_len);
-			((struct nlmsgerr*)NLMSG_DATA(nlh))->error = -ETIMEDOUT;
+			e = NLMSG_DATA(nlh);
+			e->error = -ETIMEDOUT;
+			memset(&e->msg, 0, sizeof(e->msg));
 			netlink_unicast(rtnl, skb, NETLINK_CB(skb).dst_pid, MSG_DONTWAIT);
 		} else
 			kfree_skb(skb);
@@ -493,6 +496,7 @@ static struct mfc_cache *ipmr_cache_alloc_unres(void)
 static void ipmr_cache_resolve(struct mfc_cache *uc, struct mfc_cache *c)
 {
 	struct sk_buff *skb;
+	struct nlmsgerr *e;
 
 	/*
 	 *	Play the pending entries through our router
@@ -509,7 +513,9 @@ static void ipmr_cache_resolve(struct mfc_cache *uc, struct mfc_cache *c)
 				nlh->nlmsg_type = NLMSG_ERROR;
 				nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct nlmsgerr));
 				skb_trim(skb, nlh->nlmsg_len);
-				((struct nlmsgerr*)NLMSG_DATA(nlh))->error = -EMSGSIZE;
+				e = NLMSG_DATA(nlh);
+				e->error = -EMSGSIZE;
+				memset(&e->msg, 0, sizeof(e->msg));
 			}
 			err = netlink_unicast(rtnl, skb, NETLINK_CB(skb).dst_pid, MSG_DONTWAIT);
 		} else
@@ -1097,10 +1103,7 @@ static void ip_encap(struct sk_buff *skb, u32 saddr, u32 daddr)
 	skb->h.ipiph = skb->nh.iph;
 	skb->nh.iph = iph;
 	memset(&(IPCB(skb)->opt), 0, sizeof(IPCB(skb)->opt));
-#ifdef CONFIG_NETFILTER
-	nf_conntrack_put(skb->nfct);
-	skb->nfct = NULL;
-#endif
+	nf_reset(skb);
 }
 
 static inline int ipmr_forward_finish(struct sk_buff *skb)
@@ -1446,10 +1449,7 @@ int pim_rcv_v1(struct sk_buff * skb)
 	skb->dst = NULL;
 	((struct net_device_stats*)reg_dev->priv)->rx_bytes += skb->len;
 	((struct net_device_stats*)reg_dev->priv)->rx_packets++;
-#ifdef CONFIG_NETFILTER
-	nf_conntrack_put(skb->nfct);
-	skb->nfct = NULL;
-#endif
+	nf_reset(skb);
 	netif_rx(skb);
 	dev_put(reg_dev);
 	return 0;
@@ -1513,10 +1513,7 @@ int pim_rcv(struct sk_buff * skb)
 	((struct net_device_stats*)reg_dev->priv)->rx_bytes += skb->len;
 	((struct net_device_stats*)reg_dev->priv)->rx_packets++;
 	skb->dst = NULL;
-#ifdef CONFIG_NETFILTER
-	nf_conntrack_put(skb->nfct);
-	skb->nfct = NULL;
-#endif
+	nf_reset(skb);
 	netif_rx(skb);
 	dev_put(reg_dev);
 	return 0;

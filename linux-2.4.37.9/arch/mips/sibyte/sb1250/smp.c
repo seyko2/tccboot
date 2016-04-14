@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2001 Broadcom Corporation
+ * Copyright (C) 2004  Maciej W. Rozycki
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -138,10 +139,10 @@ void __init smp_boot_cpus(void)
 	 * This loop attempts to compensate for "holes" in the CPU
 	 * numbering.  It's overkill, but general.
 	 */
-	for (i = 1; i < smp_num_cpus; ) {
+	for (i = 1; i < smp_num_cpus && cur_cpu < NR_CPUS; i++) {
 		struct task_struct *p;
 		struct pt_regs regs;
-		printk("Starting CPU %d... ", i);
+		printk("Starting CPU %d...\n", i);
 
 		/* Spawn a new process normally.  Grab a pointer to
 		   its task struct so we can mess with it */
@@ -158,15 +159,20 @@ void __init smp_boot_cpus(void)
 		unhash_process(p);
 
 		do {
+			int status;
+
 			/* Iterate until we find a CPU that comes up */
 			cur_cpu++;
-			prom_boot_secondary(cur_cpu,
-					    (unsigned long)p + KERNEL_STACK_SIZE - 32,
-					    (unsigned long)p);
+			status = prom_boot_secondary(cur_cpu,
+						    (unsigned long)p +
+						    KERNEL_STACK_SIZE - 32,
+						    (unsigned long)p);
+			if (status == 0) {
+				__cpu_number_map[cur_cpu] = i;
+				__cpu_logical_map[i] = cur_cpu;
+				break;
+			}
 		} while (cur_cpu < NR_CPUS);
-		__cpu_number_map[cur_cpu] = i;
-		__cpu_logical_map[i] = cur_cpu;
-		i++;
 	}
 
 	/* Wait for everyone to come up */

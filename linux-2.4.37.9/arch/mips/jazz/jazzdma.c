@@ -108,7 +108,7 @@ unsigned long vdma_alloc(unsigned long paddr, unsigned long size)
 		return VDMA_ERROR;	/* invalid physical address */
 	}
 
-	spin_lock_saveirq(&jazz_dma_lock, flags);
+	spin_lock_irqsave(&jazz_dma_lock, flags);
 
 	/*
 	 * Find free chunk
@@ -120,7 +120,7 @@ unsigned long vdma_alloc(unsigned long paddr, unsigned long size)
 		       first < VDMA_PGTBL_ENTRIES) first++;
 		if (first + pages > VDMA_PGTBL_ENTRIES) {
 			/* nothing free */
-			spin_unlock_restoreirq(&jazz_dma_lock, flags);
+			spin_unlock_irqrestore(&jazz_dma_lock, flags);
 			return VDMA_ERROR;
 		}
 
@@ -167,7 +167,7 @@ unsigned long vdma_alloc(unsigned long paddr, unsigned long size)
 		printk("\n");
 	}
 
-	spin_unlock_restoreirq(&jazz_dma_lock, flags);
+	spin_unlock_irqrestore(&jazz_dma_lock, flags);
 
 	return laddr;
 }

@@ -1202,6 +1202,7 @@ static ssize_t
 	ST_mode *STm;
 	ST_partstat *STps;
 	int dev = TAPE_NR(inode->i_rdev);
+	loff_t pos = *ppos;
 
 	read_lock(&st_dev_arr_lock);
 	STp = scsi_tapes[dev];
@@ -1433,7 +1434,7 @@ static ssize_t
 					residual *= STp->block_size;
 				if (residual <= do_count) {
 					/* Within the data in this write() */
-					filp->f_pos += do_count - residual;
+					pos += do_count - residual;
 					count -= do_count - residual;
 					if (STps->drv_block >= 0) {
 						if (STp->block_size == 0 &&
@@ -1489,7 +1490,7 @@ static ssize_t
 				retval = total - count;
 			goto out;
 		}
-		filp->f_pos += do_count;
+		pos += do_count;
 		b_point += do_count;
 		count -= do_count;
 		if (STps->drv_block >= 0) {
@@ -1508,7 +1509,7 @@ static ssize_t
 			retval = i;
 			goto out;
 		}
-		filp->f_pos += count;
+		pos += count;
 		count = 0;
 	}
 
@@ -1543,6 +1544,7 @@ static ssize_t
 	retval = total - count;
 
  out:
+	*ppos = pos;
 	if (SRpnt != NULL)
 		scsi_release_request(SRpnt);
 	up(&STp->lock);
@@ -1743,6 +1745,7 @@ static ssize_t
 	ST_mode *STm;
 	ST_partstat *STps;
 	int dev = TAPE_NR(inode->i_rdev);
+	loff_t pos = *ppos;
 
 	read_lock(&st_dev_arr_lock);
 	STp = scsi_tapes[dev];
@@ -1887,7 +1890,7 @@ static ssize_t
 				retval = i;
 				goto out;
 			}
-			filp->f_pos += transfer;
+			pos += transfer;
 			buf += transfer;
 			total += transfer;
 		}
@@ -1917,6 +1920,7 @@ static ssize_t
 	retval = total;
 
  out:
+	*ppos = pos;
 	if (SRpnt != NULL) {
 		scsi_release_request(SRpnt);
 		SRpnt = NULL;

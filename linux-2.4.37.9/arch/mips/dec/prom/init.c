@@ -2,10 +2,11 @@
  * init.c: PROM library initialisation code.
  *
  * Copyright (C) 1998 Harald Koerfgen
- * Copyright (C) 2002  Maciej W. Rozycki
+ * Copyright (C) 2002, 2004  Maciej W. Rozycki
  */
 #include <linux/config.h>
 #include <linux/init.h>
+#include <linux/string.h>
 #include <linux/types.h>
 
 #include <asm/bootinfo.h>
@@ -34,7 +35,7 @@ int (*__pmax_close)(int);
 
 
 /*
- * Detect which PROM's the DECSTATION has, and set the callback vectors
+ * Detect which PROM the DECSTATION has, and set the callback vectors
  * appropriately.
  */
 void __init which_prom(s32 magic, s32 *prom_vec)
@@ -84,9 +85,15 @@ void __init which_prom(s32 magic, s32 *prom_vec)
 int __init prom_init(s32 argc, s32 *argv, u32 magic, s32 *prom_vec)
 {
 	extern void dec_machine_halt(void);
+	static char cpu_msg[] __initdata =
+		"Sorry, this kernel is compiled for a wrong CPU type!\n";
+	static char r3k_msg[] __initdata =
+		"Please recompile with \"CONFIG_CPU_R3000 = y\".\n";
+	static char r4k_msg[] __initdata =
+		"Please recompile with \"CONFIG_CPU_R4x00 = y\".\n";
 
 	/*
-	 * Determine which PROM's we have
+	 * Determine which PROM we have
 	 * (and therefore which machine we're on!)
 	 */
 	which_prom(magic, prom_vec);
@@ -94,12 +101,15 @@ int __init prom_init(s32 argc, s32 *argv, u32 magic, s32 *prom_vec)
 	if (prom_is_rex(magic))
 		rex_clear_cache();
 
+	/* Register the early console.  */
+	register_prom_console();
+
 	/* Were we compiled with the right CPU option? */
 #if defined(CONFIG_CPU_R3000)
 	if ((current_cpu_data.cputype == CPU_R4000SC) ||
 	    (current_cpu_data.cputype == CPU_R4400SC)) {
-		prom_printf("Sorry, this kernel is compiled for the wrong CPU type!\n");
-		prom_printf("Please recompile with \"CONFIG_CPU_R4x00 = y\"\n");
+		printk(cpu_msg);
+		printk(r4k_msg);
 		dec_machine_halt();
 	}
 #endif
@@ -107,8 +117,8 @@ int __init prom_init(s32 argc, s32 *argv, u32 magic, s32 *prom_vec)
 #if defined(CONFIG_CPU_R4X00)
 	if ((current_cpu_data.cputype == CPU_R3000) ||
 	    (current_cpu_data.cputype == CPU_R3000A)) {
-		prom_printf("Sorry, this kernel is compiled for the wrong CPU type!\n");
-		prom_printf("Please recompile with \"CONFIG_CPU_R3000 = y\"\n");
+		printk(cpu_msg);
+		printk(r3k_msg);
 		dec_machine_halt();
 	}
 #endif

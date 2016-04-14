@@ -13,6 +13,8 @@
 #include <linux/sched.h>
 #include <linux/mmzone.h>	/* for numnodes */
 #include <linux/mm.h>
+#include <linux/module.h>
+
 #include <asm/cpu.h>
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
@@ -55,10 +57,14 @@ static atomic_t numstarted = ATOMIC_INIT(1);
 static int router_distance;
 nasid_t master_nasid = INVALID_NASID;
 
+EXPORT_SYMBOL(master_nasid);
+
 cnodeid_t	nasid_to_compact_node[MAX_NASIDS];
 nasid_t		compact_to_nasid_node[MAX_COMPACT_NODES];
 cnodeid_t	cpuid_to_compact_node[MAXCPUS];
 char		node_distances[MAX_COMPACT_NODES][MAX_COMPACT_NODES];
+
+EXPORT_SYMBOL(nasid_to_compact_node);
 
 hubreg_t get_region(cnodeid_t cnode)
 {

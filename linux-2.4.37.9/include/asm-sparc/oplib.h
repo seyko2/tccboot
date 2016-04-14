@@ -296,6 +296,9 @@ extern int prom_inst2pkg(int);
 
 /* Dorking with Bus ranges... */
 
+extern void prom_adjust_ranges(struct linux_prom_ranges *, int,
+			       struct linux_prom_ranges *, int);
+
 /* Apply promlib probes OBIO ranges to registers. */
 extern void prom_apply_obio_ranges(struct linux_prom_registers *obioregs, int nregs);
 

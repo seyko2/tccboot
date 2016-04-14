@@ -174,8 +174,12 @@ iiSendPendingMail(i2eBordStrPtr pB)
 			pB->i2eWaitingForEmptyFifo |=
 				(pB->i2eOutMailWaiting & MB_OUT_STUFFED);
 			pB->i2eOutMailWaiting = 0;
+			if( pB->SendPendingRetry ) {
+				printk( KERN_DEBUG "IP2: iiSendPendingMail: busy board pickup on %d\n", pB->SendPendingRetry );
+			}
 			pB->SendPendingRetry = 0;
 		} else {
+#ifdef	IP2_USE_TIMER_WAIT
 /*		The only time we hit this area is when "iiTrySendMail" has
 		failed.  That only occurs when the outbound mailbox is
 		still busy with the last message.  We take a short breather
@@ -192,6 +196,11 @@ iiSendPendingMail(i2eBordStrPtr pB)
 				add_timer( &(pB->SendPendingTimer) );
 			} else {
 				printk( KERN_ERR "IP2: iiSendPendingMail unable to queue outbound mail\n" );
+			}
+#endif
+			pB->SendPendingRetry++;
+			if( 0 == ( pB->SendPendingRetry % 8 ) ) {
+				printk( KERN_ERR "IP2: iiSendPendingMail: board busy, retry %d\n", pB->SendPendingRetry );
 			}
 		}
 	}
@@ -1253,7 +1262,7 @@ i2RetryFlushOutput(i2ChanStrPtr pCh)
 
 	}
 	if ( old_flags & STOPFL_FLAG ) {
-		if ( 1 == i2QueueCommands(PTYPE_INLINE, pCh, 0, 1, CMD_STOPFL) > 0 ) {
+		if ( 1 == i2QueueCommands(PTYPE_INLINE, pCh, 0, 1, CMD_STOPFL)) {
 			old_flags = 0;	// Success - clear flags
 		}
 
@@ -1329,8 +1338,9 @@ i2DrainOutput(i2ChanStrPtr pCh, int timeout)
 	remove_wait_queue(&(pCh->pBookmarkWait), &wait);
 
 	// if expires == 0 then timer poped, then do not need to del_timer
+	// jiffy wrap per Tim Schmielau (tim@physik3.uni-rostock.de)
 	if ((timeout > 0) && pCh->BookmarkTimer.expires && 
-	                     time_before(jiffies, pCh->BookmarkTimer.expires)) {
+			time_before(jiffies, pCh->BookmarkTimer.expires)) {
 		del_timer( &(pCh->BookmarkTimer) );
 		pCh->BookmarkTimer.expires = 0;
 
@@ -1385,15 +1395,9 @@ ip2_owake( PTTY tp)
 	ip2trace (CHANN, ITRC_SICMD, 10, 2, tp->flags,
 			(1 << TTY_DO_WRITE_WAKEUP) );
 
-	wake_up_interruptible ( &tp->write_wait );
-	if ( ( tp->flags & (1 << TTY_DO_WRITE_WAKEUP) ) 
-	  && tp->ldisc.write_wakeup )
-	{
-		(tp->ldisc.write_wakeup) ( tp );
+	tty_wakeup(tp);
+	ip2trace (CHANN, ITRC_SICMD, 11, 0 );
 
-		ip2trace (CHANN, ITRC_SICMD, 11, 0 );
-
-	}
 }
 
 static inline void

@@ -46,6 +46,8 @@ pgprot_t protection_map[16] = {
 };
 
 int sysctl_overcommit_memory;
+unsigned long mmap_min_addr;		/* defaults to 0 = no protection */
+
 int max_map_count = DEFAULT_MAX_MAP_COUNT;
 
 /* Check that a process has enough memory to allocate a
@@ -650,17 +652,29 @@ extern unsigned long arch_get_unmapped_area(struct file *, unsigned long, unsign
 unsigned long get_unmapped_area(struct file *file, unsigned long addr, unsigned long len, unsigned long pgoff, unsigned long flags)
 {
 	if (flags & MAP_FIXED) {
-		if (addr > TASK_SIZE - len)
+		if (addr > TASK_SIZE - len || addr >= TASK_SIZE)
 			return -ENOMEM;
 		if (addr & ~PAGE_MASK)
 			return -EINVAL;
+
+		/* Ensure a non-privileged process is not trying to map
+		 * lower pages.
+		 */
+		if (addr < mmap_min_addr && !capable(CAP_SYS_RAWIO))
+			return -EPERM;
+
 		return addr;
 	}
 
 	if (file && file->f_op && file->f_op->get_unmapped_area)
-		return file->f_op->get_unmapped_area(file, addr, len, pgoff, flags);
+		addr = file->f_op->get_unmapped_area(file, addr, len, pgoff, flags);
+	else
+		addr = arch_get_unmapped_area(file, addr, len, pgoff, flags);
 
-	return arch_get_unmapped_area(file, addr, len, pgoff, flags);
+	if (addr < mmap_min_addr && !capable(CAP_SYS_RAWIO))
+		return -ENOMEM;
+
+	return addr;
 }
 
 /* Look up the first VMA which satisfies  addr < vm_end,  NULL if none. */
@@ -931,7 +945,7 @@ int do_munmap(struct mm_struct *mm, unsigned long addr, size_t len)
 {
 	struct vm_area_struct *mpnt, *prev, **npp, *free, *extra;
 
-	if ((addr & ~PAGE_MASK) || addr > TASK_SIZE || len > TASK_SIZE-addr)
+	if ((addr & ~PAGE_MASK) || addr >= TASK_SIZE || len > TASK_SIZE-addr)
 		return -EINVAL;
 
 	if ((len = PAGE_ALIGN(len)) == 0)
@@ -1031,6 +1045,15 @@ asmlinkage long sys_munmap(unsigned long addr, size_t len)
 	return ret;
 }
 
+
+static inline void verify_mmap_write_lock_held(struct mm_struct *mm)
+{
+	if (down_read_trylock(&mm->mmap_sem)) {
+		WARN_ON(1);
+		up_read(&mm->mmap_sem);
+	}
+}
+
 /*
  *  this is really a simplified "do_mmap".  it only handles
  *  anonymous maps.  eventually we may be able to do some
@@ -1050,6 +1073,9 @@ unsigned long do_brk(unsigned long addr, unsigned long len)
 	if ((addr + len) > TASK_SIZE || (addr + len) < addr)
 		return -EINVAL;
 
+	if (addr < mmap_min_addr && !capable(CAP_SYS_RAWIO))
+		return -ENOMEM;
+
 	/*
 	 * mlock MCL_FUTURE?
 	 */
@@ -1059,6 +1085,12 @@ unsigned long do_brk(unsigned long addr, unsigned long len)
 		if (locked > current->rlim[RLIMIT_MEMLOCK].rlim_cur)
 			return -EAGAIN;
 	}
+
+	/*
+	 * mm->mmap_sem is required to protect against another thread
+	 * changing the mappings while we sleep (on kmalloc for one).
+	 */
+	verify_mmap_write_lock_held(mm);
 
 	/*
 	 * Clear old maps.  this also does some error checking for us
@@ -1193,14 +1225,15 @@ void __insert_vm_struct(struct mm_struct * mm, struct vm_area_struct * vma)
 	validate_mm(mm);
 }
 
-void insert_vm_struct(struct mm_struct * mm, struct vm_area_struct * vma)
+int insert_vm_struct(struct mm_struct * mm, struct vm_area_struct * vma)
 {
 	struct vm_area_struct * __vma, * prev;
 	rb_node_t ** rb_link, * rb_parent;
 
 	__vma = find_vma_prepare(mm, vma->vm_start, &prev, &rb_link, &rb_parent);
 	if (__vma && __vma->vm_start < vma->vm_end)
-		BUG();
+		return -ENOMEM;
 	vma_link(mm, vma, prev, rb_link, rb_parent);
 	validate_mm(mm);
+	return 0;
 }

@@ -1336,7 +1336,7 @@ do_sys_sigstack(struct sigstack *ssptr, struct sigstack *ossptr, unsigned long s
 	if (ssptr) {
 		void *ss_sp;
 
-		if (get_user((long)ss_sp, &ssptr->the_stack))
+		if (get_user(ss_sp, &ssptr->the_stack))
 			goto out;
 		/* If the current stack was set with sigaltstack, don't
 		   swap stacks while we are on it.  */

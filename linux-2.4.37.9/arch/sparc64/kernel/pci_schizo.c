@@ -388,9 +388,9 @@ static int __init schizo_ino_to_pil(struct pci_dev *pdev, unsigned int ino)
 	return ret;
 }
 
-static unsigned int __init schizo_irq_build(struct pci_pbm_info *pbm,
-					    struct pci_dev *pdev,
-					    unsigned int ino)
+static unsigned int schizo_irq_build(struct pci_pbm_info *pbm,
+				     struct pci_dev *pdev,
+				     unsigned int ino)
 {
 	struct ino_bucket *bucket;
 	unsigned long imap, iclr;
@@ -444,19 +444,57 @@ static unsigned long stc_error_buf[128];
 static unsigned long stc_tag_buf[16];
 static unsigned long stc_line_buf[16];
 
-/* These offsets look weird because I keep in pbm->controller_regs
- * the second PROM register property minus 0x10000 which is the
- * base of the Safari and UPA64S registers of SCHIZO.
- */
-#define SCHIZO_PBM_A_REGS_OFF	(0x600000UL - 0x400000UL)
-#define SCHIZO_PBM_B_REGS_OFF	(0x700000UL - 0x400000UL)
+#define SCHIZO_UE_INO		0x30 /* Uncorrectable ECC error */
+#define SCHIZO_CE_INO		0x31 /* Correctable ECC error */
+#define SCHIZO_PCIERR_A_INO	0x32 /* PBM A PCI bus error */
+#define SCHIZO_PCIERR_B_INO	0x33 /* PBM B PCI bus error */
+#define SCHIZO_SERR_INO		0x34 /* Safari interface error */
 
-static void schizo_clear_other_err_intr(int irq)
+struct pci_pbm_info *pbm_for_ino(struct pci_controller_info *p, u32 ino)
 {
-	struct ino_bucket *bucket = __bucket(irq);
-	unsigned long iclr = bucket->iclr;
+	ino &= IMAP_INO;
+	if (p->pbm_A.ino_bitmap & (1UL << ino))
+		return &p->pbm_A;
+	if (p->pbm_B.ino_bitmap & (1UL << ino))
+		return &p->pbm_B;
 
-	iclr += (SCHIZO_PBM_B_REGS_OFF - SCHIZO_PBM_A_REGS_OFF);
+	printk("PCI%d: No ino_bitmap entry for ino[%x], bitmaps "
+	       "PBM_A[%016lx] PBM_B[%016lx]",
+	       p->index, ino,
+	       p->pbm_A.ino_bitmap,
+	       p->pbm_B.ino_bitmap);
+	printk("PCI%d: Using PBM_A, report this problem immediately.\n",
+	       p->index);
+
+	return &p->pbm_A;
+}
+
+static void schizo_clear_other_err_intr(struct pci_controller_info *p, int irq)
+{
+	struct pci_pbm_info *pbm;
+	struct ino_bucket *bucket;
+	unsigned long iclr;
+
+	/* Do not clear the interrupt for the other PCI bus.
+	 *
+	 * This "ACK both PBM IRQs" only needs to be performed
+	 * for chip-wide error interrupts.
+	 */
+	if ((irq & IMAP_INO) == SCHIZO_PCIERR_A_INO ||
+	    (irq & IMAP_INO) == SCHIZO_PCIERR_B_INO)
+		return;
+
+	pbm = pbm_for_ino(p, irq);
+	if (pbm == &p->pbm_A)
+		pbm = &p->pbm_B;
+	else
+		pbm = &p->pbm_A;
+
+	irq = schizo_irq_build(pbm, NULL,
+			       (pbm->portid << 6) | (irq & IMAP_INO));
+	bucket = __bucket(irq);
+	iclr = bucket->iclr;
+
 	upa_writel(ICLR_IDLE, iclr);
 }
 
@@ -790,7 +828,7 @@ static void schizo_ue_intr(int irq, void *dev_id, struct pt_regs *regs)
 	/* Interrogate IOMMU for error status. */
 	schizo_check_iommu_error(p, UE_ERR);
 
-	schizo_clear_other_err_intr(irq);
+	schizo_clear_other_err_intr(p, irq);
 }
 
 #define SCHIZO_CE_AFSR	0x10040UL
@@ -879,7 +917,7 @@ static void schizo_ce_intr(int irq, void *dev_id, struct pt_regs *regs)
 		printk("(none)");
 	printk("]\n");
 
-	schizo_clear_other_err_intr(irq);
+	schizo_clear_other_err_intr(p, irq);
 }
 
 #define SCHIZO_PCI_AFSR	0x2010UL
@@ -914,9 +952,9 @@ static void schizo_ce_intr(int irq, void *dev_id, struct pt_regs *regs)
 #define SCHIZO_PCICTRL_SBH_ERR	(1UL << 35UL) /* Safari */
 #define SCHIZO_PCICTRL_SERR	(1UL << 34UL) /* Safari/Tomatillo */
 #define SCHIZO_PCICTRL_PCISPD	(1UL << 33UL) /* Safari */
-#define SCHIZO_PCICTRL_MRM_PREF	(1UL << 28UL) /* Tomatillo */
-#define SCHIZO_PCICTRL_RDO_PREF	(1UL << 27UL) /* Tomatillo */
-#define SCHIZO_PCICTRL_RDL_PREF	(1UL << 26UL) /* Tomatillo */
+#define SCHIZO_PCICTRL_MRM_PREF	(1UL << 30UL) /* Tomatillo */
+#define SCHIZO_PCICTRL_RDO_PREF	(1UL << 29UL) /* Tomatillo */
+#define SCHIZO_PCICTRL_RDL_PREF	(1UL << 28UL) /* Tomatillo */
 #define SCHIZO_PCICTRL_PTO	(3UL << 24UL) /* Safari/Tomatillo */
 #define SCHIZO_PCICTRL_PTO_SHIFT 24UL
 #define SCHIZO_PCICTRL_TRWSW	(7UL << 21UL) /* Tomatillo */
@@ -1094,7 +1132,7 @@ static void schizo_pcierr_intr(int irq, void *dev_id, struct pt_regs *regs)
 	if (error_bits & (SCHIZO_PCIAFSR_PPERR | SCHIZO_PCIAFSR_SPERR))
 		pci_scan_for_parity_error(p, pbm, pbm->pci_bus);
 
-	schizo_clear_other_err_intr(irq);
+	schizo_clear_other_err_intr(p, irq);
 }
 
 #define SCHIZO_SAFARI_ERRLOG	0x10018UL
@@ -1149,7 +1187,7 @@ static void schizo_safarierr_intr(int irq, void *dev_id, struct pt_regs *regs)
 		printk("PCI%d: Unexpected Safari/JBUS error interrupt, errlog[%016lx]\n",
 		       p->index, errlog);
 
-		schizo_clear_other_err_intr(irq);
+		schizo_clear_other_err_intr(p, irq);
 		return;
 	}
 
@@ -1157,7 +1195,7 @@ static void schizo_safarierr_intr(int irq, void *dev_id, struct pt_regs *regs)
 	       p->index);
 	schizo_check_iommu_error(p, SAFARI_ERR);
 
-	schizo_clear_other_err_intr(irq);
+	schizo_clear_other_err_intr(p, irq);
 }
 
 /* Nearly identical to PSYCHO equivalents... */
@@ -1170,26 +1208,6 @@ static void schizo_safarierr_intr(int irq, void *dev_id, struct pt_regs *regs)
 #define  SCHIZO_SAFERRCTRL_EN	 0x8000000000000000UL
 #define SCHIZO_SAFARI_IRQCTRL	0x10010UL
 #define  SCHIZO_SAFIRQCTRL_EN	 0x8000000000000000UL
-
-#define SCHIZO_UE_INO		0x30 /* Uncorrectable ECC error */
-#define SCHIZO_CE_INO		0x31 /* Correctable ECC error */
-#define SCHIZO_PCIERR_A_INO	0x32 /* PBM A PCI bus error */
-#define SCHIZO_PCIERR_B_INO	0x33 /* PBM B PCI bus error */
-#define SCHIZO_SERR_INO		0x34 /* Safari interface error */
-
-struct pci_pbm_info *pbm_for_ino(struct pci_controller_info *p, u32 ino)
-{
-	ino &= IMAP_INO;
-	if (p->pbm_A.ino_bitmap & (1UL << ino))
-		return &p->pbm_A;
-	if (p->pbm_B.ino_bitmap & (1UL << ino))
-		return &p->pbm_B;
-	prom_printf("TOMATILLO%d: No entry in ino bitmap for %d\n",
-		    p->index, ino);
-	prom_halt();
-	/* NOTREACHED */
-	return NULL;
-}
 
 /* How the Tomatillo IRQs are routed around is pure guesswork here.
  *
@@ -1423,10 +1441,10 @@ static void __init schizo_register_error_handlers(struct pci_controller_info *p)
 		    SCHIZO_PCICTRL_RTRY_ERR |
 		    SCHIZO_PCICTRL_SBH_ERR |
 		    SCHIZO_PCICTRL_SERR |
-		    SCHIZO_PCICTRL_SBH_INT |
 		    SCHIZO_PCICTRL_EEN);
 
-	err_no_mask = SCHIZO_PCICTRL_DTO_ERR;
+	err_no_mask = (SCHIZO_PCICTRL_DTO_ERR |
+		       SCHIZO_PCICTRL_SBH_INT);
 
 	/* Enable PCI Error interrupts and clear error
 	 * bits for each PBM.
@@ -1843,6 +1861,14 @@ static void schizo_pbm_iommu_init(struct pci_pbm_info *pbm)
 	 * in pci_iommu.c
 	 */
 
+	iommu->dummy_page = __get_free_pages(GFP_KERNEL, 0);
+	if (!iommu->dummy_page) {
+		prom_printf("PSYCHO_IOMMU: Error, gfp(dummy_page) failed.\n");
+		prom_halt();
+	}
+	memset((void *)iommu->dummy_page, 0, PAGE_SIZE);
+	iommu->dummy_page_pa = (unsigned long) __pa(iommu->dummy_page);
+
 	/* Using assumed page size 8K with 128K entries we need 1MB iommu page
 	 * table (128K ioptes * 8 bytes per iopte).  This is
 	 * page order 7 on UltraSparc.
@@ -1857,7 +1883,7 @@ static void schizo_pbm_iommu_init(struct pci_pbm_info *pbm)
 	iommu->page_table = (iopte_t *)tsbbase;
 	iommu->page_table_map_base = vdma[0];
 	iommu->dma_addr_mask = dma_mask;
-	memset((char *)tsbbase, 0, PAGE_SIZE << order);
+	pci_iommu_table_init(iommu, PAGE_SIZE << order);
 
 	switch (tsbsize) {
 	case 64:
@@ -1956,7 +1982,7 @@ static void __init schizo_pbm_hw_init(struct pci_pbm_info *pbm)
 
 	tmp &= ~SCHIZO_PCICTRL_PTO;
 	if (pbm->chip_type == PBM_CHIP_TYPE_TOMATILLO &&
-	    pbm->chip_version == 0x2)
+	    pbm->chip_version >= 0x2)
 		tmp |= 0x3UL << SCHIZO_PCICTRL_PTO_SHIFT;
 	else
 		tmp |= 0x1UL << SCHIZO_PCICTRL_PTO_SHIFT;
@@ -1964,8 +1990,16 @@ static void __init schizo_pbm_hw_init(struct pci_pbm_info *pbm)
 	if (!prom_getbool(pbm->prom_node, "no-bus-parking"))
 		tmp |= SCHIZO_PCICTRL_PARK;
 
+	if (pbm->chip_type == PBM_CHIP_TYPE_TOMATILLO &&
+	    pbm->chip_version <= 0x1)
+		tmp |= (1UL << 61);
+	else
+		tmp &= ~(1UL << 61);
+
 	if (pbm->chip_type == PBM_CHIP_TYPE_TOMATILLO)
-		tmp |= SCHIZO_PCICTRL_MRM_PREF;
+		tmp |= (SCHIZO_PCICTRL_MRM_PREF |
+			SCHIZO_PCICTRL_RDO_PREF |
+			SCHIZO_PCICTRL_RDL_PREF);
 
 	schizo_write(pbm->pbm_regs + SCHIZO_PCI_CTRL, tmp);
 

@@ -410,6 +410,7 @@ STATIC int scsi_request_sense(Scsi_Cmnd * SCpnt)
 	{REQUEST_SENSE, 0, 0, 0, 255, 0};
 	unsigned char scsi_result0[256], *scsi_result = NULL;
 	int saved_result;
+	int saved_resid;
 
 	ASSERT_LOCK(&io_request_lock, 0);
 
@@ -436,6 +437,7 @@ STATIC int scsi_request_sense(Scsi_Cmnd * SCpnt)
 	memset((void *) scsi_result, 0, 256);
 
 	saved_result = SCpnt->result;
+	saved_resid = SCpnt->resid;
 	SCpnt->request_buffer = scsi_result;
 	SCpnt->request_bufflen = 256;
 	SCpnt->use_sg = 0;
@@ -461,6 +463,7 @@ STATIC int scsi_request_sense(Scsi_Cmnd * SCpnt)
 	memcpy((void *) SCpnt->cmnd, (void *) SCpnt->data_cmnd,
 	       sizeof(SCpnt->data_cmnd));
 	SCpnt->result = saved_result;
+	SCpnt->resid = saved_resid;
 	SCpnt->request_buffer = SCpnt->buffer;
 	SCpnt->request_bufflen = SCpnt->bufflen;
 	SCpnt->use_sg = SCpnt->old_use_sg;
@@ -484,6 +487,7 @@ STATIC int scsi_test_unit_ready(Scsi_Cmnd * SCpnt)
 {
 	static unsigned char tur_command[6] =
 	{TEST_UNIT_READY, 0, 0, 0, 0, 0};
+	int saved_resid;
 
 	memcpy((void *) SCpnt->cmnd, (void *) tur_command,
 	       sizeof(tur_command));
@@ -497,6 +501,7 @@ STATIC int scsi_test_unit_ready(Scsi_Cmnd * SCpnt)
 	 */
 	memset((void *) SCpnt->sense_buffer, 0, sizeof(SCpnt->sense_buffer));
 
+	saved_resid = SCpnt->resid;
 	SCpnt->request_buffer = NULL;
 	SCpnt->request_bufflen = 0;
 	SCpnt->use_sg = 0;
@@ -512,6 +517,7 @@ STATIC int scsi_test_unit_ready(Scsi_Cmnd * SCpnt)
 	 */
 	memcpy((void *) SCpnt->cmnd, (void *) SCpnt->data_cmnd,
 	       sizeof(SCpnt->data_cmnd));
+	SCpnt->resid = saved_resid;
 	SCpnt->request_buffer = SCpnt->buffer;
 	SCpnt->request_bufflen = SCpnt->bufflen;
 	SCpnt->use_sg = SCpnt->old_use_sg;
@@ -664,7 +670,10 @@ STATIC void scsi_send_eh_cmnd(Scsi_Cmnd * SCpnt, int timeout)
 			SCpnt->eh_state = SUCCESS;
 			break;
 		case NEEDS_RETRY:
-			goto retry;
+			if ((++SCpnt->retries) < SCpnt->allowed)
+				goto retry;
+			SCpnt->eh_state = SUCCESS;
+			break;
 		case FAILED:
 		default:
 			SCpnt->eh_state = FAILED;
@@ -1363,6 +1372,7 @@ STATIC int scsi_unjam_host(struct Scsi_Host *host)
 
 	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
 		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
+		      recheck_sense_valid:
 			if (SCpnt->state != SCSI_STATE_FAILED || scsi_sense_valid(SCpnt)) {
 				continue;
 			}
@@ -1399,7 +1409,8 @@ STATIC int scsi_unjam_host(struct Scsi_Host *host)
 			SCpnt->state = NEEDS_RETRY;
 			rtn = scsi_eh_retry_command(SCpnt);
 			if (rtn != SUCCESS) {
-				continue;
+				SCpnt->state = SCSI_STATE_FAILED;
+				goto recheck_sense_valid;
 			}
 			/*
 			 * We eventually hand this one back to the top level.

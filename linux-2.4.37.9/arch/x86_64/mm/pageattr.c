@@ -55,7 +55,7 @@ static void flush_kernel_map(void * address)
 			asm volatile("clflush (%0)" :: "r" (address + i)); 
 	} else
 		asm volatile("wbinvd":::"memory"); 
-	__flush_tlb_one(address);
+	__flush_tlb_all();
 }
 
 /* no more special protections in this 2MB area - revert to a
@@ -101,18 +101,15 @@ __change_page_attr(unsigned long address, struct page *page, pgprot_t prot,
 	kpte_page = virt_to_page(((unsigned long)kpte) & PAGE_MASK);
 	if (pgprot_val(prot) != pgprot_val(PAGE_KERNEL)) { 
 		if ((pte_val(*kpte) & _PAGE_PSE) == 0) { 
-			pte_t old = *kpte;
-			pte_t standard = mk_pte(page, PAGE_KERNEL); 
-
 			set_pte(kpte, mk_pte(page, prot)); 
-			if (pte_same(old,standard))
-				atomic_inc(&kpte_page->count);
 		} else {
 			struct page *split = split_large_page(address, prot); 
 			if (!split)
 				return -ENOMEM;
 			set_pte(kpte,mk_pte(split, PAGE_KERNEL));
-		}	
+			kpte_page = split;
+		}
+		atomic_inc(&kpte_page->count);	
 	} else if ((pte_val(*kpte) & _PAGE_PSE) == 0) { 
 		set_pte(kpte, mk_pte(page, PAGE_KERNEL));
 		atomic_dec(&kpte_page->count); 
