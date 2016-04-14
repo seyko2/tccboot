@@ -1,0 +1,6 @@
+Using TinyCC to compile Linux kernels,
+Testing tcc compilation speed and correctness.
+Studying Linux kernel internals.and Linux kernel development.
+
+Original author of the tccboot project is Fabrice Bellard:
+TCCBOOT: TinyCC Boot Loader (www.bellard.org/tcc/tccboot.html)

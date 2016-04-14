@@ -1,3 +1,4 @@
+#define __ASSEMBLY__
 /*
  *  linux/arch/i386/entry.S
  *

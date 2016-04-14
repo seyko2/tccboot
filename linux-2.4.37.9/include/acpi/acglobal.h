@@ -210,7 +210,7 @@ extern const char                              *acpi_gbl_valid_osi_strings[ACPI_
  *
  ****************************************************************************/
 
-#define NUM_NS_TYPES                    ACPI_TYPE_INVALID+1
+#define NUM_NS_TYPES                    ACPI_TYPE_INVALID + 1
 
 #if !defined (ACPI_NO_METHOD_EXECUTION) || defined (ACPI_CONSTANT_EVAL_ONLY)
 #define NUM_PREDEFINED_NAMES            10

@@ -1,3 +1,4 @@
+#define __ASSEMBLY__
 /*
  *  linux/arch/i386/kernel/head.S -- the 32-bit startup code.
  *
