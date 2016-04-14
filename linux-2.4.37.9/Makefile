@@ -21,6 +21,12 @@ HOSTCFLAGS	= -Wall -Wstrict-prototypes -O2 -fomit-frame-pointer
 
 CROSS_COMPILE 	=
 
+unexport LC_ALL
+unexport LANG
+LC_COLLATE=C
+LC_NUMERIC=C
+export LC_COLLATE LC_NUMERIC
+
 #
 # Include the make variables (CC, etc...)
 #
