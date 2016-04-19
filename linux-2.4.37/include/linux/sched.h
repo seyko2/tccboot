@@ -387,7 +387,7 @@ struct task_struct {
 	struct sem_undo *semundo;
 	struct sem_queue *semsleeping;
 /* CPU-specific state of this task */
-	struct thread_struct thread;
+	struct thread_struct thread __attribute((aligned(16))); /* alignment is checked in bugs() */
 /* filesystem information */
 	struct fs_struct *fs;
 /* open file information */
