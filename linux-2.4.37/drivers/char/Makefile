@@ -48,7 +48,9 @@ ifeq ($(ARCH),mips)
     KEYBD    =
   endif
   ifeq ($(CONFIG_VR41XX_KIU),y)
-    KEYMAP   =
+    ifeq ($(CONFIG_IBM_WORKPAD),y)
+      KEYMAP = ibm_workpad_keymap.o
+    endif
     KEYBD    = vr41xx_keyb.o
   endif
 endif
@@ -356,4 +358,7 @@ defkeymap.c: defkeymap.map
 	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
 
 qtronixmap.c: qtronixmap.map
+	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
+
+ibm_workpad_keymap.c: ibm_workpad_keymap.map
 	set -e ; loadkeys --mktable $< | sed -e 's/^static *//' > $@
