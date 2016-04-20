@@ -31,7 +31,7 @@ echo "step 2: link" | tee -a LOG
 sleep 1
 $CC \
 -o $KERNEL \
--nostdlib -static -Wl,-Ttext,c0100000 -Wl,--oformat,binary  \
+-nostdlib -static -Wl,-Ttext,0xc0100000 -Wl,--oformat,binary \
 $FILE_LIST_o \
 $CCLIB 2>&1 | tee -a LOG
 

@@ -1319,7 +1319,7 @@ void neigh_table_init(struct neigh_table *tbl)
 	neigh_tables    = tbl;
 	write_unlock(&neigh_tbl_lock);
 
-	if (unlikely(tmp)) {
+	if (unlikely(tmp != 0)) {
 		printk(KERN_ERR "NEIGH: Registering multiple tables for "
 			"family %d\n", tbl->family);
 		dump_stack();

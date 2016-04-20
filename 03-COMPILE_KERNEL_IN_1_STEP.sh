@@ -1,7 +1,11 @@
 #!/bin/bash
 
 . ./03-head.inc
-CC="$CC -bench"
+
+if [ -n "$(echo $CC | grep tcc)" ]; then
+    CC="$CC -bench"
+fi
+
 echo CC=$CC
 
 echo | tee LOG
@@ -9,7 +13,7 @@ echo "step 1: compile & link" | tee -a LOG
 
 $CC \
 -o $KERNEL \
--nostdlib -static -Wl,-Ttext,c0100000 -Wl,--oformat,binary  \
+-nostdlib -static -Wl,-Ttext,0xc0100000 -Wl,--oformat,binary  \
 -nostdinc -iwithprefix include -Ilinux/include \
 -D__KERNEL__ -D__OPTIMIZE__ \
 $FILE_LIST_1 \

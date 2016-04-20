@@ -9,11 +9,21 @@
     exit 1
 }
 
-CC="i386-tcc -D__GNUC__=2 -D__GNUC_MINOR__=95 -fold-struct-init-code"
-CCLIB="/usr/local/lib/tcc/i386/libtcc1.a"
+if [ -z "$CC" ]; then
+    CC=tcc
+fi
 
-#CC="gcc-3.4.6 -e startup_32 -O2 -fno-strict-aliasing -fno-common -fomit-frame-pointer -pipe -mpreferred-stack-boundary=2 -march=i486"
-#CCLIB=""
+if [ "$CC" = "tcc" ]; then
+    CC="i386-tcc -D__GNUC__=2 -D__GNUC_MINOR__=95 -fold-struct-init-code"
+    CCLIB="/usr/local/lib/tcc/i386/libtcc1.a"
+fi
+
+if [ "$CC" = "gcc" ]; then
+    # gcc-3.4.6 or gcc-4.1.2
+    CC="gcc -e startup_32 -O2 -fno-strict-aliasing -fno-common -fomit-frame-pointer \
+        -pipe -mpreferred-stack-boundary=2 -march=i486 -Tstandalone/vmlinux.lds"
+    CCLIB=""
+fi
 
 KERNEL=vmlinux
 KERNEL_BOOT=bin/bzImage
@@ -281,8 +291,10 @@ linux/arch/i386/kernel/entry.S
 linux/arch/i386/lib/getuser.S
 linux/arch/i386/lib/checksum.S"
 
-FILE_LIST_4="
-standalone/dummy_syms.c"
+if [ -n "$CCLIB" ]; then
+ FILE_LIST_4="
+ standalone/dummy_syms.c"
+fi
 
 FILE_LIST_5="
 standalone/kend.S"
@@ -297,3 +309,5 @@ for i in \
 do
     FILE_LIST_o="$FILE_LIST_o temp/$i.o"
 done
+
+make CC="$CC" -C linux include/linux/compile.h > /dev/null 2>&1
