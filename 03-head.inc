@@ -12,10 +12,7 @@
 CC="i386-tcc -D__GNUC__=2 -D__GNUC_MINOR__=95 -fold-struct-init-code"
 CCLIB="/usr/local/lib/tcc/i386/libtcc1.a"
 
-#CC="gcc-2.95 -O3 -m32"
-#CCLIB=""
-
-#CC="gcc -e startup_32 -O2 -fno-strict-aliasing -fno-common -fomit-frame-pointer -pipe -mpreferred-stack-boundary=2 -march=i486"
+#CC="gcc-3.4.6 -e startup_32 -O2 -fno-strict-aliasing -fno-common -fomit-frame-pointer -pipe -mpreferred-stack-boundary=2 -march=i486"
 #CCLIB=""
 
 KERNEL=vmlinux

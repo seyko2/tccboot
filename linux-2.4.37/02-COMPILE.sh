@@ -1,9 +1,8 @@
 #!/bin/bash
 
 if [ -z "$CC" ]; then
-    CC="gcc"
-    #CC="gcc-2.95"
-    #CC="i386-tcc"
+    #CC="gcc-3.4.6"
+    CC="i386-tcc"
 fi
 
 if [ "$CC" = "tcc" ]; then
