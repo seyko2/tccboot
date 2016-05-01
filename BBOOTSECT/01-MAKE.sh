@@ -7,7 +7,7 @@ CC=i386-tcc
 #CC=gcc
 echo " CC=$CC"
 
-#AS=tcc         # bsetup.s:112: error: constant expected
+#AS=i386-tcc         # bsetup.s:112: error: constant expected
 AS="as --32"
 echo " AS=$AS"
 

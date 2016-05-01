@@ -1,4 +1,4 @@
 #!/bin/bash
 
-make distclean
-rm LOG 2> /dev/null
+make distclean > /dev/null 2>&1
+rm LOG COMPILER.inc 2> /dev/null

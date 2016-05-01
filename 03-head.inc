@@ -14,7 +14,9 @@ if [ -z "$CC" ]; then
 fi
 
 if [ "$CC" = "tcc" ]; then
-    CC="i386-tcc -D__GNUC__=2 -D__GNUC_MINOR__=95 -fold-struct-init-code"
+    CC="i386-tcc -D__GNUC__=2 -D__GNUC_MINOR__=95"
+    CC="$CC -fold-struct-init-code"
+    CC="$CC -fnocode-if-false"
     CCLIB="/usr/local/lib/tcc/i386/libtcc1.a"
 fi
 
@@ -256,6 +258,7 @@ linux/drivers/net/net_init.c
 linux/drivers/net/loopback.c
 linux/drivers/net/dummy.c
 linux/drivers/net/auto_irq.c
+linux/drivers/net/pcnet32.c
 linux/drivers/video/vgacon.c
 linux/arch/i386/mm/init.c
 linux/arch/i386/mm/fault.c
@@ -283,8 +286,27 @@ linux/arch/i386/kernel/sys_i386.c
 linux/arch/i386/kernel/pci-dma.c
 linux/arch/i386/kernel/i386_ksyms.c
 linux/arch/i386/kernel/i387.c
+linux/arch/i386/kernel/io_apic.c
 linux/arch/i386/kernel/bluesmoke.c
-linux/arch/i386/kernel/dmi_scan.c"
+linux/arch/i386/kernel/dmi_scan.c
+
+linux/drivers/pci/pci.c
+linux/drivers/pci/compat.c
+linux/drivers/ide/ide-dma.c
+linux/drivers/ide/setup-pci.c
+linux/drivers/net/mii.c
+linux/drivers/pci/quirks.c
+linux/drivers/pci/setup-res.c
+linux/drivers/pci/names.c
+linux/drivers/pci/proc.c
+linux/arch/i386/kernel/nmi.c
+linux/arch/i386/kernel/pci-i386.c
+linux/arch/i386/kernel/pci-irq.c
+linux/arch/i386/kernel/mpparse.c
+linux/arch/i386/kernel/pci-pc.c
+linux/arch/i386/kernel/apic.c
+"
+#linux/arch/i386/kernel/smpboot.c
 
 FILE_LIST_3="
 linux/arch/i386/kernel/entry.S

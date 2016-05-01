@@ -1,6 +1,34 @@
 /* small TinyCC runtime for the Linux kernel */
+#ifdef __TINYC__
 
-#define DUMMY(x) const char x = 0xcc;
+int abs(int a)
+{
+    if (a < 0)
+        return -a;
+    else
+        return a;
+}
+
+/* these symbols are needed because TCC is not smart enough to
+   suppress unused code */
+
+ #define DUMMY(x) const char x = 0xcc;
+  DUMMY(__put_user_bad)
+  DUMMY(__get_user_X)
+  DUMMY(__get_user_bad)
+  DUMMY(__this_fixmap_does_not_exist)
+  DUMMY(__bad_udelay)
+  DUMMY(save_i387_soft)
+  DUMMY(restore_i387_soft)
+  DUMMY(__buggy_fxsr_alignment)
+  DUMMY(__skb_cb_too_small_for_tcp)
+  DUMMY(cookie_v4_init_sequence)
+  DUMMY(netlink_skb_parms_too_large)
+  DUMMY(__struct_cpy_bug)
+  DUMMY(cpu_2_physical_apicid)
+  DUMMY(__error_in_apic_c)
+
+/* */
 
 typedef int Wtype;
 typedef unsigned int UWtype;
@@ -18,16 +46,8 @@ typedef union
   DWtype ll;
 } DWunion;
 
-int abs(int a)
-{
-    if (a < 0)
-        return -a;
-    else
-        return a;
-}
 
 /* XXX: fix tcc's code generator to do this instead */
-#ifdef __TINYC__
 long long __sardi3(long long a, int b)
 {
     DWunion u;
@@ -42,10 +62,8 @@ long long __sardi3(long long a, int b)
     return u.ll;
 }
 //    return a >> b;
-#endif
 
 /* XXX: fix tcc's code generator to do this instead */
-#ifdef __TINYC__
 long long __shldi3(long long a, int b)
 {
     DWunion u;
@@ -60,10 +78,8 @@ long long __shldi3(long long a, int b)
     return u.ll;
 }
 //    return a << b;
-#endif
 
 /* XXX: fix tcc's code generator to do this instead */
-#ifdef __TINYC__
 long long __ashrdi3(long long a, int b)
 {
     DWunion u;
@@ -78,9 +94,7 @@ long long __ashrdi3(long long a, int b)
     return u.ll;
 }
 //    return a >> b;
-#endif
 
-#ifdef __TINYC__
 /* XXX: fix tcc's code generator to do this instead */
 long long __ashldi3(long long a, int b)
 {
@@ -96,30 +110,4 @@ long long __ashldi3(long long a, int b)
     return u.ll;
 }
 //    return a << b;
-#endif
-
-#ifdef __TINYC__
-void *__builtin_return_address(int a)
-{
-    return 0;
-}
-#endif
-
-/* these symbols are needed because TCC is not smart enough to
-   suppress unused code */
-
-#ifdef __TINYC__
-DUMMY(__skb_cb_too_small_for_tcp)
-DUMMY(cookie_v4_init_sequence)
-DUMMY(save_i387_soft)
-DUMMY(restore_i387_soft)
-DUMMY(__this_fixmap_does_not_exist)
-DUMMY(__bad_udelay)
-DUMMY(__bad_ndelay)
-DUMMY(__get_user_bad)
-DUMMY(__put_user_bad)
-DUMMY(__buggy_fxsr_alignment)
-DUMMY(__get_user_X)
-DUMMY(__struct_cpy_bug)
-DUMMY(netlink_skb_parms_too_large)
 #endif
