@@ -4,3 +4,18 @@ Studying Linux kernel internals.and Linux kernel development.
 
 Original author of the tccboot project is Fabrice Bellard:
 TCCBOOT: TinyCC Boot Loader (www.bellard.org/tcc/tccboot.html)
+
+Project considered as finished. tcc is quite good to compile
+linux-2.4.37.11 kernel with PCnet-PCI II ethernet driver.
+A telnet from tccboot to other host is possible.
+
+A kernel compilation is performed in 8 seconds:
+
+ 38402 idents, 6737645 lines, 196142735 bytes, 7.285 s, 924836 lines/s, 26.9 MB/s
+ (a tcc compiled by gcc)
+
+ 38402 idents, 6737645 lines, 196142735 bytes, 9.392 s, 717400 lines/s, 20.9 MB/s
+ (a tcc compiled by tcc)
+
+Now an attempt to compile openvz_rhel6_kernel_mirror by tcc is
+started.
