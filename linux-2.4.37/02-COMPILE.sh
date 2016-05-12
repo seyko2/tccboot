@@ -10,6 +10,10 @@ if [ "$CC" = "i386-tcc" ]; then
   CCLIBS=/usr/local/lib/tcc/i386/libtcc1.a
 fi
 
+if [ -z "$HOSTCC" ]; then
+  HOSTCC=gcc
+fi
+
 echo CC=$CC HOSTCC="$HOSTCC" | tee LOG
 #echo | tee -a LOG
 sleep 2
